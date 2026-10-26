@@ -98,6 +98,22 @@ describe('Android memory-safe I/O wiring', () => {
     expect(done.downloadedBytes).toBe(100);
   });
 
+  it('falls back to streaming fetch when native downloadToFile fails', async () => {
+    const data = new Uint8Array([10, 20, 30, 40]);
+    const fetch = vi.fn(async () => new Response(data, { headers: { 'content-length': String(data.length) } }));
+    const downloadToFile = vi.fn(async () => {
+      throw new Error('Error downloading file: null');
+    });
+    const t = await createTestHost({ fetch, downloadToFile });
+    open.push(t);
+    const task = await t.host.downloads.start({ source: { kind: 'http', url: 'https://example.com/fallback.bin' }, autoImport: false });
+    const done = await waitFor(t.host, task.id, 'completed');
+    expect(downloadToFile).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(done.downloadedBytes).toBe(4);
+    expect(await t.fs.readFile(`${t.deps.dataRoot}/downloads/fallback.bin`)).toEqual(data);
+  });
+
   it('imports a .cbz through the streaming reader (readFileStream), not a whole-file read', async () => {
     const readFileStream = vi.fn(async (path: string) => bytesToStream(await t.fs.readFile(path), 16));
     const t = await createTestHost({ readFileStream });

@@ -146,6 +146,41 @@ describe('downloads', () => {
     expect(await t.fs.stat(`${t.deps.dataRoot}/downloads/${task.id}.zip`)).toBeUndefined();
   });
 
+  it('mokuro.moe volume: handles img_path folder prefix when volume name has sanitised chars', async () => {
+    const png = fixtureBytes('mokuro-subfolder/Test Manga 第2巻/001.png');
+    const mokuroJson = JSON.stringify({
+      version: '0.2.5',
+      title: 'Series: Special',
+      volume: 'Series: Vol 01',
+      pages: [
+        { version: '0.2.5', img_width: 800, img_height: 1200, img_path: 'Series: Vol 01/01_#カバー.png', blocks: [] },
+        { version: '0.2.5', img_width: 800, img_height: 1200, img_path: 'Series: Vol 01/02.png', blocks: [] },
+      ],
+    });
+    const zip = zipSync({ 'Series: Vol 01/01_#カバー.png': png, 'Series: Vol 01/02.png': png });
+    const t = await host((url) =>
+      url.endsWith('.mokuro') ? new Response(mokuroJson) : new Response(zip.slice(), { headers: { 'content-length': String(zip.length) } }),
+    );
+    const task = await t.host.downloads.start({
+      source: {
+        kind: 'mokuro-moe',
+        volume: {
+          name: 'Series: Vol 01',
+          mokuroUrl: 'https://mokuro.moe/mokuro-reader/Series/v1.mokuro',
+          imagesUrl: 'https://mokuro.moe/mokuro-reader/Series/v1.cbz',
+          imagesKind: 'archive',
+        },
+      },
+      autoImport: true,
+    });
+    const done = await waitFor(t.host, task.id, 'completed');
+    const volume = await t.host.manga.getVolume(done.importedVolumeId ?? '');
+    expect(volume).toMatchObject({ kind: 'mokuro', pageCount: 2, hasOcr: true });
+    const pages = await t.host.manga.getPages(volume.id);
+    expect(pages[0]?.relativePath).toBe('01_#カバー.png');
+    expect(pages[0]?.imageUrl).toContain('/manga/moe/Series_ Vol 01/01_');
+  });
+
   it('torrent sources hand the magnet off to an external app (completed) and validate magnets', async () => {
     const openExternal = vi.fn(() => Promise.resolve());
     const t = await host(() => new Response(''), { openExternal });

@@ -21,6 +21,37 @@ describe('transaction()', () => {
     db.close();
   });
 
+  it('nests via savepoints even when db.isTransaction is undefined (Node 22.5–22.14)', () => {
+    const rawDb = openDatabase(':memory:');
+    const db = new Proxy(rawDb, {
+      get(target, prop) {
+        if (prop === 'isTransaction') return undefined;
+        const val = Reflect.get(target, prop, target);
+        return typeof val === 'function' ? val.bind(target) : val;
+      },
+    });
+    const repos = createRepositories(db);
+    transaction(db, () => {
+      repos.volumes.upsert({
+        id: 'v1',
+        title: 'Vol 1',
+        kind: 'mokuro',
+        sourcePath: '/v1.mokuro',
+        rootDir: '/v1',
+        pageCount: 2,
+        hasOcr: true,
+        coverIsSingle: true,
+        addedAt: 1,
+      });
+      repos.pages.replaceAll('v1', [
+        { index: 0, relativePath: '001.jpg', width: 800, height: 1200, blocks: [] },
+        { index: 1, relativePath: '002.jpg', width: 800, height: 1200, blocks: [] },
+      ]);
+    });
+    expect(repos.pages.list('v1')).toHaveLength(2);
+    rawDb.close();
+  });
+
   it('pages.replaceAll is atomic (old pages survive a failing replacement)', () => {
     const db = openDatabase(':memory:');
     const repos = createRepositories(db);

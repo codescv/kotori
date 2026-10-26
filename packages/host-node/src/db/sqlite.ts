@@ -71,31 +71,25 @@ export function openDatabase(path: string): Database {
 let savepointCounter = 0;
 
 /**
- * Run `fn` atomically (synchronous; node:sqlite is sync). Nested calls use
- * SAVEPOINTs so repositories can be transactional on their own and still
- * compose inside a service-level transaction.
+ * Run `fn` atomically (synchronous; node:sqlite is sync). Always uses SQLite
+ * `SAVEPOINT` / `RELEASE` / `ROLLBACK TO` (which starts a deferred transaction
+ * when outermost and nests cleanly at any depth without ever issuing a second
+ * `BEGIN`, even on Node 22.5–22.14 where `db.isTransaction` is undefined).
  */
 export function transaction<T>(db: Database, fn: () => T): T {
-  if (db.isTransaction) {
-    const name = `kotori_sp_${++savepointCounter}`;
-    db.exec(`SAVEPOINT ${name}`);
-    try {
-      const result = fn();
-      db.exec(`RELEASE ${name}`);
-      return result;
-    } catch (error) {
-      db.exec(`ROLLBACK TO ${name}`);
-      db.exec(`RELEASE ${name}`);
-      throw error;
-    }
-  }
-  db.exec('BEGIN');
+  const name = `kotori_sp_${++savepointCounter}`;
+  db.exec(`SAVEPOINT ${name}`);
   try {
     const result = fn();
-    db.exec('COMMIT');
+    db.exec(`RELEASE ${name}`);
     return result;
   } catch (error) {
-    db.exec('ROLLBACK');
+    try {
+      db.exec(`ROLLBACK TO ${name}`);
+      db.exec(`RELEASE ${name}`);
+    } catch {
+      // ignore secondary rollback failure
+    }
     throw error;
   }
 }

@@ -130,13 +130,78 @@ export function createMangaLibrary(ctx: HostContext): MangaLibrary {
         for (const e of entries) if (e.kind === 'file') known.add(relDir === '' ? e.name : `${relDir}/${e.name}`);
       }
     }
-    const root = resolveMokuroPageRoot(doc, volumeName, (rel) => known.has(rel));
+    let root = resolveMokuroPageRoot(doc, volumeName, (rel) => known.has(rel));
+    let stripPrefix: string | undefined;
+    const firstRel = doc.pages[0]?.relativePath ?? '';
+    if (root === undefined && firstRel.includes('/')) {
+      // Fallback when `.mokuro` `img_path` carries a folder prefix that differs from `volumeName`
+      // (e.g. after filename sanitisation or when the archive's common root was stripped into `volumeName/`).
+      const prefix = firstRel.slice(0, firstRel.indexOf('/') + 1);
+      const strippedPages = doc.pages.map((p) => (p.relativePath.startsWith(prefix) ? p.relativePath.slice(prefix.length) : p.relativePath));
+      for (const cand of [[volumeName], []] as string[][]) {
+        for (const sp of strippedPages) {
+          const rel = joinMokuroPageRoot(cand, sp);
+          const relDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+          if (listed.has(relDir)) continue;
+          listed.add(relDir);
+          const entries = await deps.fs.readdir(joinPath(parent, relDir)).catch(() => []);
+          for (const e of entries) if (e.kind === 'file') known.add(relDir === '' ? e.name : `${relDir}/${e.name}`);
+        }
+      }
+      const strippedDoc = { pages: doc.pages.map((p, i) => ({ ...p, relativePath: strippedPages[i] ?? p.relativePath })) };
+      const matched = resolveMokuroPageRoot(strippedDoc, volumeName, (rel) => known.has(rel));
+      if (matched !== undefined) {
+        root = matched;
+        stripPrefix = prefix;
+      }
+    }
+    if (root === undefined) {
+      // Check for a sibling `{volumeName}.cbz|.zip` archive next to the `.mokuro`.
+      let archivePath: string | undefined;
+      for (const ext of ['.cbz', '.zip']) {
+        const candidate = joinPath(parent, `${volumeName}${ext}`);
+        if (await deps.fs.stat(candidate)) {
+          archivePath = candidate;
+          break;
+        }
+      }
+      if (archivePath !== undefined) {
+        const targetDir = joinPath(parent, volumeName);
+        await deps.fs.remove(targetDir);
+        const extractedNames: string[] = [];
+        const extractedData: Uint8Array[] = [];
+        await extractZip(
+          () => deps.readFileStream(archivePath),
+          () => deps.fs.readFile(archivePath),
+          isArchiveImage,
+          async (entryPath, data) => {
+            extractedNames.push(entryPath);
+            extractedData.push(data);
+          },
+        );
+        const firstSeg = extractedNames[0]?.split('/')[0];
+        const sharedTop =
+          firstSeg !== undefined &&
+          extractedNames.length > 0 &&
+          extractedNames.every((p) => p.includes('/') && p.split('/')[0] === firstSeg);
+        for (let i = 0; i < extractedNames.length; i++) {
+          const entryName = extractedNames[i] as string;
+          const relOut = sharedTop && firstSeg !== undefined ? entryName.slice(firstSeg.length + 1) : entryName;
+          await deps.fs.writeFile(joinPath(targetDir, relOut), extractedData[i] as Uint8Array);
+        }
+        root = [volumeName];
+        if (firstRel.includes('/')) {
+          stripPrefix = firstRel.slice(0, firstRel.indexOf('/') + 1);
+        }
+      }
+    }
     if (root === undefined) throw new KotoriError('not-found', `page images for "${volumeName}" not found beside the .mokuro or in "${volumeName}/"`);
     const imageRoot = joinPath(parent, ...root);
     const pages: Omit<StoredPage, 'volumeId'>[] = [];
     for (const page of doc.pages) {
-      const size = page.width > 0 && page.height > 0 ? { width: page.width, height: page.height } : await sizeOf(joinPath(imageRoot, page.relativePath));
-      pages.push({ ...page, ...size });
+      const relPath = stripPrefix && page.relativePath.startsWith(stripPrefix) ? page.relativePath.slice(stripPrefix.length) : page.relativePath;
+      const size = page.width > 0 && page.height > 0 ? { width: page.width, height: page.height } : await sizeOf(joinPath(imageRoot, relPath));
+      pages.push({ ...page, relativePath: relPath, ...size });
     }
     const name = parseVolumeName(volumeName);
     const seriesTitle = doc.title ?? name.seriesTitle;

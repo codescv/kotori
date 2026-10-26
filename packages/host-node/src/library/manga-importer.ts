@@ -102,6 +102,7 @@ export async function importMokuro(path: string, options: ImportOptions): Promis
   const warnings = [...parsed.warnings];
   let rootDir: string;
   let managedDir: string | undefined;
+  let stripPrefix: string | undefined;
   const root = resolveMokuroPageRoot(doc, volumeName, (rel) => existsSync(join(dir, ...rel.split('/'))));
   if (root) {
     rootDir = join(dir, ...root);
@@ -112,16 +113,36 @@ export async function importMokuro(path: string, options: ImportOptions): Promis
     await extractTo(await readFile(archive), options.managedDir);
     managedDir = options.managedDir;
     const first = doc.pages[0]?.relativePath ?? '';
-    // Archives sometimes nest the pages inside a `{volumeName}/` folder.
-    rootDir = existsSync(join(managedDir, ...first.split('/'))) ? managedDir : join(managedDir, volumeName);
+    // Archives sometimes nest the pages inside a `{volumeName}/` or `{doc.volume}/` folder, or omit the folder prefix when `.mokuro` has one.
+    if (existsSync(join(managedDir, ...first.split('/')))) {
+      rootDir = managedDir;
+    } else if (existsSync(join(managedDir, volumeName, ...first.split('/')))) {
+      rootDir = join(managedDir, volumeName);
+    } else if (doc.volume && existsSync(join(managedDir, doc.volume, ...first.split('/')))) {
+      rootDir = join(managedDir, doc.volume);
+    } else if (first.includes('/') && existsSync(join(managedDir, ...first.slice(first.indexOf('/') + 1).split('/')))) {
+      rootDir = managedDir;
+      stripPrefix = first.slice(0, first.indexOf('/') + 1);
+    } else {
+      const subdirs = (await readdir(managedDir, { withFileTypes: true }).catch(() => [])).filter((d) => d.isDirectory() && !d.name.startsWith('.'));
+      const firstStripped = first.includes('/') ? first.slice(first.indexOf('/') + 1) : first;
+      const matchedSub = subdirs.find((d) => existsSync(join(managedDir as string, d.name, ...firstStripped.split('/'))));
+      if (matchedSub) {
+        rootDir = join(managedDir, matchedSub.name);
+        if (first.includes('/')) stripPrefix = first.slice(0, first.indexOf('/') + 1);
+      } else {
+        rootDir = join(managedDir, volumeName);
+      }
+    }
   }
   const pages: PageRecord[] = [];
   for (const p of doc.pages) {
     let { width, height } = p;
-    const file = join(rootDir, ...p.relativePath.split('/'));
+    const relPath = stripPrefix && p.relativePath.startsWith(stripPrefix) ? p.relativePath.slice(stripPrefix.length) : p.relativePath;
+    const file = join(rootDir, ...relPath.split('/'));
     if ((!width || !height) && existsSync(file)) ({ width, height } = await sniffSize(file));
-    if (!existsSync(file)) warnings.push(`missing page image ${p.relativePath}`);
-    pages.push({ index: pages.length, relativePath: p.relativePath, width, height, blocks: p.blocks as MangaBlock[] });
+    if (!existsSync(file)) warnings.push(`missing page image ${relPath}`);
+    pages.push({ index: pages.length, relativePath: relPath, width, height, blocks: p.blocks as MangaBlock[] });
   }
   const names = nameParts(path, options.titleOverride);
   return {

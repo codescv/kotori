@@ -35,10 +35,15 @@ export function base64ToBytes(base64: string): Uint8Array {
   return out;
 }
 
+function toNativePath(path: string): string {
+  return path.startsWith('file://') ? path.slice('file://'.length) : path;
+}
+
 function toEntry(info: FileInfo, fallbackPath: string): FsEntry {
+  const isLocalFallback = fallbackPath.startsWith('file://') || fallbackPath.startsWith('/');
   return {
     name: info.name,
-    path: info.uri === '' ? fallbackPath : info.uri,
+    path: isLocalFallback || info.uri === '' ? fallbackPath : info.uri,
     kind: info.type === 'directory' ? 'dir' : 'file',
     sizeBytes: info.size,
     mtimeMs: info.mtime,
@@ -49,7 +54,7 @@ function toEntry(info: FileInfo, fallbackPath: string): FsEntry {
 export function createCapacitorFs(): FsOps {
   const stat = async (path: string): Promise<FsEntry | undefined> => {
     try {
-      const info = await Filesystem.stat({ path });
+      const info = await Filesystem.stat({ path: toNativePath(path) });
       return toEntry({ ...info, name: info.name === '' ? (path.split('/').pop() ?? '') : info.name }, path);
     } catch {
       return undefined;
@@ -57,30 +62,30 @@ export function createCapacitorFs(): FsOps {
   };
   return {
     async readFile(path) {
-      const { data } = await Filesystem.readFile({ path });
+      const { data } = await Filesystem.readFile({ path: toNativePath(path) });
       return typeof data === 'string' ? base64ToBytes(data) : new Uint8Array(await data.arrayBuffer());
     },
     async writeFile(path, data) {
-      await Filesystem.writeFile({ path, data: bytesToBase64(data), recursive: true });
+      await Filesystem.writeFile({ path: toNativePath(path), data: bytesToBase64(data), recursive: true });
     },
     async appendFile(path, data) {
-      if ((await stat(path)) === undefined) await Filesystem.writeFile({ path, data: bytesToBase64(data), recursive: true });
-      else await Filesystem.appendFile({ path, data: bytesToBase64(data) });
+      if ((await stat(path)) === undefined) await Filesystem.writeFile({ path: toNativePath(path), data: bytesToBase64(data), recursive: true });
+      else await Filesystem.appendFile({ path: toNativePath(path), data: bytesToBase64(data) });
     },
     async readdir(path) {
-      const { files } = await Filesystem.readdir({ path });
+      const { files } = await Filesystem.readdir({ path: toNativePath(path) });
       return files.map((f) => toEntry(f, joinPath(path, f.name)));
     },
     stat,
     async mkdir(path) {
       if ((await stat(path)) !== undefined) return;
-      await Filesystem.mkdir({ path, recursive: true });
+      await Filesystem.mkdir({ path: toNativePath(path), recursive: true });
     },
     async remove(path) {
       const entry = await stat(path);
       if (entry === undefined) return;
-      if (entry.kind === 'dir') await Filesystem.rmdir({ path, recursive: true });
-      else await Filesystem.deleteFile({ path });
+      if (entry.kind === 'dir') await Filesystem.rmdir({ path: toNativePath(path), recursive: true });
+      else await Filesystem.deleteFile({ path: toNativePath(path) });
     },
   };
 }

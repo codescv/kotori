@@ -32,7 +32,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { KotoriError } from './adapters/core';
 import type { CapacitorHostDeps, DownloadToFileOptions, FsOps, PickFilesOptions } from './deps';
 import { bytesToStream } from './storage/unzip-stream';
-import { joinPath, safeFileName } from './paths';
+import { dirname, isWithin, joinPath, safeFileName } from './paths';
 import { createCapacitorFs } from './storage/files';
 
 interface PickedFile {
@@ -99,13 +99,43 @@ function pickWithInput(fs: FsOps, importsDir: string, options: PickFilesOptions 
 }
 
 /**
+ * Convert a local path/URI through `Capacitor.convertFileSrc` and percent-encode
+ * `#` and `?` in the resulting `/_capacitor_file_...` path so filenames like
+ * `01_#カバー.jpg` or `#Zombie Sagashitemasu` are not truncated as URL fragments.
+ */
+function safeConvertFileSrc(path: string): string {
+  const converted = Capacitor.convertFileSrc(path);
+  const marker = '/_capacitor_file_';
+  const idx = converted.indexOf(marker);
+  if (idx < 0) return converted;
+  const prefix = converted.slice(0, idx + marker.length);
+  const rest = converted.slice(idx + marker.length).replace(/#/g, '%23').replace(/\?/g, '%3F');
+  return prefix + rest;
+}
+
+/**
  * Native download via `Filesystem.downloadFile` (streams to disk on the Java
  * side, no base64 round-trip). Deprecated upstream in favour of
  * `@capacitor/file-transfer` but still shipped in Filesystem 8; callers fall
- * back to streaming `fetch` when it is unimplemented. Native transfers cannot
- * be cancelled, so an abort detaches and the partial file is removed.
+ * back to streaming `fetch` when it is unimplemented or fails.
+ *
+ * IMPORTANT Android quirk in `@capacitor/filesystem` 8.x (`LegacyFilesystemImplementation.kt`):
+ * 1. Omitting `directory` defaults to `Environment.DIRECTORY_DOWNLOADS` (`"Download"`),
+ *    which `getDirectory()` does not recognise and returns `null` (`NullPointerException`).
+ * 2. `recursive: true` is ignored by `LegacyFilesystemImplementation`, so the parent
+ *    directory must be created beforehand with `fs.mkdir(dirname(path))`.
+ * 3. When `directory: Directory.Data` is supplied, `path` must be relative to `dataRoot`.
  */
-async function nativeDownload(fs: FsOps, url: string, path: string, options: DownloadToFileOptions): Promise<void> {
+async function nativeDownload(fs: FsOps, dataRoot: string, url: string, path: string, options: DownloadToFileOptions): Promise<void> {
+  const root = dataRoot.replace(/\/+$/, '');
+  if (!isWithin(path, root)) {
+    throw new KotoriError('unsupported', 'nativeDownload only supports paths within Directory.Data');
+  }
+  const relPath = path.slice(root.length).replace(/^\/+/, '');
+  if (relPath === '') {
+    throw new KotoriError('invalid-argument', 'nativeDownload target path cannot be root');
+  }
+  await fs.mkdir(dirname(path));
   const listener = await Filesystem.addListener('progress', (status) => {
     if (status.url === url) options.onProgress(status.bytes, status.contentLength > 0 ? status.contentLength : undefined);
   });
@@ -114,7 +144,14 @@ async function nativeDownload(fs: FsOps, url: string, path: string, options: Dow
     const aborted = new Promise<never>((_, reject) =>
       options.signal.addEventListener('abort', () => reject(new KotoriError('cancelled', 'download aborted')), { once: true }),
     );
-    const download = Filesystem.downloadFile({ url, path, progress: true, recursive: true, ...(options.headers ? { headers: { ...options.headers } } : {}) });
+    const download = Filesystem.downloadFile({
+      url,
+      path: relPath,
+      directory: Directory.Data,
+      progress: true,
+      recursive: true,
+      ...(options.headers ? { headers: { ...options.headers } } : {}),
+    });
     try {
       await Promise.race([download, aborted]);
     } catch (error) {
@@ -142,7 +179,7 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
   return {
     fs,
     dataRoot,
-    convertFileSrc: overrides.convertFileSrc ?? ((path) => Capacitor.convertFileSrc(path)),
+    convertFileSrc: overrides.convertFileSrc ?? safeConvertFileSrc,
     fetch: overrides.fetch ?? ((input, init) => globalThis.fetch(input, init)),
     webFetch: overrides.webFetch ?? overrides.fetch ?? webViewFetch(),
     readFileStream:
@@ -151,14 +188,14 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
         ? // Injected filesystem (tests): chunk its bytes.
           async (path) => bytesToStream(await fs.readFile(path))
         : async (path) => {
-            const res = await webViewFetch()(Capacitor.convertFileSrc(path));
+            const res = await webViewFetch()(safeConvertFileSrc(path));
             if (!res.ok || !res.body) throw new KotoriError('io', `cannot read ${path} (HTTP ${res.status})`);
             return res.body;
           }),
     ...(overrides.downloadToFile
       ? { downloadToFile: overrides.downloadToFile }
       : !overrides.fs && Capacitor.isNativePlatform()
-        ? { downloadToFile: (url: string, path: string, options: DownloadToFileOptions) => nativeDownload(fs, url, path, options) }
+        ? { downloadToFile: (url: string, path: string, options: DownloadToFileOptions) => nativeDownload(fs, dataRoot, url, path, options) }
         : {}),
     openExternal:
       overrides.openExternal ??

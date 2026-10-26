@@ -118,13 +118,6 @@ function concat(chunks: readonly Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
-/** Strip a single top-level folder shared by every entry (`Vol1/001.jpg` → `001.jpg`). */
-function stripCommonRoot(paths: readonly string[]): (path: string) => string {
-  const first = paths[0]?.split('/')[0];
-  const shared = first !== undefined && paths.length > 0 && paths.every((p) => p.includes('/') && p.split('/')[0] === first);
-  return shared && first !== undefined ? (p) => p.slice(first.length + 1) : (p) => p;
-}
-
 export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries): DownloadManager {
   const { deps, db, dirs } = ctx;
   const tasks = new Map<string, DownloadTask>();
@@ -249,21 +242,28 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
       // Native path: bytes go straight to disk (CapacitorHttp would buffer the whole body as base64).
       let last = 0;
       let sized = false;
-      await deps.downloadToFile(url, dest, {
-        signal,
-        ...(headers ? { headers } : {}),
-        onProgress: (received, total) => {
-          if (total !== undefined && !sized) {
-            sized = true;
-            track.setSize(index, total, last);
-          }
-          if (received > last) {
-            track.onBytes(index, received - last);
-            last = received;
-          }
-        },
-      });
-      return;
+      try {
+        await deps.downloadToFile(url, dest, {
+          signal,
+          ...(headers ? { headers } : {}),
+          onProgress: (received, total) => {
+            if (total !== undefined && !sized) {
+              sized = true;
+              track.setSize(index, total, last);
+            }
+            if (received > last) {
+              track.onBytes(index, received - last);
+              last = received;
+            }
+          },
+        });
+        return;
+      } catch (error) {
+        if (isAbortError(error) || signal.aborted) throw error;
+        // Native download failed or is unsupported for this path/URL — clean up and fall back to streaming fetch.
+        await deps.fs.remove(dest).catch(() => undefined);
+        track.setSize(index, 0, 0);
+      }
     }
     const response = await httpGet(url, existing > 0 ? { signal, headers: { ...headers, Range: `bytes=${existing}-` } } : headers ? { signal, headers } : { signal });
     const append = existing > 0 && response.status === 206;
@@ -369,27 +369,36 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     if (source.volume.imagesKind === 'archive') {
       const tmp = joinPath(dirs.downloads, `${task.id}.zip`);
       await fetchToFile(source.volume.imagesUrl, tmp, signal, track, resuming.has(task.id));
-      // Extract entry-by-entry from a file stream; a shared top folder is stripped afterwards.
-      const staging = joinPath(dirs.downloads, `${task.id}.extract`);
-      const names: string[] = [];
-      await deps.fs.remove(staging);
+      // Extract entry-by-entry from a file stream directly into `imagesDir`,
+      // stripping a shared top-level folder in a single pass.
+      await deps.fs.remove(imagesDir);
+      let rootPrefix: string | undefined;
+      let checkedFirst = false;
+      const strippedWritten: string[] = [];
       await extractZip(
         () => deps.readFileStream(tmp),
         () => deps.fs.readFile(tmp),
-        (name) => !name.startsWith('__MACOSX/'),
-        async (name, data) => {
-          names.push(name);
-          await deps.fs.writeFile(joinPath(staging, name), data);
+        (entryName) => !entryName.startsWith('__MACOSX/') && !entryName.split('/').some((seg) => seg.startsWith('.')),
+        async (entryName, data) => {
+          if (!checkedFirst) {
+            checkedFirst = true;
+            const slash = entryName.indexOf('/');
+            if (slash > 0) rootPrefix = entryName.slice(0, slash + 1);
+          } else if (rootPrefix !== undefined && !entryName.startsWith(rootPrefix)) {
+            // Archive has multiple top-level folders; restore prefix for earlier entries.
+            for (const rel of strippedWritten) {
+              const from = joinPath(imagesDir, rel);
+              const to = joinPath(imagesDir, `${rootPrefix}${rel}`);
+              await deps.fs.writeFile(to, await deps.fs.readFile(from));
+              await deps.fs.remove(from);
+            }
+            rootPrefix = undefined;
+          }
+          const relOut = rootPrefix !== undefined && entryName.startsWith(rootPrefix) ? entryName.slice(rootPrefix.length) : entryName;
+          if (rootPrefix !== undefined) strippedWritten.push(relOut);
+          await deps.fs.writeFile(joinPath(imagesDir, relOut), data);
         },
       );
-      const strip = stripCommonRoot(names);
-      await deps.fs.remove(imagesDir);
-      for (const name of names) {
-        const from = joinPath(staging, name);
-        await deps.fs.writeFile(joinPath(imagesDir, strip(name)), await deps.fs.readFile(from));
-        await deps.fs.remove(from);
-      }
-      await deps.fs.remove(staging);
       await deps.fs.remove(tmp);
     } else {
       const listing = parseMokuroMoeListing(await (await httpGet(source.volume.imagesUrl, { signal })).text(), source.volume.imagesUrl);
