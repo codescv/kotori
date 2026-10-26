@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+.worktrees/
+*.log
+.DS_Store
+.env
+.env.local
+packages/host-android/android/.gradle/
+packages/host-android/android/app/build/
+packages/host-android/android/build/
