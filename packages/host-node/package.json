@@ -1,0 +1,52 @@
+{
+  "name": "@kotori/host-node",
+  "version": "0.1.0",
+  "description": "Kotori desktop host (macOS / Linux): pure Node.js server (node:sqlite, HTTP Range video streaming, pure-TS BitTorrent engine, ffmpeg subtitle extraction) + browser REST client implementing PlatformHost.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "kotori": "./bin/kotori.mjs"
+  },
+  "exports": {
+    ".": "./src/server/index.ts",
+    "./client": "./src/client/index.ts",
+    "./shared": "./src/shared/index.ts"
+  },
+  "files": ["bin", "dist", "src"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "tsx watch src/server/main.ts --dev",
+    "build:server": "node build.mjs",
+    "build:web": "vite build web",
+    "build": "pnpm run build:web && pnpm run build:server",
+    "start": "node bin/kotori.mjs"
+  },
+  "dependencies": {
+    "@kotori/core": "workspace:*",
+    "@hono/node-server": "^1.19.0",
+    "bencode": "^4.0.1",
+    "bittorrent-dht": "^11.0.12",
+    "bittorrent-protocol": "^5.0.9",
+    "google-auth-library": "^11.3.1",
+    "hono": "^4.13.0",
+    "ut_metadata": "^5.0.1"
+  },
+  "devDependencies": {
+    "@kotori/ui": "workspace:*",
+    "@types/node": "~22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "esbuild": "^0.28.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

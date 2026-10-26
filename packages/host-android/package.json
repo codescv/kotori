@@ -1,0 +1,42 @@
+{
+  "name": "@kotori/host-android",
+  "version": "0.1.0",
+  "description": "Kotori Android standalone host: Capacitor shell around @kotori/ui with an in-process PlatformHost (Filesystem + IndexedDB storage, direct Gemini calls, SAF pickers).",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "vite dev web",
+    "build:web": "vite build web",
+    "cap:add": "cap add android",
+    "cap:sync": "pnpm run build:web && cap sync android",
+    "cap:open": "cap open android",
+    "cap:run": "pnpm run cap:sync && cap run android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/preferences": "^8.0.1",
+    "@kotori/core": "workspace:*",
+    "@kotori/ui": "workspace:*",
+    "idb": "^8.0.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
+  }
+}

@@ -1,0 +1,21 @@
+/**
+ * @kotori/core/ai — Gemini Flash sentence breakdown engine.
+ *
+ * Owner: coder-1. Planned modules (see ARCHITECTURE.md §4.1):
+ *   - gemini-client.ts   createGeminiClient(settings, deps): { generate, generateStream }
+ *                        — REST `generateContent` for BOTH `gemini-api` (x-goog-api-key)
+ *                        and `vertex-ai` (Bearer token / express key). No SDK.
+ *   - explain-schema.ts  zod schema + Gemini `responseSchema` JSON for the raw model output
+ *   - prompts.ts         PROMPT_VERSION, buildExplainPrompt(), buildFollowUpPrompt(),
+ *                        buildBubbleOcrPrompt(), buildPageGuidePrompt()
+ *   - span-align.ts      alignSpans(sentence, surfaces[]) → CharSpan[] + SpanAlignment[]
+ *                        (deterministic, monotonic cursor, exact → fuzzy → unaligned)
+ *   - ruby.ts            buildRuby(sentence, modelRuby[]) → RubySegment[] covering sentence
+ *   - explanation.ts     toSentenceExplanation(raw, request, meta) (schema → types + alignment)
+ *                        findChunkAt(expl, charIndex), findVocabAt(expl, charIndex)
+ *   - cache-key.ts       explanationCacheKey(sentence, targetLanguage, model, promptVersion)
+ *   - explain-service.ts createExplainService({ client, cache, settings }): ExplainService
+ *                        (implements AiApi semantics; hosts wrap it)
+ *   - vision.ts          ocrBubble(), pageGuide() using the vision model
+ */
+export {};
