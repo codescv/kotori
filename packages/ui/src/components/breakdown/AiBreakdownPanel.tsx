@@ -63,16 +63,17 @@ export function AiBreakdownPanel({
 
   return (
     <div className={cx('k-breakdown', className)} data-testid="ai-breakdown-panel">
+      {/* Direct child of the scroll content so `position: sticky` keeps it in view. */}
+      <div className="k-breakdown__sentence" data-testid="breakdown-sentence">
+        <RubyText
+          text={explanation.sentence}
+          segments={explanation.ruby}
+          highlight={sel.highlightSpan}
+          focusIndex={focusCharIndex}
+          onCharClick={sel.selectChar}
+        />
+      </div>
       <section className="k-breakdown__sentence-block">
-        <div className="k-breakdown__sentence" data-testid="breakdown-sentence">
-          <RubyText
-            text={explanation.sentence}
-            segments={explanation.ruby}
-            highlight={sel.highlightSpan}
-            focusIndex={focusCharIndex}
-            onCharClick={sel.selectChar}
-          />
-        </div>
         <div className="k-breakdown__meta">
           {explanation.register && <span className="k-tag">{t(`breakdown.register.${explanation.register}`)}</span>}
           {explanation.tone && <span className="k-tag k-tag--tone">{explanation.tone}</span>}
