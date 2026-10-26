@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AiConnectionTestResult, AiProviderSettings, AiSettings, HostCapabilities, TargetLanguage, VertexAuth } from '@kotori/core';
 import { Button } from '../../components/m3/Button';
+import { Chip } from '../../components/m3/Chip';
 import { IconButton } from '../../components/m3/IconButton';
 import { CircularProgress } from '../../components/m3/Progress';
 import { SegmentedButton } from '../../components/m3/SegmentedButton';
@@ -165,6 +166,14 @@ const LANGS: readonly { value: TargetLanguage; label: string }[] = [
   { value: 'zh-CN', label: '简体中文' },
   { value: 'zh-TW', label: '繁體中文' },
   { value: 'en', label: 'English' },
+];
+
+export const MODEL_PRESETS: readonly string[] = [
+  'gemini-3.8-flash',
+  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite',
+  'gemini-4-argon',
 ];
 
 export function AiProviderForm() {
@@ -344,8 +353,25 @@ export function AiProviderForm() {
       <div className="k-ai-form__group">
         <h3 className="k-title-small k-muted">{t('settings.ai.models')}</h3>
         <div className="k-ai-form__row">
-          <TextField label={t('settings.ai.explainModel')} value={draft.explainModel} onValueChange={(explainModel) => edit({ explainModel })} error={err('explainModel')} />
-          <TextField label={t('settings.ai.visionModel')} value={draft.visionModel} onValueChange={(visionModel) => edit({ visionModel })} error={err('visionModel')} />
+          <TextField label={t('settings.ai.explainModel')} list="k-ai-model-presets" value={draft.explainModel} onValueChange={(explainModel) => edit({ explainModel })} error={err('explainModel')} />
+          <TextField label={t('settings.ai.visionModel')} list="k-ai-model-presets" value={draft.visionModel} onValueChange={(visionModel) => edit({ visionModel })} error={err('visionModel')} />
+        </div>
+        <datalist id="k-ai-model-presets">
+          {MODEL_PRESETS.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+        <div className="k-ai-form__inline" style={{ flexWrap: 'wrap', gap: 8 }}>
+          {MODEL_PRESETS.map((m) => (
+            <Chip
+              key={m}
+              kind="filter"
+              selected={draft.explainModel === m && draft.visionModel === m}
+              onClick={() => edit({ explainModel: m, visionModel: m })}
+            >
+              {m}
+            </Chip>
+          ))}
         </div>
         <div className="k-ai-form__inline">
           <span className="k-label-large">{t('settings.ai.targetLanguage')}</span>
