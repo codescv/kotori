@@ -136,6 +136,12 @@ export function validateSettings(s: AppSettings): void {
   oneOf('ai.targetLanguage', s.ai.targetLanguage, TARGET_LANGUAGES);
   bool('ai.cacheEnabled', s.ai.cacheEnabled);
   number('ai.timeoutMs', s.ai.timeoutMs, 1000);
+  if (s.ai.persona !== undefined) {
+    if (!isPlainObject(s.ai.persona)) fail('ai.persona', 'must be an object');
+    if (s.ai.persona.name !== undefined) str('ai.persona.name', s.ai.persona.name);
+    if (s.ai.persona.avatarUrl !== undefined) str('ai.persona.avatarUrl', s.ai.persona.avatarUrl);
+    if (s.ai.persona.soul !== undefined) str('ai.persona.soul', s.ai.persona.soul);
+  }
   // ui
   oneOf('ui.theme', s.ui.theme, THEMES);
   if (typeof s.ui.seedColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(s.ui.seedColor)) fail('ui.seedColor', 'must be #RRGGBB');

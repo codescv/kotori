@@ -341,21 +341,33 @@ export interface VertexAiProvider {
 
 export type AiProviderSettings = GeminiApiKeyProvider | VertexAiProvider;
 
+/** Customisable persona ("形态设置") for the AI reading/listening companion. */
+export interface AiPersonaSettings {
+  /** Assistant display nickname (e.g. `小鳥` / `ことり`). */
+  readonly name?: string;
+  /** Avatar image URL or `data:image/...` data URL. Empty/omitted renders the brand initial (`こ`). */
+  readonly avatarUrl?: string;
+  /** Persona / character soul instruction injected into follow-up Q&A system prompts. */
+  readonly soul?: string;
+}
+
 export interface AiSettings {
   readonly provider: AiProviderSettings;
-  /** Text model for sentence breakdown / follow-ups, e.g. `gemini-2.5-flash`. */
+  /** Text model for sentence breakdown / follow-ups, e.g. `gemini-3.8-flash`. */
   readonly explainModel: string;
-  /** Multimodal model for manga bubble OCR / page guide, e.g. `gemini-2.5-flash`. */
+  /** Multimodal model for manga bubble OCR / page guide, e.g. `gemini-3.8-flash`. */
   readonly visionModel: string;
   /** 0..2; default 0.2 for deterministic breakdowns. */
   readonly temperature: number;
-  /** Gemini 2.5 thinking budget in tokens; `0` disables thinking; `undefined` = model default. */
+  /** Gemini thinking budget in tokens; `0` disables thinking; `undefined` = model default. */
   readonly thinkingBudget?: number;
   readonly targetLanguage: TargetLanguage;
   /** Persist explanations keyed by `SentenceExplanation.id`. */
   readonly cacheEnabled: boolean;
   /** Per-request timeout. */
   readonly timeoutMs: number;
+  /** Optional AI assistant persona (nickname, avatar image, follow-up soul). */
+  readonly persona?: AiPersonaSettings;
 }
 
 /** Result of `PlatformHost.settings.testAi()`. */

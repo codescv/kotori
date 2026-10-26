@@ -310,6 +310,14 @@ export const zhCN = {
   'settings.downloads.downloadLimit': '下载限速（KiB/s，0 = 不限）',
   'settings.downloads.uploadLimit': '上传限速（KiB/s，0 = 不限）',
   'settings.library.empty': '尚未添加文件夹',
+  'persona.title': 'AI 助手形态设置',
+  'persona.name': '助手昵称',
+  'persona.namePlaceholder': '例如：小鳥 / ことり',
+  'persona.avatar': '助手图片（图片 URL 或 Data URL）',
+  'persona.uploadImage': '上传本地图片',
+  'persona.resetAvatar': '恢复默认图标',
+  'persona.soul': '助手灵魂（Soul / 人设）',
+  'persona.soulHelp': '在追问（Follow-up）对话时生效，决定 AI 助手的说话语气、性格与人设',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

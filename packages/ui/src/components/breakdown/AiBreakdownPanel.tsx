@@ -15,7 +15,9 @@ import type { FollowUpMessage, SentenceExplanation } from '@kotori/core';
 import { useHost } from '../../host/HostContext';
 import { useT, type Translate } from '../../i18n';
 import { useBreakdownStore } from '../../stores/breakdown';
+import { useSettingsStore } from '../../stores/settings';
 import { vocabForChunk } from '../../lib/explanation';
+import { AssistantAvatar } from '../AssistantAvatar';
 import { Button } from '../m3/Button';
 import { cx } from '../m3/cx';
 import { IconButton } from '../m3/IconButton';
@@ -59,6 +61,8 @@ export function AiBreakdownPanel({
   const t = tProp ?? tHook;
   const sel = useBreakdownSelection(explanation, focusCharIndex, onFocusChange);
   const [section, setSection] = useState<Section>('chunks');
+  const persona = useSettingsStore((s) => s.settings.ai.persona);
+  const personaName = persona?.name?.trim();
   const copy = useCallback(() => void navigator.clipboard?.writeText(explanation.sentence).catch(() => {}), [explanation.sentence]);
 
   return (
@@ -82,13 +86,19 @@ export function AiBreakdownPanel({
           <IconButton icon="file" size="small" label={t('breakdown.copy')} onClick={copy} />
           {onRegenerate && <IconButton icon="refresh" size="small" label={t('breakdown.regenerate')} onClick={onRegenerate} />}
         </div>
-        <p className="k-breakdown__translation">{explanation.translation}</p>
-        {explanation.literalTranslation && (
-          <p className="k-breakdown__literal">
-            <span className="k-muted">{t('breakdown.literal')}：</span>
-            {explanation.literalTranslation}
-          </p>
-        )}
+        <div className="k-breakdown__translation-row" data-testid="breakdown-translation-row">
+          <AssistantAvatar persona={persona} className="k-breakdown__avatar" size={32} />
+          <div className="k-breakdown__translation-body">
+            {personaName && <span className="k-breakdown__persona-name">{personaName}</span>}
+            <p className="k-breakdown__translation">{explanation.translation}</p>
+            {explanation.literalTranslation && (
+              <p className="k-breakdown__literal">
+                <span className="k-muted">{t('breakdown.literal')}：</span>
+                {explanation.literalTranslation}
+              </p>
+            )}
+          </div>
+        </div>
       </section>
 
       <Tabs<Section>

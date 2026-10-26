@@ -12,7 +12,7 @@ import { DEFAULT_PORT, type ServerOptions } from './index';
 import { startServer } from './start';
 import { systemOpener } from './services/downloads';
 
-export function parseArgs(argv: readonly string[]): ServerOptions & { readonly dev: boolean } {
+export function parseArgs(argv: readonly string[]): ServerOptions & { readonly dev: boolean; readonly newBrowser: boolean } {
   const get = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
     if (i >= 0) return argv[i + 1];
@@ -21,6 +21,7 @@ export function parseArgs(argv: readonly string[]): ServerOptions & { readonly d
   };
   const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '.';
   const dev = argv.includes('--dev');
+  const newBrowser = argv.includes('--new-browser') || argv.includes('--app');
   const webDir = get('--web-dir') ?? (dev ? undefined : defaultWebDir());
   return {
     host: get('--host') ?? '127.0.0.1',
@@ -28,6 +29,7 @@ export function parseArgs(argv: readonly string[]): ServerOptions & { readonly d
     dataDir: get('--data-dir') ?? process.env['KOTORI_DATA_DIR'] ?? `${home}/.kotori`,
     openBrowser: !argv.includes('--no-open') && !dev,
     dev,
+    newBrowser,
     ...(webDir ? { webDir } : {}),
   };
 }
@@ -60,18 +62,24 @@ function onPath(bin: string): string | undefined {
   return undefined;
 }
 
-/** Open `url` as a Chromium app window, falling back to the default browser. */
-export async function openBrowser(url: string, dataDir: string): Promise<void> {
-  for (const candidate of CHROME_CANDIDATES[process.platform] ?? []) {
-    const bin = onPath(candidate);
-    if (!bin) continue;
-    const child = spawn(bin, [`--app=${url}`, `--user-data-dir=${join(dataDir, 'chrome-profile')}`, '--no-first-run', '--no-default-browser-check'], {
-      detached: true,
-      stdio: 'ignore',
-    });
-    child.on('error', () => undefined);
-    child.unref();
-    return;
+/**
+ * Open `url` in the system default browser (reusing an already-open Chrome
+ * instance) by default, or launch a standalone Chromium `--app` window with an
+ * isolated profile when `newBrowser` is true.
+ */
+export async function openBrowser(url: string, dataDir: string, newBrowser = false): Promise<void> {
+  if (newBrowser) {
+    for (const candidate of CHROME_CANDIDATES[process.platform] ?? []) {
+      const bin = onPath(candidate);
+      if (!bin) continue;
+      const child = spawn(bin, [`--app=${url}`, `--user-data-dir=${join(dataDir, 'chrome-profile')}`, '--no-first-run', '--no-default-browser-check'], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.on('error', () => undefined);
+      child.unref();
+      return;
+    }
   }
   await systemOpener(url).catch((error: unknown) => console.warn('[kotori] could not open a browser:', error instanceof Error ? error.message : error));
 }
@@ -82,7 +90,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   console.log(`[kotori] listening on ${server.url} (data: ${options.dataDir})`);
   if (!options.webDir && !options.dev) console.warn('[kotori] UI bundle not found — run `pnpm --filter @kotori/host-node build` (serving API only).');
   if (!server.ctx.ffmpeg) console.log('[kotori] ffmpeg not found: embedded MKV subtitle extraction disabled.');
-  if (options.openBrowser) await openBrowser(server.url, options.dataDir);
+  if (options.openBrowser) await openBrowser(server.url, options.dataDir, options.newBrowser);
   let stopping = false;
   const stop = (signal: string): void => {
     if (stopping) return;

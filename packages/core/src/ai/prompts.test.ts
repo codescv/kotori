@@ -70,6 +70,14 @@ describe('buildFollowUpPrompt', () => {
       ['user', 'q2'],
     ]);
   });
+  it('injects assistant persona nickname and soul into follow-up systemInstruction', () => {
+    const p = buildFollowUpPrompt(expl, [], '为什么用ねぇ？', 'zh-CN', {
+      name: '小鳥ちゃん',
+      soul: '你是一只傲娇但热心的京都小鸟，说话结尾偶尔加上「〜ちゅん」。',
+    });
+    expect(p.systemInstruction).toContain('Your name/nickname is "小鳥ちゃん".');
+    expect(p.systemInstruction).toContain('你是一只傲娇但热心的京都小鸟');
+  });
 });
 
 describe('vision prompts', () => {

@@ -306,4 +306,12 @@ export const en: Messages = {
   'settings.downloads.downloadLimit': 'Download limit (KiB/s, 0 = unlimited)',
   'settings.downloads.uploadLimit': 'Upload limit (KiB/s, 0 = unlimited)',
   'settings.library.empty': 'No folders added yet',
+  'persona.title': 'AI Assistant Persona',
+  'persona.name': 'Nickname',
+  'persona.namePlaceholder': 'e.g. Kotori / ことり',
+  'persona.avatar': 'Avatar image (URL or Data URL)',
+  'persona.uploadImage': 'Upload image',
+  'persona.resetAvatar': 'Reset icon',
+  'persona.soul': 'Assistant Soul (Persona)',
+  'persona.soulHelp': 'Applied during follow-up Q&A to shape the assistant’s tone, personality, and roleplay style',
 };

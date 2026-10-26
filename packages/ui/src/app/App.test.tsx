@@ -67,4 +67,36 @@ describe('App shell', () => {
     expect(await screen.findByTestId('player')).toBeInTheDocument();
     expect(await screen.findAllByTestId('transcript-row')).not.toHaveLength(0);
   });
+
+  it('opens AI assistant persona dialog when clicking the top-left brand icon and updates avatar', async () => {
+    setViewport(1440);
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    render(<App host={host} />);
+    await screen.findByTestId('series-series-kotori');
+    const trigger = screen.getByTestId('brand-persona-trigger');
+    expect(trigger).toHaveTextContent('こ');
+    fireEvent.click(trigger);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('AI 助手形态设置');
+
+    fireEvent.change(screen.getByLabelText('助手昵称'), { target: { value: '千束' } });
+    fireEvent.change(screen.getByLabelText('助手图片（图片 URL 或 Data URL）'), {
+      target: { value: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' },
+    });
+    fireEvent.change(screen.getByLabelText('助手灵魂（Soul / 人设）'), {
+      target: { value: '元気满满的锦木千束，用轻快亲切的语气回答追问！' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(async () => {
+      const s = await host.settings.get();
+      expect(s.ai.persona).toEqual({
+        name: '千束',
+        avatarUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        soul: '元気满满的锦木千束，用轻快亲切的语气回答追问！',
+      });
+    });
+    expect(trigger.querySelector('img')).not.toBeNull();
+  });
 });

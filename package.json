@@ -19,6 +19,8 @@
     "check:native": "node scripts/check-native-deps.mjs",
     "dev": "pnpm --filter @kotori/host-node dev",
     "start": "pnpm --filter @kotori/host-node start",
+    "start:app": "pnpm --filter @kotori/host-node start:app",
+    "start:new": "pnpm --filter @kotori/host-node start:app",
     "dev:ui": "pnpm --filter @kotori/ui dev",
     "dev:node": "pnpm --filter @kotori/host-node dev",
     "start:node": "pnpm --filter @kotori/host-node start"

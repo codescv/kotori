@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { DownloadTask } from '@kotori/core';
+import { AssistantAvatar, PersonaDialog } from '../components/AssistantAvatar';
 import { cx } from '../components/m3/cx';
 import { Icon, type IconName } from '../components/m3/Icon';
 import { useHost } from '../host/HostContext';
@@ -58,11 +59,21 @@ export function Shell() {
   const setTab = useRouteStore((s) => s.setTab);
   const expanded = useIsExpanded();
   const activeDownloads = useActiveDownloads();
+  const [personaOpen, setPersonaOpen] = useState(false);
   const nav = (
     <nav className={expanded ? 'k-nav-rail' : 'k-nav-bar'} aria-label={t('app.name')}>
       {expanded && (
-        <div className="k-nav-rail__brand" aria-hidden>
-          <span className="k-brand-mark">こ</span>
+        <div className="k-nav-rail__brand">
+          <button
+            type="button"
+            className="k-nav-rail__brand-btn"
+            aria-label={t('persona.title')}
+            title={t('persona.title')}
+            onClick={() => setPersonaOpen(true)}
+            data-testid="brand-persona-trigger"
+          >
+            <AssistantAvatar />
+          </button>
         </div>
       )}
       {TABS.map((d) => (
@@ -92,6 +103,7 @@ export function Shell() {
         {tab === 'settings' && <SettingsPage />}
       </main>
       {!expanded && nav}
+      <PersonaDialog open={personaOpen} onClose={() => setPersonaOpen(false)} />
     </div>
   );
 }

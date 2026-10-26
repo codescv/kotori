@@ -25,7 +25,8 @@
     "build:server": "node build.mjs",
     "build:web": "vite build web",
     "build": "pnpm run build:web && pnpm run build:server",
-    "start": "node bin/kotori.mjs"
+    "start": "node bin/kotori.mjs",
+    "start:app": "node bin/kotori.mjs --new-browser"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",

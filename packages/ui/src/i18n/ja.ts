@@ -306,4 +306,12 @@ export const ja: Messages = {
   'settings.downloads.downloadLimit': 'ダウンロード速度制限（KiB/s、0 = 無制限）',
   'settings.downloads.uploadLimit': 'アップロード速度制限（KiB/s、0 = 無制限）',
   'settings.library.empty': 'フォルダはまだ追加されていません',
+  'persona.title': 'AI アシスタント設定',
+  'persona.name': 'ニックネーム',
+  'persona.namePlaceholder': '例：ことり',
+  'persona.avatar': 'アイコン画像（URL または Data URL）',
+  'persona.uploadImage': '画像をアップロード',
+  'persona.resetAvatar': 'デフォルトに戻す',
+  'persona.soul': 'ソウル（キャラクター・口調設定）',
+  'persona.soulHelp': 'フォローアップ質問の回答時に反映される性格や話し方の設定です',
 };

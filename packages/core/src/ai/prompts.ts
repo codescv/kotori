@@ -2,7 +2,7 @@
  * Prompt builders. Bumping `PROMPT_VERSION` changes every explanation cache
  * key, so prompt upgrades invalidate stale explanations naturally.
  */
-import type { ExplainRequest, FollowUpMessage, MangaBubbleOcrRequest, MangaPageGuideRequest, SentenceExplanation, TargetLanguage } from '../types';
+import type { AiPersonaSettings, ExplainRequest, FollowUpMessage, MangaBubbleOcrRequest, MangaPageGuideRequest, SentenceExplanation, TargetLanguage } from '../types';
 import type { GeminiContent } from './gemini-client';
 
 export const PROMPT_VERSION = 'v1';
@@ -98,9 +98,14 @@ export function buildFollowUpPrompt(
   history: readonly FollowUpMessage[] = [],
   question: string,
   targetLanguage: TargetLanguage = expl.targetLanguage ?? 'zh-CN',
+  persona?: AiPersonaSettings,
 ): PromptParts {
+  const name = persona?.name?.trim();
+  const soul = persona?.soul?.trim();
   const systemInstruction = [
     'You are a friendly, precise Japanese teacher answering follow-up questions about one sentence a learner is studying.',
+    ...(name ? [`Your name/nickname is "${name}".`] : []),
+    ...(soul ? [`Your persona / soul (stay in character while keeping Japanese grammatical and lexical explanations accurate):\n${soul}`] : []),
     `Answer in ${targetLanguageName(targetLanguage)}. Be concise. Markdown-light only: **bold**, lists and \`inline code\`; no HTML, no headings, no tables.`,
     'Quote Japanese verbatim. If the question is unrelated to Japanese learning, answer briefly and steer back.',
     '',

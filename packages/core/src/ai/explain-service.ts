@@ -164,7 +164,7 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
       const history = request.history ?? (await deps.cache.getThread(expl.id));
       const targetLanguage = request.targetLanguage ?? expl.targetLanguage ?? settings.targetLanguage ?? 'zh-CN';
       const userMsg: FollowUpMessage = { id: newId('m'), role: 'user', text: request.question, createdAt: now() };
-      const prompt = buildFollowUpPrompt(expl, history, request.question, targetLanguage);
+      const prompt = buildFollowUpPrompt(expl, history, request.question, targetLanguage, settings.persona);
       const genReq: GeminiRequest = { model: settings.explainModel, ...prompt, ...knobs(settings), temperature: Math.max(settings.temperature, 0.4) };
       const client = clientFor(settings);
       const messageId = newId('m');
