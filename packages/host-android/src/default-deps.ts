@@ -30,7 +30,8 @@ import { App } from '@capacitor/app';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { KotoriError } from './adapters/core';
-import type { CapacitorHostDeps, FsOps, PickFilesOptions } from './deps';
+import type { CapacitorHostDeps, DownloadToFileOptions, FsOps, PickFilesOptions } from './deps';
+import { bytesToStream } from './storage/unzip-stream';
 import { joinPath, safeFileName } from './paths';
 import { createCapacitorFs } from './storage/files';
 
@@ -47,6 +48,12 @@ interface FilePickerPlugin {
 }
 
 const FilePicker = registerPlugin<FilePickerPlugin>('FilePicker');
+
+/** The un-patched WebView fetch (`CapacitorHttp` keeps the original as `CapacitorWebFetch`). */
+function webViewFetch(): typeof fetch {
+  const original = (globalThis as { CapacitorWebFetch?: typeof fetch }).CapacitorWebFetch;
+  return original ? (input, init) => original(input, init) : (input, init) => globalThis.fetch(input, init);
+}
 
 const MIME_BY_EXT: Readonly<Record<string, string>> = {
   '.srt': 'application/x-subrip',
@@ -91,6 +98,34 @@ function pickWithInput(fs: FsOps, importsDir: string, options: PickFilesOptions 
   });
 }
 
+/**
+ * Native download via `Filesystem.downloadFile` (streams to disk on the Java
+ * side, no base64 round-trip). Deprecated upstream in favour of
+ * `@capacitor/file-transfer` but still shipped in Filesystem 8; callers fall
+ * back to streaming `fetch` when it is unimplemented. Native transfers cannot
+ * be cancelled, so an abort detaches and the partial file is removed.
+ */
+async function nativeDownload(fs: FsOps, url: string, path: string, options: DownloadToFileOptions): Promise<void> {
+  const listener = await Filesystem.addListener('progress', (status) => {
+    if (status.url === url) options.onProgress(status.bytes, status.contentLength > 0 ? status.contentLength : undefined);
+  });
+  try {
+    if (options.signal.aborted) throw new KotoriError('cancelled', 'download aborted');
+    const aborted = new Promise<never>((_, reject) =>
+      options.signal.addEventListener('abort', () => reject(new KotoriError('cancelled', 'download aborted')), { once: true }),
+    );
+    const download = Filesystem.downloadFile({ url, path, progress: true, recursive: true, ...(options.headers ? { headers: { ...options.headers } } : {}) });
+    try {
+      await Promise.race([download, aborted]);
+    } catch (error) {
+      if (options.signal.aborted) void download.then(() => fs.remove(path), () => undefined);
+      throw error;
+    }
+  } finally {
+    await listener.remove();
+  }
+}
+
 /** Fill every dependency not supplied in `overrides`. */
 export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promise<CapacitorHostDeps> {
   const fs = overrides.fs ?? createCapacitorFs();
@@ -109,6 +144,22 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
     dataRoot,
     convertFileSrc: overrides.convertFileSrc ?? ((path) => Capacitor.convertFileSrc(path)),
     fetch: overrides.fetch ?? ((input, init) => globalThis.fetch(input, init)),
+    webFetch: overrides.webFetch ?? overrides.fetch ?? webViewFetch(),
+    readFileStream:
+      overrides.readFileStream ??
+      (overrides.fs
+        ? // Injected filesystem (tests): chunk its bytes.
+          async (path) => bytesToStream(await fs.readFile(path))
+        : async (path) => {
+            const res = await webViewFetch()(Capacitor.convertFileSrc(path));
+            if (!res.ok || !res.body) throw new KotoriError('io', `cannot read ${path} (HTTP ${res.status})`);
+            return res.body;
+          }),
+    ...(overrides.downloadToFile
+      ? { downloadToFile: overrides.downloadToFile }
+      : !overrides.fs && Capacitor.isNativePlatform()
+        ? { downloadToFile: (url: string, path: string, options: DownloadToFileOptions) => nativeDownload(fs, url, path, options) }
+        : {}),
     openExternal:
       overrides.openExternal ??
       (async (url) => {

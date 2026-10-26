@@ -19,7 +19,6 @@
  * Pause keeps the partial file; resume of single-file tasks sends
  * `Range: bytes=N-` and appends on `206`, else restarts from zero.
  */
-import { unzipSync } from 'fflate';
 import type {
   DownloadFile,
   DownloadKind,
@@ -43,6 +42,7 @@ import { uniqueId, type HostContext } from './context';
 import type { AnimeLibrary } from './library/anime';
 import type { MangaLibrary } from './library/manga';
 import { basename, extname, joinPath, safeFileName, stem } from './paths';
+import { extractZip } from './storage/unzip-stream';
 
 const FLUSH_BYTES = 1024 * 1024;
 const SUBTITLE_EXT = new Set(['srt', 'ass', 'ssa', 'vtt']);
@@ -240,11 +240,31 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
 
   type Tracker = ReturnType<typeof tracker>;
 
-  /** Stream `url` into `dest` (append when the server honours `Range`). */
-  const fetchToFile = async (url: string, dest: string, signal: AbortSignal, track: Tracker, resume: boolean): Promise<void> => {
+  /** Stream `url` into `dest` (native download when available; else append when the server honours `Range`). */
+  const fetchToFile = async (url: string, dest: string, signal: AbortSignal, track: Tracker, resume: boolean, headers?: Record<string, string>): Promise<void> => {
     const index = track.addFile(dest);
     const existing = resume ? ((await deps.fs.stat(dest))?.sizeBytes ?? 0) : 0;
-    const response = await httpGet(url, existing > 0 ? { signal, headers: { Range: `bytes=${existing}-` } } : { signal });
+    if (deps.downloadToFile && existing === 0) {
+      // Native path: bytes go straight to disk (CapacitorHttp would buffer the whole body as base64).
+      let last = 0;
+      let sized = false;
+      await deps.downloadToFile(url, dest, {
+        signal,
+        ...(headers ? { headers } : {}),
+        onProgress: (received, total) => {
+          if (total !== undefined && !sized) {
+            sized = true;
+            track.setSize(index, total, last);
+          }
+          if (received > last) {
+            track.onBytes(index, received - last);
+            last = received;
+          }
+        },
+      });
+      return;
+    }
+    const response = await httpGet(url, existing > 0 ? { signal, headers: { ...headers, Range: `bytes=${existing}-` } } : headers ? { signal, headers } : { signal });
     const append = existing > 0 && response.status === 206;
     if (!append) await deps.fs.writeFile(dest, new Uint8Array(0));
     const base = append ? existing : 0;
@@ -322,14 +342,18 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     update(task.id, { status: 'importing' });
     if (file.isTextSubtitle || SUBTITLE_EXT.has(extname(file.name))) return importSubtitles(source, [dest]);
     if (file.archiveFormat === 'zip' || extname(file.name) === 'zip') {
-      const out = unzipSync(await deps.fs.readFile(dest), { filter: (f) => SUBTITLE_EXT.has(extname(f.name)) && !f.name.startsWith('__MACOSX/') });
       const folder = joinPath(task.targetDir, safeFileName(stem(file.name)));
       const paths: string[] = [];
-      for (const [name, data] of Object.entries(out)) {
-        const path = joinPath(folder, safeFileName(basename(name)));
-        await deps.fs.writeFile(path, data);
-        paths.push(path);
-      }
+      await extractZip(
+        () => deps.readFileStream(dest),
+        () => deps.fs.readFile(dest),
+        (name) => SUBTITLE_EXT.has(extname(name)) && !name.startsWith('__MACOSX/'),
+        async (name, data) => {
+          const path = joinPath(folder, safeFileName(basename(name)));
+          await deps.fs.writeFile(path, data);
+          paths.push(path);
+        },
+      );
       return importSubtitles(source, paths);
     }
     return {}; // rar / 7z: kept on disk, not extractable in-app
@@ -344,10 +368,27 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     if (source.volume.imagesKind === 'archive') {
       const tmp = joinPath(dirs.downloads, `${task.id}.zip`);
       await fetchToFile(source.volume.imagesUrl, tmp, signal, track, resuming.has(task.id));
-      const entries = unzipSync(await deps.fs.readFile(tmp), { filter: (f) => !f.name.endsWith('/') && !f.name.startsWith('__MACOSX/') });
-      const strip = stripCommonRoot(Object.keys(entries));
+      // Extract entry-by-entry from a file stream; a shared top folder is stripped afterwards.
+      const staging = joinPath(dirs.downloads, `${task.id}.extract`);
+      const names: string[] = [];
+      await deps.fs.remove(staging);
+      await extractZip(
+        () => deps.readFileStream(tmp),
+        () => deps.fs.readFile(tmp),
+        (name) => !name.startsWith('__MACOSX/'),
+        async (name, data) => {
+          names.push(name);
+          await deps.fs.writeFile(joinPath(staging, name), data);
+        },
+      );
+      const strip = stripCommonRoot(names);
       await deps.fs.remove(imagesDir);
-      for (const [entryName, data] of Object.entries(entries)) await deps.fs.writeFile(joinPath(imagesDir, strip(entryName)), data);
+      for (const name of names) {
+        const from = joinPath(staging, name);
+        await deps.fs.writeFile(joinPath(imagesDir, strip(name)), await deps.fs.readFile(from));
+        await deps.fs.remove(from);
+      }
+      await deps.fs.remove(staging);
       await deps.fs.remove(tmp);
     } else {
       const listing = parseMokuroMoeListing(await (await httpGet(source.volume.imagesUrl, { signal })).text(), source.volume.imagesUrl);

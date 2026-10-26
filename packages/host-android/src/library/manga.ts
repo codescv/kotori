@@ -13,11 +13,10 @@
 import type { MangaApi, MangaBlock, MangaPage, MangaReadingProgress, MangaVolume } from '@kotori/core';
 import {
   KotoriError,
+  ARCHIVE_IMAGE_EXTENSIONS,
   compareNatural,
-  listArchiveImages,
   parseMokuro,
   parseVolumeName,
-  readArchiveEntry,
   readImageSize,
   resolveMokuroPageRoot,
   mokuroPageRootCandidates,
@@ -27,7 +26,15 @@ import { KeyedDebouncer, stableId, type HostContext } from '../context';
 import type { FsEntry } from '../deps';
 import { basename, dirname, extname, isWithin, joinPath, stem } from '../paths';
 import { readText } from '../storage/files';
+import { extractZip } from '../storage/unzip-stream';
 import type { StoredPage, StoredVolume } from '../storage/idb';
+
+/** Page images inside an archive (mirrors core `listArchiveImages`: skips dirs, `__MACOSX`, dot-files). */
+function isArchiveImage(name: string): boolean {
+  const lower = name.toLowerCase();
+  const ext = lower.slice(lower.lastIndexOf('.') + 1);
+  return ARCHIVE_IMAGE_EXTENSIONS.includes(ext) && !lower.startsWith('__macosx/') && !name.split('/').some((seg) => seg.startsWith('.'));
+}
 
 const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'bmp']);
 
@@ -160,17 +167,21 @@ export function createMangaLibrary(ctx: HostContext): MangaLibrary {
       // Already extracted once: keep files, refresh metadata only.
       pages = existingPages.sort((a, b) => a.index - b.index).map(({ volumeId: _v, ...p }) => p);
     } else {
-      const bytes = await deps.fs.readFile(path);
-      const entries = listArchiveImages(bytes);
-      if (entries.length === 0) throw new KotoriError('parse', `no images found in ${basename(path)}`);
+      // Stream the archive (no whole-file base64 read, no unzipSync of every page at once).
       await deps.fs.remove(outDir);
-      pages = [];
-      for (const entry of entries) {
-        const data = readArchiveEntry(bytes, entry);
-        await deps.fs.writeFile(joinPath(outDir, entry.path), data);
-        const size = readImageSize(data) ?? { width: 0, height: 0 };
-        pages.push({ index: pages.length, relativePath: entry.path, ...size, blocks: [] });
-      }
+      const found: Array<{ path: string; width: number; height: number }> = [];
+      await extractZip(
+        () => deps.readFileStream(path),
+        () => deps.fs.readFile(path),
+        isArchiveImage,
+        async (entryPath, data) => {
+          await deps.fs.writeFile(joinPath(outDir, entryPath), data);
+          found.push({ path: entryPath, ...(readImageSize(data) ?? { width: 0, height: 0 }) });
+        },
+      );
+      if (found.length === 0) throw new KotoriError('parse', `no images found in ${basename(path)}`);
+      found.sort((x, y) => compareNatural(x.path, y.path));
+      pages = found.map((f, index) => ({ index, relativePath: f.path, width: f.width, height: f.height, blocks: [] }));
     }
     const name = parseVolumeName(stem(path));
     return save(

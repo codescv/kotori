@@ -21,6 +21,7 @@ export {
   mokuroPageRootCandidates,
   joinMokuroPageRoot,
   parseVolumeName,
+  ARCHIVE_IMAGE_EXTENSIONS,
   listArchiveImages,
   readArchiveEntry,
   readImageSize,

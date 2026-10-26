@@ -33,6 +33,13 @@ export interface FsOps {
   remove(path: string): Promise<void>;
 }
 
+export interface DownloadToFileOptions {
+  readonly signal: AbortSignal;
+  readonly headers?: Readonly<Record<string, string>>;
+  /** Cumulative bytes received and total size when known. */
+  readonly onProgress: (received: number, total: number | undefined) => void;
+}
+
 export interface PickFilesOptions {
   readonly accept?: readonly string[];
   readonly multiple?: boolean;
@@ -44,7 +51,30 @@ export interface CapacitorHostDeps {
   readonly dataRoot: string;
   /** `Capacitor.convertFileSrc` — turns a file path/URI into a WebView-loadable URL. */
   readonly convertFileSrc: (path: string) => string;
+  /**
+   * General `fetch` (production: patched by `CapacitorHttp`, so third-party
+   * APIs work without CORS; responses are buffered by the native bridge).
+   * Used for small JSON/HTML requests (Jimaku, Nyaa, mokuro.moe listings).
+   */
   readonly fetch: typeof fetch;
+  /**
+   * The WebView's own `fetch` (`window.CapacitorWebFetch` when CapacitorHttp
+   * is enabled): real response streaming + `AbortSignal`. Used for Gemini so
+   * follow-up streaming and cancellation work (Google APIs allow CORS).
+   */
+  readonly webFetch: typeof fetch;
+  /**
+   * Stream a local file without materialising it (production: WebView fetch
+   * of `convertFileSrc(path)`); avoids `Filesystem.readFile`'s whole-file
+   * base64 copy for large archives.
+   */
+  readonly readFileStream: (path: string) => Promise<ReadableStream<Uint8Array>>;
+  /**
+   * Optional native download straight to disk with progress
+   * (`Filesystem.downloadFile`). When absent, downloads stream through
+   * `fetch` and are appended in ~1 MiB chunks.
+   */
+  readonly downloadToFile?: (url: string, path: string, options: DownloadToFileOptions) => Promise<void>;
   /** Open URL / magnet in an external app (Android intent). */
   readonly openExternal: (url: string) => Promise<void>;
   /** Native directory picker; `undefined` when cancelled. */

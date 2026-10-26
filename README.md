@@ -173,7 +173,7 @@ adb install -r packages/host-android/android/app/build/outputs/apk/debug/app-deb
 > [!IMPORTANT]
 > `@capacitor/filesystem` 8 本身不提供目录选择器，Kotori 通过 `registerPlugin('FilePicker')` 调用 `@capawesome/capacitor-file-picker`（无编译期依赖）。未安装该插件时“选择文件夹”会提示不支持，“选择文件”会退回到 `<input type="file">` 并把文件复制到 App 私有目录。
 
-`capacitor.config.ts` 已开启 `CapacitorHttp`，用于绕过 WebView 中第三方接口（Jimaku 等）的 CORS 限制。
+`capacitor.config.ts` 已开启 `CapacitorHttp`，用于绕过 WebView 中第三方接口（Jimaku、Nyaa、mokuro.moe 目录）的 CORS 限制；Gemini 请求则走 WebView 原生 `fetch`（`CapacitorWebFetch`），以保留流式输出与取消。大文件下载使用 `Filesystem.downloadFile` 直接写盘，漫画归档按条目流式解压，避免整包读入内存。
 
 ---
 

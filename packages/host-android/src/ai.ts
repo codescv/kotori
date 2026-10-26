@@ -1,8 +1,10 @@
 /**
  * AI wiring for Android: core's explain service (through the adapter's
  * `createAiEngine`: Gemini API key, Vertex access-token / service-account
- * JSON / express key — no ADC on device) with plain `fetch` (CapacitorHttp-patched in the
- * WebView, so provider CORS does not apply) and an IndexedDB-backed
+ * JSON / express key — no ADC on device) over the WebView's *un-patched*
+ * `fetch` (`deps.webFetch`: Google's Gemini / Vertex endpoints allow CORS, and
+ * bypassing CapacitorHttp keeps response streaming and `AbortSignal` working
+ * for follow-ups / cancelled explains) and an IndexedDB-backed
  * explanation cache + follow-up threads. ADC is unavailable on device.
  *
  * Cache hits must resolve in < 5 ms: explanations are mirrored in an
@@ -65,7 +67,7 @@ export function createAndroidAi(ctx: HostContext): AiEngine {
   return createAiEngine({
     settings: () => ctx.settings.current().ai,
     cache: createIdbExplanationCache(ctx.db),
-    fetch: ctx.deps.fetch,
+    fetch: ctx.deps.webFetch,
     now: ctx.deps.now,
   });
 }
