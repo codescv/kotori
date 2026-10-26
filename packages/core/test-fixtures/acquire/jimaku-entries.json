@@ -1,0 +1,30 @@
+[
+  {
+    "id": 3127,
+    "name": "Sousou no Frieren",
+    "flags": { "anime": true, "unverified": false, "external": false, "movie": false, "adult": false },
+    "last_modified": "2024-03-23T12:34:56.789012Z",
+    "creator_id": 17,
+    "japanese_name": "葬送のフリーレン",
+    "english_name": "Frieren: Beyond Journey's End",
+    "anilist_id": 154587,
+    "tmdb_id": "tv:209867",
+    "notes": null
+  },
+  {
+    "id": 4410,
+    "name": "Sousou no Frieren: ●● no Mahou",
+    "flags": { "anime": true, "unverified": true, "external": false, "movie": false, "adult": false },
+    "last_modified": "2024-01-05T08:00:00Z",
+    "creator_id": 3,
+    "japanese_name": "葬送のフリーレン ～●●の魔法～",
+    "english_name": null,
+    "anilist_id": null,
+    "tmdb_id": null,
+    "notes": "mini anime"
+  },
+  {
+    "name": "malformed entry without id",
+    "flags": {}
+  }
+]

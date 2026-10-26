@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" xmlns:nyaa="https://nyaa.si/xmlns/nyaa" version="2.0">
+	<channel>
+		<title>Nyaa - "frieren" - Torrent File RSS</title>
+		<description>RSS Feed for "frieren"</description>
+		<link>https://nyaa.si/</link>
+		<atom:link href="https://nyaa.si/?page=rss&amp;q=frieren&amp;c=1_4&amp;f=0" rel="self" type="application/rss+xml" />
+		<item>
+			<title>[Ohys-Raws] Sousou no Frieren - 01 (NTV 1280x720 x264 AAC).mp4</title>
+				<link>https://nyaa.si/download/1729401.torrent</link>
+				<guid isPermaLink="true">https://nyaa.si/view/1729401</guid>
+				<pubDate>Fri, 29 Sep 2023 15:33:02 -0000</pubDate>
+
+				<nyaa:seeders>412</nyaa:seeders>
+				<nyaa:leechers>3</nyaa:leechers>
+				<nyaa:downloads>18234</nyaa:downloads>
+				<nyaa:infoHash>6B0A5C1F3E4D2A9B8C7D6E5F4A3B2C1D0E9F8A7B</nyaa:infoHash>
+				<nyaa:categoryId>1_4</nyaa:categoryId>
+				<nyaa:category>Anime - Raw</nyaa:category>
+				<nyaa:size>1.4 GiB</nyaa:size>
+				<nyaa:comments>2</nyaa:comments>
+				<nyaa:trusted>Yes</nyaa:trusted>
+				<nyaa:remake>No</nyaa:remake>
+				<description><![CDATA[<a href="https://nyaa.si/view/1729401">#1729401 | [Ohys-Raws] Sousou no Frieren - 01 (NTV 1280x720 x264 AAC).mp4</a> | 1.4 GiB | Anime - Raw | 6B0A5C1F3E4D2A9B8C7D6E5F4A3B2C1D0E9F8A7B]]></description>
+		</item>
+		<item>
+			<title>[Moozzi2] Sousou no Frieren [ 01-28 ] (BD 1920x1080 x265-10Bit Flac) &amp; SP</title>
+				<link>https://nyaa.si/download/1801234.torrent</link>
+				<guid isPermaLink="true">https://nyaa.si/view/1801234</guid>
+				<pubDate>Sat, 15 Jun 2024 02:10:45 -0000</pubDate>
+
+				<nyaa:seeders>87</nyaa:seeders>
+				<nyaa:leechers>21</nyaa:leechers>
+				<nyaa:downloads>2210</nyaa:downloads>
+				<nyaa:infoHash>0123456789abcdef0123456789abcdef01234567</nyaa:infoHash>
+				<nyaa:categoryId>1_4</nyaa:categoryId>
+				<nyaa:category>Anime - Raw</nyaa:category>
+				<nyaa:size>86.2 GiB</nyaa:size>
+				<nyaa:comments>0</nyaa:comments>
+				<nyaa:trusted>No</nyaa:trusted>
+				<nyaa:remake>No</nyaa:remake>
+				<description><![CDATA[<a href="https://nyaa.si/view/1801234">#1801234 | [Moozzi2] Sousou no Frieren [ 01-28 ] (BD 1920x1080 x265-10Bit Flac) &amp; SP</a> | 86.2 GiB | Anime - Raw | 0123456789abcdef0123456789abcdef01234567]]></description>
+		</item>
+		<item>
+			<title>葬送のフリーレン 第05話「死者の幻影」 (BS11 1920x1080 HEVC &quot;10bit&quot;).mkv</title>
+				<link>https://nyaa.si/download/1735555.torrent</link>
+				<guid isPermaLink="true">https://nyaa.si/view/1735555</guid>
+				<pubDate>Sat, 14 Oct 2023 14:05:00 -0000</pubDate>
+
+				<nyaa:seeders>5</nyaa:seeders>
+				<nyaa:leechers>0</nyaa:leechers>
+				<nyaa:downloads>731</nyaa:downloads>
+				<nyaa:infoHash>fedcba9876543210fedcba9876543210fedcba98</nyaa:infoHash>
+				<nyaa:categoryId>1_4</nyaa:categoryId>
+				<nyaa:category>Anime - Raw</nyaa:category>
+				<nyaa:size>742.5 MiB</nyaa:size>
+				<nyaa:comments>1</nyaa:comments>
+				<nyaa:trusted>No</nyaa:trusted>
+				<nyaa:remake>Yes</nyaa:remake>
+				<description><![CDATA[<a href="https://nyaa.si/view/1735555">#1735555 | 葬送のフリーレン 第05話「死者の幻影」</a> | 742.5 MiB | Anime - Raw | fedcba9876543210fedcba9876543210fedcba98]]></description>
+		</item>
+	</channel>
+</rss>

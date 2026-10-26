@@ -1,0 +1,38 @@
+{
+  "version": "0.2.1",
+  "title": "DLRAW",
+  "title_uuid": "0d4a6c61-6e1c-4d8a-a0b4-1f9c0f2a8e01",
+  "volume": "Vol3",
+  "volume_uuid": "7ad2f0c9-58b1-4b9e-9c37-6a6e1c2b9d02",
+  "pages": [
+    {
+      "version": "0.2.1",
+      "img_width": 1200,
+      "img_height": 1700,
+      "blocks": [
+        {
+          "box": [800, 100, 900, 400],
+          "vertical": true,
+          "font_size": 32,
+          "lines_coords": [[[860, 100], [900, 100], [900, 400], [860, 400]], [[800, 100], [840, 100], [840, 280], [800, 280]]],
+          "lines": ["今日は", "いい天気"]
+        },
+        "not-a-block",
+        {
+          "vertical": false,
+          "font_size": 20,
+          "lines": ["box missing"]
+        }
+      ],
+      "img_path": "DLRAW.TO_00001.jpeg"
+    },
+    {
+      "version": "0.2.1",
+      "img_width": 2400,
+      "img_height": 1700,
+      "blocks": [],
+      "img_path": "DLRAW.TO_00002.jpeg"
+    },
+    { "img_width": 1200, "img_height": 1700, "blocks": [] }
+  ]
+}

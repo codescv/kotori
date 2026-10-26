@@ -1,20 +1,26 @@
 /**
  * @kotori/core/subtitle — SRT / VTT / ASS engine.
  *
- * Owner: coder-1. Planned modules (see ARCHITECTURE.md §4.2):
- *   - detect.ts         detectSubtitleFormat(bytes|text), decodeSubtitleBytes(bytes) → { text, encoding }
- *                       (UTF-8 BOM / UTF-16 / Shift_JIS via TextDecoder('shift_jis'))
- *   - srt.ts            parseSrt(text) → ParsedSubtitleTrack
- *   - vtt.ts            parseVtt(text) → ParsedSubtitleTrack
- *   - ass.ts            parseAss(text) → ParsedSubtitleTrack (Dialogue + Comment, PlayRes, \pos, \an,
- *                       \move, \fad, \k, \p, layer, style); stripAssTags(raw) → plain text
- *   - parse.ts          parseSubtitle(input) — format sniff + dispatch
+ * Owner: coder-1. Modules (see ARCHITECTURE.md §4.2):
+ *   - detect.ts         decodeSubtitleBytes(bytes) → { text, encoding }, detectSubtitleFormat(text, fileName?)
+ *   - srt.ts            parseSrt(text), stripSubtitleHtml(raw)
+ *   - vtt.ts            parseVtt(text)
+ *   - ass.ts            parseAss(text), stripAssTags(raw), parseAssMarkup(event, scriptInfo)
+ *   - parse.ts          parseSubtitle(input) — decode + format sniff + dispatch
  *   - merge-per-char.ts mergePerCharacterCueGroups(cues) → MergedCueGroups
  *   - transcript.ts     buildTranscriptRows(cues, options) → TranscriptRow[] (merge + dedupe + chain fold)
- *   - cue-utils.ts      cueIndexAt(cues, ms), nextCue, prevCue, applyDelay,
- *                       mergeCuesToSentence(cues[]) → { text, startMs, endMs, cueIndexes, cueCharSpans },
- *                       cueOffsetToSentenceIndex(source, cueIndex, localIdx), sentenceIndexToCueOffset(source, idx)
+ *   - cue-utils.ts      cueIndexAt, activeCueIndexes, nextCueIndex, prevCueIndex, applyDelay, sortCuesByStart,
+ *                       mergeCuesToSentence, cueOffsetToSentenceIndex, sentenceIndexToCueOffset
  *   - episode-name.ts   parseEpisodeName(fileName) → ParsedEpisodeName
  *   - language.ts       detectSubtitleLanguageFromName(fileName) → LanguageTag | undefined
  */
-export {};
+export * from './detect';
+export { parseSrt, stripSubtitleHtml } from './srt';
+export * from './vtt';
+export * from './ass';
+export * from './parse';
+export * from './merge-per-char';
+export * from './transcript';
+export * from './cue-utils';
+export * from './episode-name';
+export * from './language';

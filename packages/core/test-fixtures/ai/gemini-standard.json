@@ -1,0 +1,57 @@
+{
+  "sentence": "今日は学校に行きたくない。",
+  "targetLanguage": "zh-CN",
+  "raw": {
+    "translation": "今天不想去学校。",
+    "register": "plain",
+    "tone": "有点任性、抱怨的语气",
+    "ruby": [
+      { "base": "今日", "ruby": "きょう" },
+      { "base": "は" },
+      { "base": "学校", "ruby": "がっこう" },
+      { "base": "に" },
+      { "base": "行", "ruby": "い" },
+      { "base": "きたくない。" }
+    ],
+    "chunks": [
+      {
+        "surface": "今日は",
+        "reading": "きょうは",
+        "textbookForm": "今日は",
+        "role": "话题（时间状语）",
+        "meaning": "今天",
+        "vocab": [
+          { "surface": "今日", "lemma": "今日", "lemmaReading": "きょう", "lemmaRuby": [{ "base": "今日", "ruby": "きょう" }], "partOfSpeech": "noun", "meaning": "今天", "jlpt": "N5", "pitchAccent": 1 },
+          { "surface": "は", "lemma": "は", "lemmaReading": "は", "lemmaRuby": [{ "base": "は" }], "partOfSpeech": "particle", "meaning": "提示话题" }
+        ]
+      },
+      {
+        "surface": "学校に",
+        "reading": "がっこうに",
+        "textbookForm": "学校に",
+        "role": "目的地",
+        "meaning": "去学校",
+        "vocab": [
+          { "surface": "学校", "lemma": "学校", "lemmaReading": "がっこう", "lemmaRuby": [{ "base": "学校", "ruby": "がっこう" }], "partOfSpeech": "noun", "meaning": "学校", "jlpt": "N5", "pitchAccent": 0 },
+          { "surface": "に", "lemma": "に", "lemmaReading": "に", "lemmaRuby": [{ "base": "に" }], "partOfSpeech": "particle", "meaning": "表示方向、目的地" }
+        ]
+      },
+      {
+        "surface": "行きたくない",
+        "reading": "いきたくない",
+        "textbookForm": "行きたくない",
+        "spokenEvolution": null,
+        "role": "谓语（愿望的否定）",
+        "meaning": "不想去",
+        "nuance": "直接表达个人意愿",
+        "vocab": [
+          { "surface": "行き", "lemma": "行く", "lemmaReading": "いく", "lemmaRuby": [{ "base": "行", "ruby": "い" }, { "base": "く" }], "partOfSpeech": "verb", "meaning": "去", "conjugation": "連用形", "jlpt": "N5" },
+          { "surface": "たくない", "lemma": "たい", "lemmaReading": "たい", "lemmaRuby": [{ "base": "たい" }], "partOfSpeech": "auxiliary", "meaning": "想（否定：不想）", "conjugation": "たい → たくない（否定形）", "jlpt": "N5" }
+        ]
+      }
+    ],
+    "grammar": [
+      { "pattern": "〜たい", "chunkSurfaces": ["行きたくない"], "explanation": "动词连用形＋たい表示说话人的愿望，否定为〜たくない。", "jlpt": "N5" }
+    ]
+  }
+}

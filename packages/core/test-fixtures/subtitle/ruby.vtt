@@ -1,0 +1,17 @@
+WEBVTT - Kotori ruby fixture
+
+STYLE
+::cue { color: white; }
+
+NOTE This block is a comment
+and spans two lines.
+
+intro
+00:00:01.000 --> 00:00:03.000 line:85% align:center
+<ruby>漢字<rt>かんじ</rt></ruby>を<ruby>読<rp>(</rp><rt>よ</rt><rp>)</rp></ruby>む
+
+00:02.500 --> 00:04.000
+<v 先生><c.yellow>静かに</c>&amp;ゆっくり</v>
+
+00:00:05.000 --> 00:00:07.000
+<00:00:05.000>カ<00:00:05.500>ラ<00:00:06.000>オケ
