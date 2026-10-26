@@ -13,6 +13,7 @@ import type { AiConnectionTestResult, AiProviderSettings, AiSettings, HostCapabi
 import { Button } from '../../components/m3/Button';
 import { Chip } from '../../components/m3/Chip';
 import { IconButton } from '../../components/m3/IconButton';
+import { Menu } from '../../components/m3/Menu';
 import { CircularProgress } from '../../components/m3/Progress';
 import { SegmentedButton } from '../../components/m3/SegmentedButton';
 import { Slider } from '../../components/m3/Slider';
@@ -49,7 +50,9 @@ export interface AiDraft {
   readonly timeoutMs: number;
 }
 
-export type AiDraftErrors = Partial<Record<'apiKey' | 'project' | 'location' | 'accessToken' | 'saJson' | 'expressKey' | 'explainModel' | 'visionModel' | 'thinkingBudget' | 'authKind', MessageKey>>;
+export type AiDraftErrors = Partial<
+  Record<'apiKey' | 'project' | 'location' | 'accessToken' | 'saJson' | 'expressKey' | 'explainModel' | 'visionModel' | 'thinkingBudget' | 'timeoutMs' | 'authKind', MessageKey>
+>;
 
 /** Settings → draft (missing variant fields get sensible defaults). */
 export function draftFromSettings(ai: AiSettings): AiDraft {
@@ -63,7 +66,7 @@ export function draftFromSettings(ai: AiSettings): AiDraft {
     },
     vertex: {
       project: p.provider === 'vertex-ai' ? (p.project ?? '') : '',
-      location: p.provider === 'vertex-ai' ? p.location : 'us-central1',
+      location: p.provider === 'vertex-ai' ? p.location : 'global',
       authKind: p.provider === 'vertex-ai' ? p.auth.kind : 'access-token',
       accessToken: p.provider === 'vertex-ai' && p.auth.kind === 'access-token' ? p.auth.accessToken : '',
       saJson: p.provider === 'vertex-ai' && p.auth.kind === 'service-account-json' ? p.auth.json : '',
@@ -114,6 +117,9 @@ export function validateAiDraft(d: AiDraft, caps: Pick<HostCapabilities, 'vertex
   if (d.thinkingBudget.trim() !== '') {
     const n = Number(d.thinkingBudget);
     if (!Number.isInteger(n) || n < 0) e['thinkingBudget'] = 'settings.invalidNumber';
+  }
+  if (!Number.isInteger(d.timeoutMs) || d.timeoutMs < 1000) {
+    e['timeoutMs'] = 'settings.invalidNumber';
   }
   return e;
 }
@@ -170,11 +176,40 @@ const LANGS: readonly { value: TargetLanguage; label: string }[] = [
 
 export const MODEL_PRESETS: readonly string[] = [
   'gemini-3.8-flash',
-  'gemini-2.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite',
-  'gemini-4-argon',
+  'gemini-3.5-flash-lite',
 ];
+
+function ModelComboField(props: {
+  readonly label: string;
+  readonly value: string;
+  readonly onValueChange: (value: string) => void;
+  readonly error?: string | undefined;
+}) {
+  const { label, value, onValueChange, error } = props;
+  return (
+    <TextField
+      label={label}
+      list="k-ai-model-presets"
+      value={value}
+      onValueChange={onValueChange}
+      error={error}
+      trailing={
+        <Menu
+          align="end"
+          items={MODEL_PRESETS.map((m) => ({
+            key: m,
+            label: m,
+            selected: value.trim() === m,
+            onSelect: () => onValueChange(m),
+          }))}
+          trigger={({ open, toggle }) => (
+            <IconButton icon={open ? 'expandLess' : 'expandMore'} label={`${label} options`} size="small" onClick={toggle} />
+          )}
+        />
+      }
+    />
+  );
+}
 
 export function AiProviderForm() {
   const host = useHost();
@@ -353,8 +388,8 @@ export function AiProviderForm() {
       <div className="k-ai-form__group">
         <h3 className="k-title-small k-muted">{t('settings.ai.models')}</h3>
         <div className="k-ai-form__row">
-          <TextField label={t('settings.ai.explainModel')} list="k-ai-model-presets" value={draft.explainModel} onValueChange={(explainModel) => edit({ explainModel })} error={err('explainModel')} />
-          <TextField label={t('settings.ai.visionModel')} list="k-ai-model-presets" value={draft.visionModel} onValueChange={(visionModel) => edit({ visionModel })} error={err('visionModel')} />
+          <ModelComboField label={t('settings.ai.explainModel')} value={draft.explainModel} onValueChange={(explainModel) => edit({ explainModel })} error={err('explainModel')} />
+          <ModelComboField label={t('settings.ai.visionModel')} value={draft.visionModel} onValueChange={(visionModel) => edit({ visionModel })} error={err('visionModel')} />
         </div>
         <datalist id="k-ai-model-presets">
           {MODEL_PRESETS.map((m) => (
@@ -378,7 +413,19 @@ export function AiProviderForm() {
           <SegmentedButton<TargetLanguage> dense label={t('settings.ai.targetLanguage')} value={draft.targetLanguage} onChange={(targetLanguage) => edit({ targetLanguage })} segments={LANGS} />
         </div>
         <Slider label={t('settings.ai.temperature')} value={draft.temperature} min={0} max={2} step={0.1} format={(v) => v.toFixed(1)} onChange={(temperature) => edit({ temperature })} />
-        <TextField label={t('settings.ai.thinking')} value={draft.thinkingBudget} type="number" min={0} inputMode="numeric" onValueChange={(thinkingBudget) => edit({ thinkingBudget })} error={err('thinkingBudget')} />
+        <div className="k-ai-form__row">
+          <TextField label={t('settings.ai.thinking')} value={draft.thinkingBudget} type="number" min={0} inputMode="numeric" onValueChange={(thinkingBudget) => edit({ thinkingBudget })} error={err('thinkingBudget')} />
+          <TextField
+            label={t('settings.ai.timeout')}
+            value={draft.timeoutMs === 0 ? '' : String(draft.timeoutMs)}
+            type="number"
+            min={1000}
+            step={1000}
+            inputMode="numeric"
+            onValueChange={(v) => edit({ timeoutMs: v.trim() === '' ? 0 : Number(v) })}
+            error={err('timeoutMs')}
+          />
+        </div>
         <div className="k-ai-form__inline">
           <Switch label={t('settings.ai.cache')} checked={draft.cacheEnabled} onChange={(cacheEnabled) => edit({ cacheEnabled })} />
           <Button variant="text" icon="delete" onClick={() => void clearCache()}>

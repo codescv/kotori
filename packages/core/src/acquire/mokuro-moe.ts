@@ -43,6 +43,112 @@ function normaliseListingUrl(url: string): URL {
   return u;
 }
 
+/**
+ * Normalise a catalog target URL: `mokuro.moe` root / legacy `/manga/` / `/catalog/`
+ * paths map to the Mokuro Bunko JSON endpoint (`/catalog/api/library`), while
+ * `/catalog/api/...` and custom self-hosted autoindex URLs are preserved.
+ */
+export function resolveMokuroCatalogUrl(url: string): string {
+  try {
+    const u = new URL(url.trim());
+    const host = u.hostname.toLowerCase();
+    if (host === 'mokuro.moe' || host === 'www.mokuro.moe' || host === 'catalog.mokuro.moe') {
+      const cleanPath = u.pathname.replace(/\/+$/, '');
+      if (cleanPath === '' || cleanPath === '/manga' || cleanPath === '/catalog') {
+        return `https://mokuro.moe/catalog/api/library`;
+      }
+    }
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+
+interface MokuroApiSeriesItem {
+  readonly name?: unknown;
+  readonly volume_count?: unknown;
+  readonly latest_volume_modified?: unknown;
+  readonly titles?: {
+    readonly native?: unknown;
+    readonly romaji?: unknown;
+    readonly english?: unknown;
+  };
+}
+
+interface MokuroApiVolumeItem {
+  readonly name?: unknown;
+  readonly ocr_pending?: unknown;
+}
+
+function tryParseMokuroBunkoJson(raw: string, url: string): MokuroCatalogListing | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{')) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+  const obj = parsed as Record<string, unknown>;
+  const u = new URL(url);
+  const origin = u.origin;
+
+  if (Array.isArray(obj['series'])) {
+    const entries: MokuroCatalogEntry[] = [];
+    for (const item of obj['series'] as MokuroApiSeriesItem[]) {
+      if (typeof item !== 'object' || item === null) continue;
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!name) continue;
+      const nativeTitle = typeof item.titles?.native === 'string' ? item.titles.native.trim() : '';
+      const englishTitle = typeof item.titles?.english === 'string' ? item.titles.english.trim() : '';
+      const volCount = typeof item.volume_count === 'number' && item.volume_count > 0 ? `${item.volume_count} vol` : undefined;
+      const subtitleParts: string[] = [];
+      if (nativeTitle && nativeTitle !== name) subtitleParts.push(nativeTitle);
+      if (englishTitle && englishTitle !== name && englishTitle !== nativeTitle) subtitleParts.push(englishTitle);
+      if (volCount) subtitleParts.push(volCount);
+      const modifiedAt =
+        typeof item.latest_volume_modified === 'number' && Number.isFinite(item.latest_volume_modified)
+          ? Math.round(item.latest_volume_modified * 1000)
+          : undefined;
+      entries.push({
+        kind: 'dir',
+        name,
+        url: `${origin}/catalog/api/series?name=${encodeURIComponent(name)}`,
+        ...(subtitleParts.length > 0 ? { sizeText: subtitleParts.join(' · ') } : {}),
+        ...(modifiedAt !== undefined ? { modifiedAt } : {}),
+        isMokuro: false,
+        isImageArchive: false,
+      });
+    }
+    entries.sort((a, b) => compareNatural(a.name, b.name));
+    return { url: `${origin}/catalog/api/library`, path: [], entries, volumes: [] };
+  }
+
+  if (Array.isArray(obj['volumes'])) {
+    const seriesName =
+      typeof obj['name'] === 'string' && obj['name'].trim() !== ''
+        ? obj['name'].trim()
+        : (u.searchParams.get('name') ?? 'Series');
+    const volumes: MokuroCatalogVolume[] = [];
+    for (const v of obj['volumes'] as MokuroApiVolumeItem[]) {
+      if (typeof v !== 'object' || v === null) continue;
+      const volName = typeof v.name === 'string' ? v.name.trim() : '';
+      if (!volName || v.ocr_pending === true) continue;
+      volumes.push({
+        name: volName,
+        mokuroUrl: `${origin}/mokuro-reader/${encodeURIComponent(seriesName)}/${encodeURIComponent(volName)}.mokuro`,
+        imagesUrl: `${origin}/mokuro-reader/${encodeURIComponent(seriesName)}/${encodeURIComponent(volName)}.cbz`,
+        imagesKind: 'archive',
+      });
+    }
+    volumes.sort((a, b) => compareNatural(a.name, b.name));
+    return { url: u.href, path: [seriesName], entries: [], volumes };
+  }
+
+  return undefined;
+}
+
 interface RowMeta {
   sizeText?: string;
   sizeBytes?: number;
@@ -109,6 +215,8 @@ function parseRowMeta(context: string): RowMeta {
  * @param url The URL the page was fetched from (used to resolve hrefs).
  */
 export function parseMokuroMoeListing(html: string, url: string): MokuroCatalogListing {
+  const jsonListing = tryParseMokuroBunkoJson(html, url);
+  if (jsonListing) return jsonListing;
   const base = normaliseListingUrl(url);
   const baseDir = safeDecode(base.pathname);
   const path = baseDir.split('/').filter((s) => s !== '');

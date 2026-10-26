@@ -66,7 +66,7 @@ describe('AiProviderForm — Vertex AI', () => {
     expect(screen.getByTestId('vertex-fields')).toBeInTheDocument();
     expect(screen.queryByTestId('gemini-fields')).not.toBeInTheDocument();
     expect(screen.getByLabelText('GCP 项目 ID')).toBeInTheDocument();
-    expect(screen.getByLabelText('区域（如 us-central1 或 global）')).toHaveValue('us-central1');
+    expect(screen.getByLabelText('区域（如 us-central1 或 global）')).toHaveValue('global');
     for (const name of ['Access Token', '服务账号 JSON', 'Express API Key', 'ADC（gcloud 默认凭据）']) {
       expect(screen.getByRole('radio', { name })).toBeInTheDocument();
     }
@@ -116,8 +116,29 @@ describe('AiProviderForm — Vertex AI', () => {
     const saved = (await host.settings.get()).ai;
     expect(saved.provider).toEqual({ provider: 'vertex-ai', project: 'kotori-proj', location: 'global', auth: { kind: 'access-token', accessToken: 'fake-access-token' } });
     expect(saved.provider).not.toHaveProperty('apiKey');
-    expect(saved.explainModel).toBe('gemini-2.5-flash');
+    expect(saved.explainModel).toBe('gemini-3.8-flash');
     expect(useSettingsStore.getState().settings.ai.provider.provider).toBe('vertex-ai');
+  });
+
+  it('supports selecting models from dropdown menu, manual input, and editing API timeout', async () => {
+    const host = await setup();
+    // Open dropdown menu on explainModel and select gemini-3.5-flash-lite
+    fireEvent.click(screen.getByRole('button', { name: '解析模型 options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.5-flash-lite' }));
+    expect(screen.getByLabelText('解析模型')).toHaveValue('gemini-3.5-flash-lite');
+
+    // Manual input on visionModel
+    type('视觉模型', 'gemini-custom-vision');
+    expect(screen.getByLabelText('视觉模型')).toHaveValue('gemini-custom-vision');
+
+    // Edit API timeout (ms)
+    type('API 超时时间（ms，≥ 1000）', '45000');
+    type('API Key', 'AIza-key');
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(async () => expect((await host.settings.get()).ai.timeoutMs).toBe(45000));
+    const saved = (await host.settings.get()).ai;
+    expect(saved.explainModel).toBe('gemini-3.5-flash-lite');
+    expect(saved.visionModel).toBe('gemini-custom-vision');
   });
 });
 
@@ -129,16 +150,20 @@ describe('AiProviderForm — pure helpers', () => {
     expect(isValidServiceAccountJson(JSON.stringify({ client_email: 'a' }))).toBe(false);
   });
 
-  it('validateAiDraft flags ADC when unavailable and bad thinking budgets', () => {
+  it('validateAiDraft flags ADC when unavailable, bad thinking budgets, and invalid timeoutMs', () => {
     const base = draftFromSettings(DEFAULT_SETTINGS.ai);
-    const d = { ...base, provider: 'vertex-ai' as const, vertex: { ...base.vertex, project: 'p', authKind: 'adc' as const }, thinkingBudget: '-3' };
-    expect(validateAiDraft(d, { vertexAdc: false })).toEqual({ authKind: 'settings.ai.adcUnavailable', thinkingBudget: 'settings.invalidNumber' });
-    expect(validateAiDraft({ ...d, thinkingBudget: '1024' }, { vertexAdc: true })).toEqual({});
+    const d = { ...base, provider: 'vertex-ai' as const, vertex: { ...base.vertex, project: 'p', authKind: 'adc' as const }, thinkingBudget: '-3', timeoutMs: 500 };
+    expect(validateAiDraft(d, { vertexAdc: false })).toEqual({
+      authKind: 'settings.ai.adcUnavailable',
+      thinkingBudget: 'settings.invalidNumber',
+      timeoutMs: 'settings.invalidNumber',
+    });
+    expect(validateAiDraft({ ...d, thinkingBudget: '1024', timeoutMs: 30000 }, { vertexAdc: true })).toEqual({});
   });
 
   it('providerFromDraft keeps only the selected variant', () => {
     const base = draftFromSettings(DEFAULT_SETTINGS.ai);
     const d = { ...base, provider: 'vertex-ai' as const, gemini: { ...base.gemini, apiKey: 'leak?' }, vertex: { ...base.vertex, authKind: 'express-api-key' as const, expressKey: 'k', project: 'ignored' } };
-    expect(providerFromDraft(d)).toEqual({ provider: 'vertex-ai', location: 'us-central1', auth: { kind: 'express-api-key', apiKey: 'k' } });
+    expect(providerFromDraft(d)).toEqual({ provider: 'vertex-ai', location: 'global', auth: { kind: 'express-api-key', apiKey: 'k' } });
   });
 });

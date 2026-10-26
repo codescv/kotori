@@ -29,6 +29,7 @@ export {
   createJimakuClient,
   matchJimakuFilesToEpisodes,
   parseMokuroMoeListing,
+  resolveMokuroCatalogUrl,
   buildNyaaRssUrl,
   parseNyaaRss,
   buildNyaaMagnet,

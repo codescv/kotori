@@ -1,10 +1,11 @@
-/** mokuro.moe catalog browser: breadcrumbs, directories, and importable volumes. */
-import { useEffect, useState } from 'react';
+/** mokuro.moe catalog browser: breadcrumbs, search filter, directories, and importable volumes. */
+import { useEffect, useMemo, useState } from 'react';
 import type { MokuroCatalogListing, MokuroCatalogVolume } from '@kotori/core';
 import { Button } from '../../components/m3/Button';
 import { Icon } from '../../components/m3/Icon';
 import { List, ListItem } from '../../components/m3/List';
 import { LinearProgress } from '../../components/m3/Progress';
+import { TextField } from '../../components/m3/TextField';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
@@ -18,6 +19,7 @@ export function MokuroCatalogBrowser() {
   const upsert = useDownloadsStore((s) => s.upsert);
   const root = useSettingsStore((s) => s.settings.downloads.mokuroCatalogUrl);
   const [url, setUrl] = useState<string | undefined>(undefined);
+  const [filter, setFilter] = useState('');
   const [listing, setListing] = useState<MokuroCatalogListing | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -27,6 +29,7 @@ export function MokuroCatalogBrowser() {
     let alive = true;
     setLoading(true);
     setError(undefined);
+    setFilter('');
     host.downloads
       .browseMokuroCatalog(url)
       .then((l) => alive && setListing(l))
@@ -39,8 +42,10 @@ export function MokuroCatalogBrowser() {
 
   const crumbUrl = (depth: number): string | undefined => {
     if (!listing) return undefined;
+    if (depth === 0) return undefined;
+    if (listing.url.includes('/catalog/api/series')) return listing.url;
     const base = root.endsWith('/') ? root : `${root}/`;
-    return depth === 0 ? undefined : base + listing.path.slice(0, depth).map((p) => `${encodeURIComponent(p)}/`).join('');
+    return base + listing.path.slice(0, depth).map((p) => `${encodeURIComponent(p)}/`).join('');
   };
 
   const download = async (v: MokuroCatalogVolume): Promise<void> => {
@@ -54,7 +59,19 @@ export function MokuroCatalogBrowser() {
     }
   };
 
-  const dirs = listing?.entries.filter((e) => e.kind === 'dir') ?? [];
+  const q = filter.trim().toLowerCase();
+  const dirs = useMemo(() => {
+    const all = listing?.entries.filter((e) => e.kind === 'dir') ?? [];
+    if (!q) return all;
+    return all.filter((d) => d.name.toLowerCase().includes(q) || (d.sizeText ?? '').toLowerCase().includes(q));
+  }, [listing, q]);
+
+  const volumes = useMemo(() => {
+    const all = listing?.volumes ?? [];
+    if (!q) return all;
+    return all.filter((v) => v.name.toLowerCase().includes(q));
+  }, [listing, q]);
+
   return (
     <section className="k-dl-search">
       <nav className="k-dl-crumbs" aria-label={t('downloads.mokuro.root')}>
@@ -70,18 +87,21 @@ export function MokuroCatalogBrowser() {
           </span>
         ))}
       </nav>
+      <div className="k-dl-search__bar">
+        <TextField leadingIcon="search" label={t('downloads.mokuro.search')} value={filter} onValueChange={setFilter} />
+      </div>
       {loading && <LinearProgress label={t('common.loading')} />}
       {error && <p className="k-error-text">{t('common.error', { message: error })}</p>}
-      {listing && listing.volumes.length > 0 && (
+      {listing && volumes.length > 0 && (
         <>
           <h3 className="k-title-small k-muted">{t('downloads.mokuro.volumes')}</h3>
           <List>
-            {listing.volumes.map((v) => (
+            {volumes.map((v) => (
               <ListItem
                 key={v.mokuroUrl}
                 leading={<Icon name="book" />}
                 headline={v.name}
-                supporting={`.mokuro + ${v.imagesKind === 'archive' ? 'zip' : 'dir'} · ${formatBytes(v.sizeBytes)}`}
+                supporting={`.mokuro + ${v.imagesKind === 'archive' ? 'cbz/zip' : 'dir'}${v.sizeBytes !== undefined ? ` · ${formatBytes(v.sizeBytes)}` : ''}`}
                 trailing={
                   <Button variant={started.has(v.mokuroUrl) ? 'tonal' : 'filled'} icon={started.has(v.mokuroUrl) ? 'check' : 'download'} disabled={started.has(v.mokuroUrl)} onClick={() => void download(v)}>
                     {t('downloads.mokuro.download')}
@@ -95,11 +115,11 @@ export function MokuroCatalogBrowser() {
       {dirs.length > 0 && (
         <List>
           {dirs.map((d) => (
-            <ListItem key={d.url} leading={<Icon name="folder" />} headline={d.name} trailing={<Icon name="chevronRight" />} onClick={() => setUrl(d.url)} />
+            <ListItem key={d.url} leading={<Icon name="folder" />} headline={d.name} supporting={d.sizeText} trailing={<Icon name="chevronRight" />} onClick={() => setUrl(d.url)} />
           ))}
         </List>
       )}
-      {listing && !loading && dirs.length === 0 && listing.volumes.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
+      {listing && !loading && dirs.length === 0 && volumes.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
     </section>
   );
 }

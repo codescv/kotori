@@ -56,12 +56,12 @@ describe('ai (core explain service over IndexedDB cache)', () => {
     const fresh = await t.host.ai.explain(req);
     expect(t.calls).toHaveLength(1);
     expect(t.calls[0]).toContain('generativelanguage.googleapis.com');
-    expect(t.calls[0]).toContain('gemini-2.5-flash:generateContent');
+    expect(t.calls[0]).toContain('gemini-3.8-flash:generateContent');
     expect(fresh.sentence).toBe(SLANG.sentence);
     expect(fresh.fromCache).toBe(false);
     expect(fresh.ruby.map((r) => r.base).join('')).toBe(SLANG.sentence);
     expect(fresh.chunks.some((c) => c.textbookForm.includes('ている'))).toBe(true);
-    expect(fresh.id).toBe(await explanationCacheKey({ sentence: SLANG.sentence, targetLanguage: 'zh-CN', model: 'gemini-2.5-flash', promptVersion: PROMPT_VERSION }));
+    expect(fresh.id).toBe(await explanationCacheKey({ sentence: SLANG.sentence, targetLanguage: 'zh-CN', model: 'gemini-3.8-flash', promptVersion: PROMPT_VERSION }));
 
     const cached = await t.host.ai.getCachedExplanation(req);
     expect(cached).toMatchObject({ id: fresh.id, fromCache: true });
@@ -93,7 +93,7 @@ describe('ai (core explain service over IndexedDB cache)', () => {
     await expect(t.host.ai.explain(request('猫'), { signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' });
     await expect(t.host.ai.explain(request('猫'))).rejects.toMatchObject({ code: 'ai-auth' });
     const result = await t.host.settings.testAi();
-    expect(result).toMatchObject({ ok: false, model: 'gemini-2.5-flash' });
+    expect(result).toMatchObject({ ok: false, model: 'gemini-3.8-flash' });
     expect(result.message).toMatch(/^ai-auth/);
   });
 

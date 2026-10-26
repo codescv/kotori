@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { KotoriError } from '@kotori/core';
 import type { DirectoryEntry, DownloadsApi, FilesApi } from '@kotori/core';
-import { buildNyaaRssUrl, createJimakuClient, parseMokuroMoeListing, parseNyaaRss } from '@kotori/core';
+import { buildNyaaRssUrl, createJimakuClient, parseMokuroMoeListing, parseNyaaRss, resolveMokuroCatalogUrl } from '@kotori/core';
 import type { DownloadManager } from '../../downloads/manager';
 import type { SettingsStore } from '../../settings/store';
 
@@ -38,8 +38,9 @@ export function createDownloadsService(deps: DownloadsServiceDeps): DownloadsApi
     listJimakuFiles: (entryId, episode) => jimaku().listFiles(entryId, episode),
     async browseMokuroCatalog(url) {
       const root = deps.settings.get().downloads.mokuroCatalogUrl;
-      const target = url ?? root;
-      if (!/^https?:\/\//i.test(target)) throw new KotoriError('invalid-argument', 'Catalog URL must be http(s)');
+      const rawTarget = url ?? root;
+      if (!/^https?:\/\//i.test(rawTarget)) throw new KotoriError('invalid-argument', 'Catalog URL must be http(s)');
+      const target = resolveMokuroCatalogUrl(rawTarget);
       return parseMokuroMoeListing(await fetchText(deps.fetch, target), target);
     },
     list: async () => deps.manager().list(),

@@ -37,6 +37,7 @@ import {
   parseMagnet,
   parseMokuroMoeListing,
   parseNyaaRss,
+  resolveMokuroCatalogUrl,
 } from './adapters/core';
 import { uniqueId, type HostContext } from './context';
 import type { AnimeLibrary } from './library/anime';
@@ -516,7 +517,7 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     searchJimaku: async (query) => jimaku().searchEntries(query),
     listJimakuFiles: async (entryId, episode) => jimaku().listFiles(entryId, episode),
     async browseMokuroCatalog(url) {
-      const target = url ?? settings().downloads.mokuroCatalogUrl;
+      const target = resolveMokuroCatalogUrl(url ?? settings().downloads.mokuroCatalogUrl);
       const response = await httpGet(target);
       return parseMokuroMoeListing(await response.text(), target);
     },

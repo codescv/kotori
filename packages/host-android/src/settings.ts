@@ -15,8 +15,8 @@ export function defaultSettings(downloadDir: string): AppSettings {
     schemaVersion: 1,
     ai: {
       provider: { provider: 'gemini-api', apiKey: '' },
-      explainModel: 'gemini-2.5-flash',
-      visionModel: 'gemini-2.5-flash',
+      explainModel: 'gemini-3.8-flash',
+      visionModel: 'gemini-3.8-flash',
       temperature: 0.2,
       targetLanguage: 'zh-CN',
       cacheEnabled: true,

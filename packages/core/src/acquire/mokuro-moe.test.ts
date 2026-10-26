@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMokuroMoeListing } from './mokuro-moe';
+import { parseMokuroMoeListing, resolveMokuroCatalogUrl } from './mokuro-moe';
 
 // `types: []` keeps node typings out of core; load fixtures via an untyped dynamic import.
 const NODE_FS = 'node:fs';
@@ -98,5 +98,53 @@ describe('parseMokuroMoeListing', () => {
     expect(listing.volumes).toHaveLength(1);
     expect(listing.volumes[0]?.imagesKind).toBe('archive');
     expect(parseMokuroMoeListing('', 'https://mokuro.moe/x/')).toEqual({ url: 'https://mokuro.moe/x/', path: ['x'], entries: [], volumes: [] });
+  });
+
+  it('parses Mokuro Bunko JSON /catalog/api/library and /catalog/api/series responses', () => {
+    expect(resolveMokuroCatalogUrl('https://mokuro.moe/manga/')).toBe('https://mokuro.moe/catalog/api/library');
+    expect(resolveMokuroCatalogUrl('https://mokuro.moe')).toBe('https://mokuro.moe/catalog/api/library');
+    expect(resolveMokuroCatalogUrl('https://example.com/manga/')).toBe('https://example.com/manga/');
+
+    const libJson = JSON.stringify({
+      series: [
+        {
+          name: '14 Sai no Koi',
+          volume_count: 12,
+          latest_volume_modified: 1700000000,
+          titles: { native: '14歳の恋', romaji: '14-sai no Koi', english: 'Love at Fourteen' },
+        },
+      ],
+    });
+    const lib = parseMokuroMoeListing(libJson, 'https://mokuro.moe/catalog/api/library');
+    expect(lib.path).toEqual([]);
+    expect(lib.entries).toEqual([
+      {
+        kind: 'dir',
+        name: '14 Sai no Koi',
+        url: 'https://mokuro.moe/catalog/api/series?name=14%20Sai%20no%20Koi',
+        sizeText: '14歳の恋 · Love at Fourteen · 12 vol',
+        modifiedAt: 1700000000000,
+        isMokuro: false,
+        isImageArchive: false,
+      },
+    ]);
+
+    const seriesJson = JSON.stringify({
+      name: '#Zombie Sagashitemasu',
+      volumes: [
+        { name: '-Zombie-Sagashitemasu-01', ocr_pending: false },
+        { name: '-Zombie-Sagashitemasu-02', ocr_pending: true },
+      ],
+    });
+    const series = parseMokuroMoeListing(seriesJson, 'https://mokuro.moe/catalog/api/series?name=%23Zombie%20Sagashitemasu');
+    expect(series.path).toEqual(['#Zombie Sagashitemasu']);
+    expect(series.volumes).toEqual([
+      {
+        name: '-Zombie-Sagashitemasu-01',
+        mokuroUrl: 'https://mokuro.moe/mokuro-reader/%23Zombie%20Sagashitemasu/-Zombie-Sagashitemasu-01.mokuro',
+        imagesUrl: 'https://mokuro.moe/mokuro-reader/%23Zombie%20Sagashitemasu/-Zombie-Sagashitemasu-01.cbz',
+        imagesKind: 'archive',
+      },
+    ]);
   });
 });
