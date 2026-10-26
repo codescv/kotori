@@ -185,6 +185,23 @@ describe('createExplainService.followUp', () => {
     expect(await service.getCachedExplanation(req)).toBeUndefined();
     expect(await service.getThread(expl.id)).toEqual([]);
   });
+
+  it('defaults omitted targetLanguage and history for raw REST callers', async () => {
+    const { service } = setup([() => ({ text: rawText }), () => ({ text: '答1' }), () => ({ text: '答2' })], { targetLanguage: 'zh-CN' });
+    const rawExplainReq = { sentence: '食べてんじゃねぇよ' } as unknown as ExplainRequest;
+    const expl = await service.explain(rawExplainReq);
+    expect(expl.targetLanguage).toBe('zh-CN');
+    expect((await service.getCachedExplanation(rawExplainReq))?.id).toBe(expl.id);
+
+    const rawFollowUp1 = { explanationId: expl.id, question: 'Q1' } as unknown as Parameters<typeof service.followUp>[0];
+    const m1 = await service.followUp(rawFollowUp1);
+    expect(m1.text).toBe('答1');
+
+    const rawFollowUp2 = { explanationId: expl.id, question: 'Q2' } as unknown as Parameters<typeof service.followUp>[0];
+    const m2 = await service.followUp(rawFollowUp2);
+    expect(m2.text).toBe('答2');
+    expect((await service.getThread(expl.id)).map((m) => m.text)).toEqual(['Q1', '答1', 'Q2', '答2']);
+  });
 });
 
 describe('createExplainService vision', () => {
