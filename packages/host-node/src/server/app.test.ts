@@ -109,7 +109,7 @@ async function harness(options: { webDir?: string } = {}): Promise<Harness> {
   const app = createApp(ctx);
   const events: HostEvent[] = [];
   ctx.events.subscribe((e) => events.push(e));
-  const host = createRestPlatformHost({ baseUrl: 'http://kotori.test', fetch: async (url, init) => app.request(url, init) });
+  const host = createRestPlatformHost({ baseUrl: 'http://127.0.0.1:7865', fetch: async (url, init) => app.request(url, init) });
   return { dir, ctx, app, host, events, fetchLog, opener, geminiCalls: () => gemini };
 }
 
@@ -163,11 +163,52 @@ describe('REST route coverage', () => {
     expect(unknown.status).toBe(404);
     const bad = await h.app.request('/api/settings', { method: 'PATCH', body: '{not json', headers: { 'content-type': 'application/json' } });
     expect(bad.status).toBe(400);
-    const invalid = await h.app.request('/api/settings', { method: 'PATCH', body: JSON.stringify({ ai: { temperature: 9 } }) });
+    const invalid = await h.app.request('/api/settings', { method: 'PATCH', body: JSON.stringify({ ai: { temperature: 9 } }), headers: { 'content-type': 'application/json' } });
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toMatchObject({ error: { code: 'invalid-argument', details: { field: 'ai.temperature' } } });
     const unsupported = await h.app.request('/api/anime/episodes/x/embedded/1', { method: 'POST' });
     expect([404, 501]).toContain(unsupported.status);
+  });
+});
+
+describe('local-only guard (CSRF / DNS rebinding)', () => {
+  it('rejects foreign Host headers, including reads', async () => {
+    const res = await h.app.request('http://evil.example:7865/api/settings');
+    expect(res.status).toBe(403);
+    const rebind = await h.app.request('/api/settings', { headers: { host: 'evil.example:7865' } });
+    expect(rebind.status).toBe(403);
+    for (const ok of ['http://127.0.0.1:7865/api/info', 'http://localhost:5173/api/info', 'http://[::1]:7865/api/info']) {
+      expect((await h.app.request(ok)).status, ok).toBe(200);
+    }
+  });
+
+  it('rejects cross-origin writes and non-JSON bodies', async () => {
+    const body = JSON.stringify({ path: join(h.dir, 'nope') });
+    const crossOrigin = await h.app.request('http://127.0.0.1:7865/api/manga/volumes', {
+      method: 'POST',
+      body,
+      headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
+    });
+    expect(crossOrigin.status).toBe(403);
+    const textPlain = await h.app.request('http://127.0.0.1:7865/api/manga/volumes', { method: 'POST', body, headers: { 'content-type': 'text/plain' } });
+    expect(textPlain.status).toBe(415);
+    const form = await h.app.request('http://127.0.0.1:7865/api/files/open-external', {
+      method: 'POST',
+      body: 'url=https%3A%2F%2Fx',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+    expect(form.status).toBe(415);
+    const noBodyCross = await h.app.request('http://127.0.0.1:7865/api/downloads/x/cancel', { method: 'POST', headers: { origin: 'null' } });
+    expect(noBodyCross.status).toBe(403);
+    expect(h.opener).not.toHaveBeenCalled();
+    const sameOrigin = await h.app.request('http://127.0.0.1:7865/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ ui: { theme: 'dark' } }),
+      headers: { origin: 'http://127.0.0.1:7865', 'content-type': 'application/json' },
+    });
+    expect(sameOrigin.status).toBe(200);
+    const noBody = await h.app.request('http://127.0.0.1:7865/api/downloads/x/cancel', { method: 'POST' });
+    expect(noBody.status).toBe(404); // reaches the handler (unknown task), not blocked
   });
 });
 
@@ -453,6 +494,9 @@ describe('files', () => {
     await h.host.files.openExternal?.('magnet:?xt=urn:btih:abc');
     expect(h.opener).toHaveBeenCalledWith('magnet:?xt=urn:btih:abc');
     await expect(h.host.files.openExternal?.('javascript:alert(1)')).rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(h.host.files.openExternal?.('file:///tmp/evil.command')).rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(h.host.files.openExternal?.('/tmp/evil.app')).rejects.toMatchObject({ code: 'invalid-argument' });
+    expect(h.opener).toHaveBeenCalledTimes(1);
     await expect(h.host.files.listDirectory?.('relative')).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 });

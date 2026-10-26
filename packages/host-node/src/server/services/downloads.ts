@@ -106,7 +106,8 @@ export function createFilesService(deps: { opener?: Opener; home?: string } = {}
       return parent === abs ? { path: abs, entries } : { path: abs, parent, entries };
     },
     async openExternal(url) {
-      if (!/^(https?:|magnet:|file:)/i.test(url) && !isAbsolute(url)) throw new KotoriError('invalid-argument', 'Only http(s), magnet, file URLs or absolute paths can be opened');
+      // Never hand local files / custom schemes to the OS opener (could execute downloaded content).
+      if (!/^(https?:\/\/|magnet:\?)/i.test(url)) throw new KotoriError('invalid-argument', 'Only http(s) and magnet links can be opened externally');
       await opener(url);
     },
   };

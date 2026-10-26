@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import { API_PREFIX, INFO_PATH, okEnvelope } from '../shared';
 import { rangeResponse } from '../media/range-stream';
 import type { ServerContext } from './context';
+import { localOnlyGuard } from './guard';
 import { mountAiRoutes } from './routes/ai';
 import { mountAnimeRoutes } from './routes/anime';
 import { errorResponse } from './routes/api';
@@ -48,6 +49,8 @@ export function createApp(ctx: ServerContext): Hono {
   const app = new Hono();
 
   app.onError((error, c) => errorResponse(c, error));
+  // Must run first: blocks DNS-rebinding hosts and cross-site writes.
+  app.use('*', localOnlyGuard(ctx.options));
 
   app.get(INFO_PATH, (c) => c.json(okEnvelope(ctx.info)));
   app.get(`${API_PREFIX}/health`, (c) => c.json(okEnvelope({ status: 'ok' })));
