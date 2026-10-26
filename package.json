@@ -21,6 +21,7 @@
     "start": "pnpm --filter @kotori/host-node start",
     "start:app": "pnpm --filter @kotori/host-node start:app",
     "start:new": "pnpm --filter @kotori/host-node start:app",
+    "build:apk": "pnpm --filter @kotori/host-android build:apk",
     "dev:ui": "pnpm --filter @kotori/ui dev",
     "dev:node": "pnpm --filter @kotori/host-node dev",
     "start:node": "pnpm --filter @kotori/host-node start"

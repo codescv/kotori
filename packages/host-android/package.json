@@ -17,7 +17,8 @@
     "cap:add": "cap add android",
     "cap:sync": "pnpm run build:web && cap sync android",
     "cap:open": "cap open android",
-    "cap:run": "pnpm run cap:sync && cap run android"
+    "cap:run": "pnpm run cap:sync && cap run android",
+    "build:apk": "pnpm run cap:sync && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
