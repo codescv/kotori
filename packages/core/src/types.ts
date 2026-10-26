@@ -188,8 +188,16 @@ export type ExplainSource =
       readonly kind: 'subtitle';
       readonly episodeId: Id;
       readonly trackId: Id;
-      /** Raw cue indexes merged into this sentence (1 or more). */
+      /** Raw cue indexes merged into this sentence (1 or more), in order. */
       readonly cueIndexes: readonly number[];
+      /**
+       * Parallel to `cueIndexes`: where each cue's `text` sits inside
+       * `ExplainRequest.sentence`, so a click at `(cueIndex, localCharIndex)`
+       * in the overlay/transcript maps to `cueCharSpans[k][0] + localCharIndex`
+       * (see `cueOffsetToSentenceIndex()` in core). A single cue is
+       * `[[0, text.length]]`.
+       */
+      readonly cueCharSpans: readonly CharSpan[];
       readonly startMs: number;
       readonly endMs: number;
     }
@@ -269,6 +277,11 @@ export interface FollowUpMessage {
 
 export interface FollowUpRequest {
   readonly explanationId: Id;
+  /**
+   * The explanation being discussed. The UI always passes it; hosts prefer it
+   * over a cache lookup so follow-ups work when `cacheEnabled` is false.
+   */
+  readonly explanation?: SentenceExplanation;
   /** Prior thread, oldest first. Core prepends the explanation as context. */
   readonly history: readonly FollowUpMessage[];
   readonly question: string;
@@ -300,12 +313,17 @@ export type VertexAuth =
   /** Caller-supplied OAuth2 bearer token (e.g. from `gcloud auth print-access-token`). */
   | { readonly kind: 'access-token'; readonly accessToken: string; readonly expiresAt?: EpochMs }
   /**
-   * Application Default Credentials resolved by the host (Node: google-auth-library
-   * / metadata server; Android: unsupported → UI must hide this option when
-   * `HostCapabilities.vertexAdc` is false).
+   * Application Default Credentials resolved by the host (Node:
+   * google-auth-library / gcloud user creds / metadata server). Only offered
+   * when `HostCapabilities.vertexAdc` is true (desktop); Android has no ADC.
    */
   | { readonly kind: 'adc' }
-  /** Service-account JSON key contents (host exchanges it for a token). */
+  /**
+   * Service-account JSON key contents. Exchanged for an OAuth2 token in
+   * **core** (`createServiceAccountTokenProvider`: RS256 JWT via
+   * `crypto.subtle` + token endpoint `fetch`), so it works identically on
+   * desktop and Android.
+   */
   | { readonly kind: 'service-account-json'; readonly json: string }
   /** Vertex AI Express mode: API key on the Vertex endpoint, no project needed. */
   | { readonly kind: 'express-api-key'; readonly apiKey: string };
@@ -1086,7 +1104,7 @@ export interface HostCapabilities {
   readonly torrent: boolean;
   /** MKV embedded subtitle extraction via system ffmpeg. */
   readonly embeddedSubtitles: boolean;
-  /** Vertex AI ADC / service-account auth available in this host. */
+  /** Vertex AI **ADC** auth available in this host (desktop only). `access-token`, `service-account-json` and `express-api-key` work on every host. */
   readonly vertexAdc: boolean;
   /** Host can present a native directory picker (`files.pickDirectory`). */
   readonly directoryPicker: boolean;
@@ -1167,15 +1185,24 @@ export interface MangaApi {
   addBlocks(volumeId: Id, pageIndex: number, blocks: readonly Omit<MangaBlock, 'index'>[]): Promise<MangaPage>;
 }
 
+/** Per-call options for long-running AI methods. */
+export interface AiCallOptions {
+  /**
+   * Abort the in-flight model call (e.g. the user clicked another sentence).
+   * Implementations reject with `KotoriError('cancelled')`.
+   */
+  readonly signal?: AbortSignal;
+}
+
 export interface AiApi {
-  explain(request: ExplainRequest): Promise<SentenceExplanation>;
+  explain(request: ExplainRequest, options?: AiCallOptions): Promise<SentenceExplanation>;
   /** Cached explanation lookup without a model call (`undefined` on miss). */
   getCachedExplanation(request: ExplainRequest): Promise<SentenceExplanation | undefined>;
-  followUp(request: FollowUpRequest): Promise<FollowUpMessage>;
+  followUp(request: FollowUpRequest, options?: AiCallOptions): Promise<FollowUpMessage>;
   /** Streaming variant; hosts without `capabilities.streaming` may omit it. */
-  followUpStream?(request: FollowUpRequest, onDelta: (delta: FollowUpDelta) => void): Promise<FollowUpMessage>;
-  ocrBubble(request: MangaBubbleOcrRequest): Promise<MangaBubbleOcrResult>;
-  pageGuide(request: MangaPageGuideRequest): Promise<MangaPageGuideResult>;
+  followUpStream?(request: FollowUpRequest, onDelta: (delta: FollowUpDelta) => void, options?: AiCallOptions): Promise<FollowUpMessage>;
+  ocrBubble(request: MangaBubbleOcrRequest, options?: AiCallOptions): Promise<MangaBubbleOcrResult>;
+  pageGuide(request: MangaPageGuideRequest, options?: AiCallOptions): Promise<MangaPageGuideResult>;
   /** Persisted follow-up threads per explanation. */
   getThread(explanationId: Id): Promise<readonly FollowUpMessage[]>;
   clearCache(): Promise<{ readonly removed: number }>;

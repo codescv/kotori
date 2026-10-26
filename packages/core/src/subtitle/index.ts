@@ -11,7 +11,9 @@
  *   - parse.ts          parseSubtitle(input) — format sniff + dispatch
  *   - merge-per-char.ts mergePerCharacterCueGroups(cues) → MergedCueGroups
  *   - transcript.ts     buildTranscriptRows(cues, options) → TranscriptRow[] (merge + dedupe + chain fold)
- *   - cue-utils.ts      cueIndexAt(cues, ms), nextCue, prevCue, applyDelay, mergeCuesToSentence(cues[])
+ *   - cue-utils.ts      cueIndexAt(cues, ms), nextCue, prevCue, applyDelay,
+ *                       mergeCuesToSentence(cues[]) → { text, startMs, endMs, cueIndexes, cueCharSpans },
+ *                       cueOffsetToSentenceIndex(source, cueIndex, localIdx), sentenceIndexToCueOffset(source, idx)
  *   - episode-name.ts   parseEpisodeName(fileName) → ParsedEpisodeName
  *   - language.ts       detectSubtitleLanguageFromName(fileName) → LanguageTag | undefined
  */
