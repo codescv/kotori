@@ -1,0 +1,98 @@
+/** Theme mode, M3 seed colour (presets + hex), UI locale and text scale — all applied live. */
+import { useEffect, useState } from 'react';
+import type { ThemeMode, UiSettings } from '@kotori/core';
+import { SegmentedButton } from '../../components/m3/SegmentedButton';
+import { Slider } from '../../components/m3/Slider';
+import { TextField } from '../../components/m3/TextField';
+import { cx } from '../../components/m3/cx';
+import { useT } from '../../i18n';
+import { useSettingsStore } from '../../stores/settings';
+import { DEFAULT_SEED_COLOR, normaliseSeed } from '../../theme/m3-theme';
+import { usePatchSettings } from './fields';
+
+export const SEED_PRESETS: readonly string[] = [DEFAULT_SEED_COLOR, '#7d8fc9', '#c98d7d', '#b48ab4', '#c9b37d', '#6fa8b8', '#d0849a', '#8f9a6b'];
+
+const HEX6 = /^#?[0-9a-f]{6}$/i;
+
+export function AppearanceSection() {
+  const t = useT();
+  const ui = useSettingsStore((s) => s.settings.ui);
+  const patch = usePatchSettings();
+  const seed = normaliseSeed(ui.seedColor);
+  const [hex, setHex] = useState(seed);
+  useEffect(() => setHex(seed), [seed]);
+  const hexValid = HEX6.test(hex.trim());
+
+  return (
+    <div className="k-stack">
+      <div className="k-settings-field">
+        <span className="k-label-large">{t('settings.appearance.theme')}</span>
+        <SegmentedButton<ThemeMode>
+          label={t('settings.appearance.theme')}
+          value={ui.theme}
+          onChange={(theme) => void patch({ ui: { theme } })}
+          segments={[
+            { value: 'system', label: t('settings.appearance.system') },
+            { value: 'light', label: t('settings.appearance.light') },
+            { value: 'dark', label: t('settings.appearance.dark') },
+          ]}
+        />
+      </div>
+      <div className="k-settings-field">
+        <span className="k-label-large">{t('settings.appearance.seed')}</span>
+        <div className="k-seed-swatches" role="radiogroup" aria-label={t('settings.appearance.seed')}>
+          {SEED_PRESETS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={c === seed}
+              aria-label={c}
+              title={c}
+              className={cx('k-seed-swatch', c === seed && 'is-selected')}
+              style={{ background: c }}
+              onClick={() => void patch({ ui: { seedColor: c } })}
+            />
+          ))}
+        </div>
+        <TextField
+          label={t('settings.appearance.seedCustom')}
+          value={hex}
+          onValueChange={setHex}
+          error={hexValid ? undefined : t('settings.appearance.invalidHex')}
+          onBlur={() => hexValid && normaliseSeed(hex) !== seed && void patch({ ui: { seedColor: normaliseSeed(hex) } })}
+          onKeyDown={(e) => e.key === 'Enter' && hexValid && void patch({ ui: { seedColor: normaliseSeed(hex) } })}
+          trailing={<span className="k-seed-preview" style={{ background: hexValid ? normaliseSeed(hex) : 'transparent' }} />}
+        />
+      </div>
+      <div className="k-settings-field">
+        <span className="k-label-large">{t('settings.appearance.locale')}</span>
+        <SegmentedButton<UiSettings['locale']>
+          label={t('settings.appearance.locale')}
+          value={ui.locale}
+          onChange={(locale) => void patch({ ui: { locale } })}
+          segments={[
+            { value: 'zh-CN', label: '简体中文' },
+            { value: 'en', label: 'English' },
+            { value: 'ja', label: '日本語' },
+          ]}
+        />
+      </div>
+      <Slider
+        label={t('settings.appearance.fontScale')}
+        value={ui.fontScale}
+        min={0.8}
+        max={1.6}
+        step={0.05}
+        format={(v) => `${Math.round(v * 100)}%`}
+        onChange={(fontScale) => void patch({ ui: { fontScale } })}
+      />
+      <p className="k-font-preview" lang="ja">
+        <ruby>
+          食<rt>た</rt>
+        </ruby>
+        べてんじゃねぇよ！
+      </p>
+    </div>
+  );
+}

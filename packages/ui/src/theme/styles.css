@@ -561,3 +561,18 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-msg.is-streaming::after { content: '▍'; animation: k-blink 1s steps(1) infinite; color: var(--md-sys-color-primary); }
 @keyframes k-blink { 50% { opacity: 0; } }
 .k-followup__input { position: sticky; bottom: 0; padding-top: 4px; background: inherit; }
+
+/* ---- path browser (components/PathBrowser.tsx) ---------------------------------- */
+.k-path-browser { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.k-path-browser__bar { display: flex; align-items: center; gap: 8px; }
+.k-path-browser__cwd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--md-sys-typescale-body-small); font-family: var(--md-ref-typeface-mono); color: var(--md-sys-color-on-surface-variant); }
+.k-path-browser__list { list-style: none; margin: 0; padding: 4px; max-height: 300px; overflow: auto; border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container); }
+.k-path-browser__loading { display: grid; place-items: center; padding: 16px; }
+.k-path-browser__entry { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 4px 8px 4px 12px; border: 0; border-radius: var(--md-sys-shape-corner-small); background: transparent; text-align: left; color: var(--md-sys-color-on-surface); }
+.k-path-browser__entry:hover:not(:disabled) { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
+.k-path-browser__entry.is-selected { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.k-path-browser__entry.is-disabled { opacity: 0.45; }
+.k-path-browser__name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.k-path-browser__open { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 16px; color: var(--md-sys-color-on-surface-variant); }
+.k-path-browser__open:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
+.k-path-browser__chosen { margin: 0; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }

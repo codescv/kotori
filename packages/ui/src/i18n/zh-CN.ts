@@ -169,6 +169,8 @@ export const zhCN = {
   'manga.guide.summary': '场景概要',
   'manga.guide.running': 'Gemini 正在阅读本页…',
   'manga.guide.speaker': '说话人：{name}',
+  // manga
+  'manga.library.removeConfirm': '从库中移除这一卷？（不会删除磁盘上的文件）',
 
   'downloads.title': '下载',
   'downloads.tab.tasks': '任务',
@@ -205,6 +207,11 @@ export const zhCN = {
   'downloads.mokuro.volumes': '可导入的卷',
   'downloads.mokuro.download': '下载并导入',
   'downloads.noResults': '没有结果',
+  // downloads (downloads-settings-ui)
+  'downloads.nyaa.noRemakes': '排除重制',
+  'downloads.nyaa.batch': '合集',
+  'downloads.jimaku.goSettings': '前往设置',
+  'downloads.jimaku.archive': '压缩包',
 
   'settings.title': '设置',
   'settings.section.ai': 'AI 服务',
@@ -283,6 +290,24 @@ export const zhCN = {
   'settings.library.add': '添加文件夹',
   'settings.about.platform': '平台：{platform} · {os} · v{version}',
   'settings.about.dataDir': '数据目录：{dir}',
+  // settings (downloads-settings-ui)
+  'settings.invalidNumber': '请输入有效数字',
+  'settings.invalidUrl': '请输入以 http(s):// 开头的地址',
+  'settings.ai.apiVersion': 'API 版本',
+  'settings.ai.reveal': '显示密钥',
+  'settings.ai.hide': '隐藏密钥',
+  'settings.ai.models': '模型与生成',
+  'settings.ai.dirty': '有未保存的更改',
+  'settings.ai.reset': '还原',
+  'settings.ai.expressHelp': 'Express 模式无需项目 ID',
+  'settings.ai.saJsonHelp': '粘贴 GCP 服务账号密钥 JSON（需包含 client_email 与 private_key），令牌在本机交换',
+  'settings.ai.adcUnavailable': '此平台不支持 ADC，请选择其他认证方式',
+  'settings.appearance.seedCustom': '自定义 HEX 颜色',
+  'settings.appearance.invalidHex': '请输入 #RRGGBB 格式',
+  'settings.anime.jimakuKeyHelp': '在 jimaku.cc 账户页面生成 API Key',
+  'settings.downloads.downloadLimit': '下载限速（KiB/s，0 = 不限）',
+  'settings.downloads.uploadLimit': '上传限速（KiB/s，0 = 不限）',
+  'settings.library.empty': '尚未添加文件夹',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

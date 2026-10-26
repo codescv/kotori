@@ -33,8 +33,10 @@ function buildAssCues(lines: readonly LineSpec[], opts: { readonly opLyrics: rea
   type Draft = Omit<SubtitleCue, 'index'>;
   const drafts: Draft[] = [];
 
-  // Per-character karaoke OP: each glyph is its own Dialogue with \pos; the
-  // next lyric line fades in ~100 ms before the previous one fades out.
+  // Per-character karaoke OP: each glyph is its own Dialogue with \pos and
+  // fades in/out in a cascade. The next lyric line fades in 120 ms before the
+  // previous line's last glyph disappears (union overlap) but after its first
+  // glyph left (common window) — the BUG-1439 shape.
   let t = opts.opStart;
   opts.opLyrics.forEach((lyric) => {
     const chars = Array.from(lyric);
@@ -44,19 +46,19 @@ function buildAssCues(lines: readonly LineSpec[], opts: { readonly opLyrics: rea
       const y = 672;
       drafts.push({
         startMs: t + k * 180,
-        endMs: lineEnd,
+        endMs: lineEnd + k * 180,
         text: ch,
         rawText: `{\\an7\\pos(${x},${y})\\fad(250,250)}${ch}`,
         markup: dialogueMarkup({ styleName: 'OP-Kara', alignment: 7, posFraction: { xFraction: x / 1280, yFraction: y / 720 }, fade: { inMs: 250, outMs: 250 } }),
       });
     });
-    t = lineEnd - 100;
+    t = lineEnd + (chars.length - 1) * 180 - 120;
   });
 
   // Sign with \move (typesetting, hidden from the transcript by default).
   drafts.push({
-    startMs: opts.opStart + 500,
-    endMs: opts.opStart + 4500,
+    startMs: Math.max(0, opts.opStart - 3500),
+    endMs: Math.max(0, opts.opStart - 3500) + 3000,
     text: '第一話',
     rawText: '{\\an5\\move(640,200,640,260)\\fad(300,300)}第一話',
     markup: dialogueMarkup({ styleName: 'Sign', alignment: 5, hasMove: true, fade: { inMs: 300, outMs: 300 } }),
