@@ -1,0 +1,155 @@
+{
+ "version": "0.2.1",
+ "title": "Test Manga",
+ "title_uuid": "t-uuid",
+ "volume": "Test Manga 第2巻",
+ "volume_uuid": "v-uuid",
+ "pages": [
+  {
+   "version": "0.2.1",
+   "img_width": 800,
+   "img_height": 1200,
+   "img_path": "001.png",
+   "blocks": [
+    {
+     "box": [
+      600,
+      100,
+      700,
+      500
+     ],
+     "vertical": true,
+     "font_size": 32,
+     "lines": [
+      "食べてんじゃ",
+      "ねぇよ"
+     ],
+     "lines_coords": [
+      [
+       [
+        700,
+        100
+       ],
+       [
+        700,
+        500
+       ],
+       [
+        600,
+        500
+       ],
+       [
+        600,
+        100
+       ]
+      ],
+      [
+       [
+        700,
+        100
+       ],
+       [
+        700,
+        500
+       ],
+       [
+        600,
+        500
+       ],
+       [
+        600,
+        100
+       ]
+      ]
+     ]
+    },
+    {
+     "box": [
+      100,
+      800,
+      300,
+      900
+     ],
+     "vertical": false,
+     "font_size": 32,
+     "lines": [
+      "うん"
+     ],
+     "lines_coords": [
+      [
+       [
+        300,
+        800
+       ],
+       [
+        300,
+        900
+       ],
+       [
+        100,
+        900
+       ],
+       [
+        100,
+        800
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "version": "0.2.1",
+   "img_width": 800,
+   "img_height": 1200,
+   "img_path": "002.png",
+   "blocks": []
+  },
+  {
+   "img_path": "003.png",
+   "img_width": 1600,
+   "img_height": 1200,
+   "blocks": [
+    {
+     "box": "bad"
+    },
+    {
+     "box": [
+      10,
+      10,
+      50,
+      90
+     ],
+     "vertical": true,
+     "font_size": 32,
+     "lines": [
+      "見開き"
+     ],
+     "lines_coords": [
+      [
+       [
+        50,
+        10
+       ],
+       [
+        50,
+        90
+       ],
+       [
+        10,
+        90
+       ],
+       [
+        10,
+        10
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "blocks": []
+  }
+ ]
+}

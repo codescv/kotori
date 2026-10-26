@@ -2,20 +2,21 @@
  * @kotori/host-android — in-process `PlatformHost` for the Capacitor WebView.
  * Owner: coder-2.
  *
- * Planned layout (see ARCHITECTURE.md §7):
- *   capacitor-host.ts   `createCapacitorPlatformHost(): Promise<PlatformHost>`
- *                       capabilities: torrent=false, embeddedSubtitles=false, vertexAdc=false,
- *                       directoryPicker=true (SAF), filePicker=true, pathBrowser=false,
- *                       streaming=true, openExternal=true (magnet → external BT app)
- *   storage/idb.ts      IndexedDB (idb) stores: settings, series, episodes, tracks, volumes,
- *                       pages, explanations, threads, downloads
- *   storage/files.ts    @capacitor/filesystem wrappers; `Capacitor.convertFileSrc` for mediaUrl
- *   library/*.ts        anime scanner / manga importer over Filesystem (reuse @kotori/core parsers)
- *   ai.ts               wires @kotori/core explain-service with `fetch` (Gemini API key or
- *                       Vertex access-token / express key; ADC unsupported on device)
- *   downloads.ts        HTTP downloads (Jimaku, mokuro.moe) with progress → HostEvent;
- *                       torrents hand off via `files.openExternal(magnet)`
+ * Layout (see ARCHITECTURE.md §7):
+ *   capacitor-host.ts   `createCapacitorPlatformHost(deps?)` — wires everything below
+ *   default-deps.ts     production deps (Filesystem, convertFileSrc, pickers, openExternal)
+ *   deps.ts             injectable dependency + `FsOps` interfaces
+ *   adapters/core.ts    core runtime functions (local fallbacks until @kotori/core lands)
+ *   storage/idb.ts      IndexedDB (idb) stores mirroring the desktop tables
+ *   storage/files.ts    @capacitor/filesystem wrappers; app dirs under Directory.Data
+ *   settings.ts         defaults (= desktop), deep-merge patch, settings-changed
+ *   library/anime.ts    folder scan → series/episodes/sidecar tracks; cues LRU
+ *   library/manga.ts    .mokuro / CBZ (fflate, extracted once) / image dir import
+ *   ai.ts               explain engine + IndexedDB explanation cache / threads
+ *   downloads.ts        Jimaku / mokuro.moe / HTTP downloads; torrents → external app
  */
-import type { PlatformHost } from '@kotori/core';
+export { createCapacitorPlatformHost, ANDROID_CAPABILITIES } from './capacitor-host';
+export type { CapacitorHostDeps, FsEntry, FsOps, PickFilesOptions } from './deps';
+export { defaultSettings, mergeSettings } from './settings';
 
-export type CreateCapacitorPlatformHost = () => Promise<PlatformHost>;
+export type CreateCapacitorPlatformHost = typeof import('./capacitor-host').createCapacitorPlatformHost;

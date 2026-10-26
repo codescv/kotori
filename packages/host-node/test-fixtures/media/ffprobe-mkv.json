@@ -1,0 +1,74 @@
+{
+  "streams": [
+    {
+      "index": 0,
+      "codec_name": "mjpeg",
+      "codec_type": "video",
+      "disposition": { "default": 0, "attached_pic": 1 },
+      "tags": { "filename": "cover.jpg", "mimetype": "image/jpeg" }
+    },
+    {
+      "index": 1,
+      "codec_name": "hevc",
+      "codec_type": "video",
+      "width": 1920,
+      "height": 1080,
+      "disposition": { "default": 1, "attached_pic": 0 }
+    },
+    {
+      "index": 2,
+      "codec_name": "aac",
+      "codec_type": "audio",
+      "disposition": { "default": 1 },
+      "tags": { "language": "jpn" }
+    },
+    {
+      "index": 3,
+      "codec_name": "ac3",
+      "codec_type": "audio",
+      "disposition": { "default": 0 },
+      "tags": { "language": "eng" }
+    },
+    {
+      "index": 4,
+      "codec_name": "ass",
+      "codec_type": "subtitle",
+      "disposition": { "default": 1, "forced": 0 },
+      "tags": { "language": "jpn", "title": "日本語" }
+    },
+    {
+      "index": 5,
+      "codec_name": "subrip",
+      "codec_type": "subtitle",
+      "disposition": { "default": 0 },
+      "tags": { "language": "eng" }
+    },
+    {
+      "index": 6,
+      "codec_name": "hdmv_pgs_subtitle",
+      "codec_type": "subtitle",
+      "disposition": { "default": 0 },
+      "tags": { "language": "chi" }
+    },
+    {
+      "index": 7,
+      "codec_name": "mov_text",
+      "codec_type": "subtitle",
+      "disposition": { "default": 0 },
+      "tags": { "language": "und" }
+    },
+    {
+      "index": 8,
+      "codec_name": "ttf",
+      "codec_type": "attachment",
+      "tags": { "filename": "font.ttf" }
+    }
+  ],
+  "format": {
+    "filename": "sample.mkv",
+    "nb_streams": 9,
+    "format_name": "matroska,webm",
+    "duration": "1420.512000",
+    "size": "123456789"
+  }
+}

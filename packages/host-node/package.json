@@ -12,7 +12,11 @@
     "./client": "./src/client/index.ts",
     "./shared": "./src/shared/index.ts"
   },
-  "files": ["bin", "dist", "src"],
+  "files": [
+    "bin",
+    "dist",
+    "src"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -23,11 +27,12 @@
     "start": "node bin/kotori.mjs"
   },
   "dependencies": {
-    "@kotori/core": "workspace:*",
     "@hono/node-server": "^1.19.0",
+    "@kotori/core": "workspace:*",
     "bencode": "^4.0.1",
     "bittorrent-dht": "^11.0.12",
     "bittorrent-protocol": "^5.0.9",
+    "fflate": "^0.8.3",
     "google-auth-library": "^11.3.1",
     "hono": "^4.13.0",
     "ut_metadata": "^5.0.1"

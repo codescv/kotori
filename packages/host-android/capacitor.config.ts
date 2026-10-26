@@ -13,6 +13,11 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
   },
+  plugins: {
+    // Patch window.fetch/XHR to go through the native HTTP stack so Gemini,
+    // Jimaku, mokuro.moe and Nyaa are reachable from the WebView without CORS.
+    CapacitorHttp: { enabled: true },
+  },
 };
 
 export default config;

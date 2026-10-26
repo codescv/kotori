@@ -1,0 +1,57 @@
+{
+  "sentence": "食べてんじゃねぇよ",
+  "targetLanguage": "zh-CN",
+  "raw": {
+    "translation": "别吃了啊！",
+    "literalTranslation": "不是在吃吗（=不许吃）",
+    "register": "rough",
+    "tone": "粗鲁地制止对方",
+    "ruby": [
+      { "base": "食", "ruby": "た" },
+      { "base": "べてんじゃねぇよ" }
+    ],
+    "chunks": [
+      {
+        "surface": "食べ",
+        "reading": "たべ",
+        "textbookForm": "食べ",
+        "role": "动词词干",
+        "meaning": "吃",
+        "vocab": [
+          { "surface": "食べ", "lemma": "食べる", "lemmaReading": "たべる", "lemmaRuby": [{ "base": "食", "ruby": "た" }, { "base": "べる" }], "partOfSpeech": "verb", "meaning": "吃", "conjugation": "連用形", "jlpt": "N5" }
+        ]
+      },
+      {
+        "surface": "てんじゃねぇ",
+        "reading": "てんじゃねぇ",
+        "textbookForm": "ているのではない",
+        "spokenEvolution": {
+          "kind": "縮約",
+          "derivation": "ているのではない → てるんではない → てんじゃない → てんじゃねぇ（ない→ねぇ 音变）",
+          "formality": 0.05
+        },
+        "role": "谓语（否定・禁止语气）",
+        "meaning": "不许……；别……",
+        "nuance": "男性粗鲁口语，常用于斥责",
+        "vocab": [
+          { "surface": "てん", "lemma": "ている", "lemmaReading": "ている", "lemmaRuby": [{ "base": "ている" }], "partOfSpeech": "auxiliary", "meaning": "正在（持续）", "conjugation": "ている → てる → てん（の前）" },
+          { "surface": "じゃねぇ", "lemma": "ではない", "lemmaReading": "ではない", "lemmaRuby": [{ "base": "ではない" }], "partOfSpeech": "expression", "meaning": "不是", "conjugation": "ではない → じゃない → じゃねぇ", "notes": "ねぇ 是 ない 的粗俗音变" }
+        ]
+      },
+      {
+        "surface": "よ",
+        "reading": "よ",
+        "textbookForm": "よ",
+        "role": "句末语气词",
+        "meaning": "加强语气",
+        "vocab": [
+          { "surface": "よ", "lemma": "よ", "lemmaReading": "よ", "lemmaRuby": [{ "base": "よ" }], "partOfSpeech": "particle", "meaning": "强调" }
+        ]
+      }
+    ],
+    "grammar": [
+      { "pattern": "〜てんじゃねぇ（〜ているのではない）", "chunkSurfaces": ["てんじゃねぇ"], "explanation": "用反问形式表达强烈禁止：“别再……了”。", "jlpt": "N3" },
+      { "pattern": "〜よ", "chunkSurfaces": ["よ"], "explanation": "句末加强语气。" }
+    ]
+  }
+}

@@ -67,6 +67,9 @@ importers:
       '@kotori/ui':
         specifier: workspace:*
         version: link:../ui
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       idb:
         specifier: ^8.0.4
         version: 8.0.4
@@ -89,6 +92,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^5.2.0
         version: 5.2.0(vite@7.3.7(@types/node@22.20.5)(tsx@4.23.15))
+      fake-indexeddb:
+        specifier: ^6.2.6
+        version: 6.2.6
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
@@ -116,6 +122,9 @@ importers:
       bittorrent-protocol:
         specifier: ^5.0.9
         version: 5.0.9
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       google-auth-library:
         specifier: ^11.3.1
         version: 11.3.1
@@ -1079,6 +1088,10 @@ packages:
 
   extend@3.0.2:
     resolution: {integrity: sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==}
+
+  fake-indexeddb@6.2.6:
+    resolution: {integrity: sha512-ihhmr0KoET51jT8R4YhbUYuLLvr1qqO6INISygtN16i8loR8kAxtAUr4+EKHTSMjL+lggaAn4OC7DRqzrNgnuQ==}
+    engines: {node: '>=18'}
 
   fast-fifo@1.3.2:
     resolution: {integrity: sha512-/d9sfos4yxzpwkDkuN7k2SqFKtYNmCTzgfEpz82x34IM9/zc8KGxQoXg1liNC/izpRM/MBdt44Nmx41ZWqk+FQ==}
@@ -2613,6 +2626,8 @@ snapshots:
   expect-type@1.4.0: {}
 
   extend@3.0.2: {}
+
+  fake-indexeddb@6.2.6: {}
 
   fast-fifo@1.3.2: {}
 

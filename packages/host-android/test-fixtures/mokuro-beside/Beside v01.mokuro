@@ -1,0 +1,51 @@
+{
+ "version": "0.2.1",
+ "title": "Beside",
+ "volume": "Beside v01",
+ "pages": [
+  {
+   "img_path": "p1.png",
+   "img_width": 800,
+   "img_height": 1200,
+   "blocks": [
+    {
+     "box": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "vertical": true,
+     "font_size": 32,
+     "lines": [
+      "こんにちは"
+     ],
+     "lines_coords": [
+      [
+       [
+        3,
+        2
+       ],
+       [
+        3,
+        4
+       ],
+       [
+        1,
+        4
+       ],
+       [
+        1,
+        2
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "img_path": "p2.png",
+   "blocks": []
+  }
+ ]
+}

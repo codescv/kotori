@@ -5,5 +5,8 @@ export default defineConfig({
     name: 'host-android',
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Installs IDBRequest/IDBKeyRange/… globals that `idb`'s `wrap` relies on;
+    // each test still injects its own `new IDBFactory()` for isolation.
+    setupFiles: ['fake-indexeddb/auto'],
   },
 });
