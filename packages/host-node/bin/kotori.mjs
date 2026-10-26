@@ -15,8 +15,11 @@ process.on('warning', (warning) => {
 });
 
 const bundled = new URL('../dist/server.mjs', import.meta.url);
-if (!existsSync(fileURLToPath(bundled))) {
-  console.error('[kotori] dist/server.mjs missing — run `pnpm --filter @kotori/host-node build` first.');
-  process.exit(1);
+const webIndex = new URL('../dist/web/index.html', import.meta.url);
+if (!existsSync(fileURLToPath(bundled)) || !existsSync(fileURLToPath(webIndex))) {
+  console.log('[kotori] dist bundle not found — building UI and server bundle first…');
+  const { execSync } = await import('node:child_process');
+  const pkgDir = fileURLToPath(new URL('..', import.meta.url));
+  execSync('pnpm run build', { cwd: pkgDir, stdio: 'inherit' });
 }
 await import(bundled.href);

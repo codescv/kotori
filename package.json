@@ -17,6 +17,8 @@
     "build": "pnpm -r --if-present run build",
     "lint": "pnpm -r --if-present run lint",
     "check:native": "node scripts/check-native-deps.mjs",
+    "dev": "pnpm --filter @kotori/host-node dev",
+    "start": "pnpm --filter @kotori/host-node start",
     "dev:ui": "pnpm --filter @kotori/ui dev",
     "dev:node": "pnpm --filter @kotori/host-node dev",
     "start:node": "pnpm --filter @kotori/host-node start"
