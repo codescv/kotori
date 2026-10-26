@@ -1,6 +1,6 @@
 # Kotori（ことり）定制化日语学习工具 — 产品与架构设计文档 (PRD v1.0)
 
-> **定位**：面向日语沉浸式学习的极简 AI 陪读与观影工具。参考 [Fushi](file:///usr/local/google/home/chii/Developer/Fushi/README.zh-CN.md) 的核心媒体体验，去除一切非核心模块，以 **Gemini Flash 智能语境拆解（整句解析 + 点击部位联动高亮）** 替代传统机械分词词典，并采用 **全栈 TypeScript 架构** 实现 **macOS（零新增编译二进制）、Linux、Android 三端独立运行**。
+> **定位**：面向日语沉浸式学习的极简 AI 陪读与观影工具。参考 Fushi 的核心媒体体验，去除一切非核心模块，以 **Gemini Flash 智能语境拆解（整句解析 + 点击部位联动高亮）** 替代传统机械分词词典，并采用 **全栈 TypeScript 架构** 实现 **macOS（零新增编译二进制）、Linux、Android 三端独立运行**。
 
 ---
 
