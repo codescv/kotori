@@ -3,7 +3,7 @@
 > **测试结论：PASS（全量通过）**
 > - **单元与集成测试**：**84 个测试套件 / 777 项测试用例 100% 通过**（`@kotori/core` 244 项、`@kotori/host-node` 187 项、`@kotori/host-android` 86 项、`@kotori/ui` 260 项）。
 > - **零原生二进制门禁（Santa 兼容）**：`pnpm check:native` 扫描 `node_modules/` 与构建产物通过，确认 **0 个 `.node` / `.so` / `.dylib` C++ 原生扩展**，完全使用 Node.js 22 内置 `node:sqlite` 与纯 TypeScript BitTorrent / ZIP 解压实现。
-> - **真实 LLM / VLM 端到端实测**：连接 Google Cloud Vertex AI（`project: gps-babel-tower`, `location: global`, 模型 `gemini-3.8-flash`）完成整句意群拆解、流式多轮追问（SSE）、漫画生肉 VLM 整页陪读与气泡框选 OCR 实测。
+> - **真实 LLM / VLM 端到端实测**：连接 Google Cloud Vertex AI（`location: global`, 模型 `gemini-3.8-flash`）完成整句意群拆解、流式多轮追问（SSE）、漫画生肉 VLM 整页陪读与气泡框选 OCR 实测。
 
 ---
 
@@ -11,9 +11,9 @@
 
 | 维度 | 配置详情 |
 | :--- | :--- |
-| **宿主环境** | Linux (`chii.c.googlers.com`) · Node.js `v22.22.1` (`node:sqlite` 内置引擎) · `ffmpeg` / `ffprobe` `7.1.3` |
+| **宿主环境** | Linux (x86_64) · Node.js `v22.22.1` (`node:sqlite` 内置引擎) · `ffmpeg` / `ffprobe` `7.1.3` |
 | **前端与渲染验证** | React 19 + Vite 6 + Material Design 3 (`#8ab49a` 鼠尾草绿种子色动态色板) · Headless Chrome (`1440×900 @ 2x` 桌面端 & `412×915 @ 2x` 移动端) |
-| **AI / VLM 引擎** | Google Cloud Vertex AI (`gemini-3.8-flash`, ADC 认证, `gps-babel-tower` / `global`) |
+| **AI / VLM 引擎** | Google Cloud Vertex AI (`gemini-3.8-flash`, ADC 认证, `global`) |
 | **代码仓库** | [README.md](./README.md) · [DESIGN.md](./DESIGN.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) |
 
 ### 1.1 自动化测试套件汇总
