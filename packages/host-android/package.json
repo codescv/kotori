@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "dev": "vite dev web",
+    "build": "pnpm run build:web",
     "build:web": "vite build web",
     "cap:add": "cap add android",
     "cap:sync": "pnpm run build:web && cap sync android",

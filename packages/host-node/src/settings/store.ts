@@ -19,7 +19,7 @@ export function defaultSettings(dataDir: string): AppSettings {
       cacheEnabled: true,
       timeoutMs: 30_000,
     },
-    ui: { theme: 'system', seedColor: '#6750A4', locale: 'zh-CN', fontScale: 1 },
+    ui: { theme: 'system', seedColor: '#8ab49a', locale: 'zh-CN', fontScale: 1 },
     anime: {
       mergeKaraokeCues: true,
       hideSigns: true,

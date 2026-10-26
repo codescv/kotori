@@ -22,7 +22,7 @@ export function defaultSettings(downloadDir: string): AppSettings {
       cacheEnabled: true,
       timeoutMs: 30000,
     },
-    ui: { theme: 'system', seedColor: '#6750A4', locale: 'zh-CN', fontScale: 1 },
+    ui: { theme: 'system', seedColor: '#8ab49a', locale: 'zh-CN', fontScale: 1 },
     anime: {
       mergeKaraokeCues: true,
       hideSigns: true,
