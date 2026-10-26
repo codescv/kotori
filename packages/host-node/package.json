@@ -28,29 +28,29 @@
     "start": "node bin/kotori.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.0",
+    "@hono/node-server": "^1.14.4",
     "@kotori/core": "workspace:*",
-    "bencode": "^4.0.1",
-    "bittorrent-dht": "^11.0.12",
-    "bittorrent-protocol": "^5.0.9",
+    "bencode": "^4.0.0",
+    "bittorrent-dht": "^11.0.10",
+    "bittorrent-protocol": "^5.0.8",
     "fflate": "^0.8.3",
-    "google-auth-library": "^11.3.1",
-    "hono": "^4.13.0",
-    "ut_metadata": "^5.0.1"
+    "google-auth-library": "^10.1.0",
+    "hono": "^4.8.3",
+    "ut_metadata": "^4.0.3"
   },
   "devDependencies": {
     "@kotori/ui": "workspace:*",
     "@types/node": "~22.20.5",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^5.2.0",
-    "esbuild": "^0.28.0",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "^0.25.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "tsx": "^4.20.0",
     "typescript": "~5.9.3",
-    "vite": "^7.3.7",
-    "vitest": "^4.1.12"
+    "vite": "^7.0.6",
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=22.13.0"
