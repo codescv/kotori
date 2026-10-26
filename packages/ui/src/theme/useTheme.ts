@@ -33,6 +33,10 @@ export function useTheme(target?: HTMLElement | null): ThemeState {
     if (!el) return;
     applyM3Tokens(el, theme.tokens, theme.dark);
     el.style.setProperty('--kotori-font-scale', String(fontScale));
+    if (el.dataset['themeReady'] === undefined && typeof requestAnimationFrame === 'function') {
+      // Enable colour transitions only after the first themed frame has painted.
+      requestAnimationFrame(() => requestAnimationFrame(() => (el.dataset['themeReady'] = '')));
+    }
   }, [target, theme.tokens, theme.dark, fontScale]);
   return theme;
 }
