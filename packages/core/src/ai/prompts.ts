@@ -20,7 +20,7 @@ const LANGUAGE_NAMES: Record<TargetLanguage, string> = {
 };
 
 /** Human-readable name for a target language (used inside prompts). */
-export function targetLanguageName(lang: TargetLanguage): string {
+export function targetLanguageName(lang: TargetLanguage = 'zh-CN'): string {
   return LANGUAGE_NAMES[lang] ?? lang;
 }
 
@@ -93,7 +93,12 @@ export function summariseExplanation(expl: SentenceExplanation): string {
  * Build a follow-up conversation: explanation JSON summary as context, then
  * the prior thread (oldest first), then the new question.
  */
-export function buildFollowUpPrompt(expl: SentenceExplanation, history: readonly FollowUpMessage[], question: string, targetLanguage: TargetLanguage = expl.targetLanguage): PromptParts {
+export function buildFollowUpPrompt(
+  expl: SentenceExplanation,
+  history: readonly FollowUpMessage[] = [],
+  question: string,
+  targetLanguage: TargetLanguage = expl.targetLanguage ?? 'zh-CN',
+): PromptParts {
   const systemInstruction = [
     'You are a friendly, precise Japanese teacher answering follow-up questions about one sentence a learner is studying.',
     `Answer in ${targetLanguageName(targetLanguage)}. Be concise. Markdown-light only: **bold**, lists and \`inline code\`; no HTML, no headings, no tables.`,

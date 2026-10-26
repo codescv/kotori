@@ -122,13 +122,14 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
       throwIfAborted(signal);
       if (!request.sentence.trim()) throw new KotoriError('invalid-argument', 'Cannot explain an empty sentence');
       const settings = deps.settings();
-      const id = await keyFor(request, settings);
-      if (!request.force && settings.cacheEnabled) {
+      const normalized: ExplainRequest = { ...request, targetLanguage: request.targetLanguage ?? settings.targetLanguage ?? 'zh-CN' };
+      const id = await keyFor(normalized, settings);
+      if (!normalized.force && settings.cacheEnabled) {
         const cached = await deps.cache.get(id);
         if (cached) return { ...cached, fromCache: true };
       }
       throwIfAborted(signal);
-      const prompt = buildExplainPrompt(request);
+      const prompt = buildExplainPrompt(normalized);
       const res = await generateStructured(
         clientFor(settings),
         { model: settings.explainModel, ...prompt, responseSchema: EXPLAIN_RESPONSE_SCHEMA, ...knobs(settings) },
@@ -136,7 +137,7 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
         signal,
       );
       throwIfAborted(signal);
-      const expl = toSentenceExplanation(res.value, request, { id, model: settings.explainModel, usage: res.usage, now: now() });
+      const expl = toSentenceExplanation(res.value, normalized, { id, model: settings.explainModel, usage: res.usage, now: now() });
       if (settings.cacheEnabled) await deps.cache.put(expl);
       return expl;
     } catch (e) {
@@ -160,8 +161,10 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
       if (!request.question.trim()) throw new KotoriError('invalid-argument', 'Follow-up question is empty');
       const settings = deps.settings();
       const expl = await resolveExplanation(request);
+      const history = request.history ?? (await deps.cache.getThread(expl.id));
+      const targetLanguage = request.targetLanguage ?? expl.targetLanguage ?? settings.targetLanguage ?? 'zh-CN';
       const userMsg: FollowUpMessage = { id: newId('m'), role: 'user', text: request.question, createdAt: now() };
-      const prompt = buildFollowUpPrompt(expl, request.history, request.question, request.targetLanguage);
+      const prompt = buildFollowUpPrompt(expl, history, request.question, targetLanguage);
       const genReq: GeminiRequest = { model: settings.explainModel, ...prompt, ...knobs(settings), temperature: Math.max(settings.temperature, 0.4) };
       const client = clientFor(settings);
       const messageId = newId('m');
@@ -192,7 +195,8 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
     async getCachedExplanation(request) {
       const settings = deps.settings();
       if (!settings.cacheEnabled) return undefined;
-      const cached = await deps.cache.get(await keyFor(request, settings));
+      const normalized = { ...request, targetLanguage: request.targetLanguage ?? settings.targetLanguage ?? 'zh-CN' };
+      const cached = await deps.cache.get(await keyFor(normalized, settings));
       return cached ? { ...cached, fromCache: true } : undefined;
     },
 
@@ -209,14 +213,15 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
       try {
         throwIfAborted(signal);
         const settings = deps.settings();
-        return await visionOcrBubble(clientFor(settings), request, {
+        const normalized: MangaBubbleOcrRequest = { ...request, targetLanguage: request.targetLanguage ?? settings.targetLanguage ?? 'zh-CN' };
+        return await visionOcrBubble(clientFor(settings), normalized, {
           model: settings.visionModel,
           ...knobs(settings),
           ...(signal ? { signal } : {}),
           now,
           explain: (sentence, s) =>
             explain(
-              { sentence, targetLanguage: request.targetLanguage, source: { kind: 'manga', volumeId: request.volumeId, pageIndex: request.pageIndex } },
+              { sentence, targetLanguage: normalized.targetLanguage, source: { kind: 'manga', volumeId: normalized.volumeId, pageIndex: normalized.pageIndex } },
               s ? { signal: s } : {},
             ),
         });
@@ -230,7 +235,8 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
       try {
         throwIfAborted(signal);
         const settings = deps.settings();
-        return await visionPageGuide(clientFor(settings), request, { model: settings.visionModel, ...knobs(settings), ...(signal ? { signal } : {}), now });
+        const normalized: MangaPageGuideRequest = { ...request, targetLanguage: request.targetLanguage ?? settings.targetLanguage ?? 'zh-CN' };
+        return await visionPageGuide(clientFor(settings), normalized, { model: settings.visionModel, ...knobs(settings), ...(signal ? { signal } : {}), now });
       } catch (e) {
         throw normaliseError(e, signal);
       }
