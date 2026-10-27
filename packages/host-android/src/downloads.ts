@@ -32,11 +32,13 @@ import type {
 import {
   KotoriError,
   buildNyaaRssUrl,
+  buildNyaaSearchUrl,
   createJimakuClient,
   parseEpisodeName,
   parseMagnet,
   parseMokuroMoeListing,
   parseNyaaRss,
+  parseNyaaSearchHtml,
   resolveMokuroCatalogUrl,
   sortNyaaItems,
 } from './adapters/core';
@@ -615,8 +617,19 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
       }
     },
     async searchNyaa(query) {
-      const response = await httpGet(buildNyaaRssUrl(query, settings().downloads.nyaaBaseUrl));
-      return sortNyaaItems(parseNyaaRss(await response.text()), query.sort);
+      const base = settings().downloads.nyaaBaseUrl;
+      try {
+        const response = await httpGet(buildNyaaSearchUrl(query, base));
+        const html = await response.text();
+        const items = parseNyaaSearchHtml(html, base);
+        if (items.length > 0 || html.includes('torrent-list')) {
+          return sortNyaaItems(items, query.sort);
+        }
+      } catch {
+        // Fallback to RSS endpoint below
+      }
+      const response = await httpGet(buildNyaaRssUrl(query, base));
+      return sortNyaaItems(parseNyaaRss(await response.text(), base), query.sort);
     },
     // async so a missing API key rejects instead of throwing synchronously.
     searchJimaku: async (query) => jimaku().searchEntries(query),

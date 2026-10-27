@@ -23,16 +23,30 @@ const hex40 = (seed: string): string => (hashString(seed) + hashString(`${seed}#
 
 export function mockNyaaSearch(q: NyaaSearchQuery): NyaaTorrentItem[] {
   const base = q.query.trim() || 'Kotori no Yakusoku';
-  const groups = ['SubsPlease', 'Kotori-Raws', 'Erai-raws', 'ASW', 'Ohys-Raws', 'LoliHouse'];
+  const isBocchi = /bocchi|ぼっち|孤独摇滚/i.test(base);
+  const groups = isBocchi
+    ? ['Judas', 'SubsPlease', 'VCB-Studio', 'Erai-raws', 'Ohys-Raws', 'LoliHouse']
+    : ['SubsPlease', 'Kotori-Raws', 'Erai-raws', 'ASW', 'Ohys-Raws', 'LoliHouse'];
+  const categories = ['1_2', '1_4', '1_3', '1_2', '1_4', '1_3'] as const;
   const items: NyaaTorrentItem[] = [];
   for (let i = 0; i < 12; i++) {
     const group = groups[i % groups.length] ?? 'Raws';
     const ep = 12 - i;
-    const batch = i === 11;
-    const res = i % 3 === 0 ? '720p' : '1080p';
-    const title = batch ? `[${group}] ${base} (01-12) [BD ${res} HEVC FLAC] [Batch]` : `[${group}] ${base} - ${String(ep).padStart(2, '0')} (${res}) [${hashString(`${base}${i}`).toUpperCase()}].mkv`;
+    const batch = isBocchi ? i <= 2 || i === 11 : i === 11;
+    const res = i % 3 === 0 && !isBocchi ? '720p' : '1080p';
+    const title =
+      isBocchi && i === 0
+        ? '[Judas] Bocchi the Rock! (Season 1) [BD 1080p][HEVC x265 10bit][Multi-Subs] (Batch)'
+        : isBocchi && i === 1
+          ? '[SubsPlease] Bocchi the Rock! (01-12) (1080p) [Batch]'
+          : isBocchi && i === 2
+            ? '[动漫国字幕组&VCB-Studio] 孤独摇滚！ / BOCCHI THE ROCK! / ぼっち・ざ・ろっく! [10-bit 1080p HEVC BDRip] [Fin]'
+            : batch
+              ? `[${group}] ${base} (01-12) [BD ${res} HEVC FLAC] [Batch]`
+              : `[${group}] ${base} - ${String(ep).padStart(2, '0')} (${res}) [${hashString(`${base}${i}`).toUpperCase()}].mkv`;
     const infoHash = hex40(title);
     const sizeBytes = batch ? 14.2 * 1024 ** 3 : (res === '720p' ? 0.35 : 1.38) * 1024 ** 3;
+    const catId = categories[i % categories.length] ?? '1_2';
     items.push({
       title,
       torrentUrl: `https://nyaa.si/download/${1900000 + i}.torrent`,
@@ -44,13 +58,13 @@ export function mockNyaaSearch(q: NyaaSearchQuery): NyaaTorrentItem[] {
       downloads: i === 2 ? 9400 : batch ? 8600 : 5200 - i * 300,
       sizeText: batch ? '14.2 GiB' : res === '720p' ? '358.4 MiB' : '1.4 GiB',
       sizeBytes: Math.round(sizeBytes),
-      categoryId: q.category ?? '1_4',
+      categoryId: catId,
       trusted: i % 4 !== 3,
       remake: i === 7,
       publishedAt: i === 1 ? NOW + DAY : NOW - i * DAY * 7,
       parsedName: {
         raw: title,
-        title: base,
+        title: isBocchi ? 'Bocchi the Rock!' : base,
         ...(batch ? { episodeRange: [1, 12] as const } : { episode: ep }),
         releaseGroup: group,
         resolution: res,
@@ -59,7 +73,10 @@ export function mockNyaaSearch(q: NyaaSearchQuery): NyaaTorrentItem[] {
       },
     });
   }
-  const filtered = items.filter((it) => (q.filter === 'trusted-only' ? it.trusted : q.filter === 'no-remakes' ? !it.remake : true));
+  const filtered = items.filter((it) => {
+    if (q.category && q.category !== '1_0' && it.categoryId !== q.category) return false;
+    return q.filter === 'trusted-only' ? it.trusted : q.filter === 'no-remakes' ? !it.remake : true;
+  });
   return sortNyaaItems(filtered, q.sort);
 }
 
@@ -67,6 +84,8 @@ const JIMAKU_ENTRIES: readonly JimakuEntry[] = [
   { id: 4242, name: 'Kotori no Yakusoku', japaneseName: 'ことりの約束', englishName: "Kotori's Promise", anilistId: 170000, flags: { anime: true, unverified: false, external: false, movie: false, adult: false }, lastModifiedAt: NOW - 2 * DAY },
   { id: 4243, name: 'Hoshikuzu Radio', japaneseName: '星屑ラジオ', englishName: 'Stardust Radio', anilistId: 170001, flags: { anime: true, unverified: false, external: false, movie: false, adult: false }, lastModifiedAt: NOW - 9 * DAY },
   { id: 5001, name: 'Houkago Note', japaneseName: '放課後ノート', anilistId: 170002, flags: { anime: true, unverified: true, external: false, movie: false, adult: false }, lastModifiedAt: NOW - 30 * DAY },
+  { id: 4244, name: 'Bocchi the Rock!', japaneseName: 'ぼっち・ざ・ろっく！', englishName: 'BOCCHI THE ROCK!', anilistId: 130003, flags: { anime: true, unverified: false, external: false, movie: false, adult: false }, lastModifiedAt: NOW - 4 * DAY },
+  { id: 4245, name: 'Sousou no Frieren', japaneseName: '葬送のフリーレン', englishName: 'Frieren: Beyond Journey’s End', anilistId: 154587, flags: { anime: true, unverified: false, external: false, movie: false, adult: false }, lastModifiedAt: NOW - 5 * DAY },
 ];
 
 export function mockJimakuSearch(query: string | undefined, anilistId?: number): JimakuEntry[] {

@@ -31,8 +31,11 @@ export {
   parseMokuroMoeListing,
   resolveMokuroCatalogUrl,
   buildNyaaRssUrl,
+  buildNyaaSearchUrl,
   parseNyaaRss,
+  parseNyaaSearchHtml,
   sortNyaaItems,
+  mergeNyaaItems,
   buildNyaaMagnet,
   parseMagnet,
   // ai

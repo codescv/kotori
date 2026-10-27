@@ -304,7 +304,7 @@ describe('downloads', () => {
 
   it('search APIs go through fetch + core parsers', async () => {
     const t = await host((url) => {
-      if (url.startsWith('https://nyaa.si/?page=rss')) return new Response(fixtureText('nyaa.xml'));
+      if (url.startsWith('https://nyaa.si/')) return new Response(fixtureText('nyaa.xml'));
       if (url.startsWith('https://mokuro.moe/')) return new Response(fixtureText('mokuro-moe.html'));
       if (url.includes('/api/entries/search')) return Response.json([{ id: 5, name: 'Sousou no Frieren', flags: { anime: true } }]);
       if (url.includes('/api/entries/5/files')) return Response.json([{ name: 'Frieren - 01.ass', url: 'https://jimaku.cc/f/1.ass', size: 10, last_modified: '2024-01-01T00:00:00Z' }]);
