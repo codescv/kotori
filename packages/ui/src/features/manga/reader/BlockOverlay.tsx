@@ -107,7 +107,10 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
     const t = e.changedTouches[0]!;
     if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) return;
     lastTouchPickRef.current = Date.now();
-    const hitEl = (typeof document !== 'undefined' ? document.elementFromPoint(t.clientX, t.clientY) : null) ?? (e.target as Element);
+    const hitEl =
+      (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function'
+        ? document.elementFromPoint(t.clientX, t.clientY)
+        : null) ?? (e.target as Element);
     pickAtPoint(hitEl, t.clientX, t.clientY);
   };
   const onKey = (e: KeyboardEvent<SVGGElement>): void => {

@@ -115,7 +115,7 @@ export function NyaaSearch() {
       {error && <p className="k-error-text">{t('common.error', { message: error })}</p>}
       {aniInfo && results && results.length > 0 && (
         <div className="k-dl-banner">
-          <CoverThumb src={aniInfo.coverUrl} alt={aniInfo.nativeTitle ?? aniInfo.romajiTitle ?? query} fallbackIcon="anime" size="lg" />
+          <CoverThumb src={aniInfo.coverUrl} alt={aniInfo.nativeTitle ?? aniInfo.romajiTitle ?? query} fallbackIcon="movie" size="lg" />
           <div className="k-dl-banner__info">
             <div className="k-dl-banner__title">{aniInfo.nativeTitle ?? aniInfo.romajiTitle ?? query}</div>
             {(aniInfo.romajiTitle || aniInfo.englishTitle) && (
@@ -150,7 +150,7 @@ export function NyaaSearch() {
             const mediaTags = extractMediaTags(item.title);
             return (
               <li key={item.infoHash} className="k-dl-result" data-testid="nyaa-result">
-                {aniInfo?.coverUrl && <CoverThumb src={aniInfo.coverUrl} alt={pn.title} fallbackIcon="anime" size="sm" />}
+                {aniInfo?.coverUrl && <CoverThumb src={aniInfo.coverUrl} alt={pn.title} fallbackIcon="movie" size="sm" />}
                 <div className="k-dl-result__main">
                   <div className="k-dl-result__title" title={item.title}>
                     {item.title}

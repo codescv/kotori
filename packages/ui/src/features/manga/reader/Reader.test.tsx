@@ -242,11 +242,13 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     expect(spread().dataset['pageIndexes']).toBe('2');
 
     // Now perform a single tap on the first speech bubble of page 2.
-    const block = await screen.findByTestId('block-2-0');
+    const overlay = await screen.findByTestId('block-overlay-2');
+    const block = overlay.querySelector('[data-block-index="0"]') as HTMLElement;
+    expect(block).toBeTruthy();
     fireEvent.touchStart(block, { touches: [{ clientX: 400, clientY: 300 }] });
     fireEvent.touchEnd(block, { touches: [], changedTouches: [{ clientX: 400, clientY: 300 }] });
 
-    await waitFor(() => expect(useBreakdownStore.getState().open).toBe(true));
+    await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(true));
     expect(useBreakdownStore.getState().request?.sentence.length).toBeGreaterThan(0);
   });
 });
