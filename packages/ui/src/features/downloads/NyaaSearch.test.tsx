@@ -47,6 +47,22 @@ describe('NyaaSearch', () => {
     await waitFor(() => expect(screen.getAllByTestId('nyaa-result')).toHaveLength(9));
   });
 
+  it('sort chips reorder results client-side by seeders, date, size and downloads', async () => {
+    setup();
+    await search('Frieren');
+    fireEvent.click(screen.getByRole('button', { name: '按体积' }));
+    expect(screen.getAllByTestId('nyaa-result')[0]).toHaveTextContent('14.2 GiB');
+
+    fireEvent.click(screen.getByRole('button', { name: '按完成量' }));
+    expect(screen.getAllByTestId('nyaa-result')[0]).toHaveTextContent('✓ 9400');
+
+    fireEvent.click(screen.getByRole('button', { name: '按时间' }));
+    expect(screen.getAllByTestId('nyaa-result')[0]).toHaveTextContent('[Kotori-Raws] Frieren - 11');
+
+    fireEvent.click(screen.getByRole('button', { name: '按做种' }));
+    expect(screen.getAllByTestId('nyaa-result')[0]).toHaveTextContent('▲ 480');
+  });
+
   it('1-click download starts a torrent task with the nyaa item as source', async () => {
     const host = setup();
     const start = vi.spyOn(host.downloads, 'start');

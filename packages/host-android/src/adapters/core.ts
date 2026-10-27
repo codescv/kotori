@@ -32,6 +32,7 @@ export {
   resolveMokuroCatalogUrl,
   buildNyaaRssUrl,
   parseNyaaRss,
+  sortNyaaItems,
   buildNyaaMagnet,
   parseMagnet,
   // ai

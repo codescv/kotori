@@ -44,6 +44,28 @@ describe('JimakuSearch', () => {
     if (req.source.kind === 'jimaku') expect(req.source.entry.id).toBe(4242);
     await host.dispose();
   });
+
+  it('sorts Jimaku entries and filters/sorts subtitle files', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, settings: { anime: { jimakuApiKey: 'jk' } } });
+    await useSettingsStore.getState().load(host);
+    mount(host, <JimakuSearch />);
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+    await screen.findByRole('button', { name: /ことりの約束/ });
+
+    fireEvent.click(screen.getByRole('button', { name: '名称 A-Z' }));
+    const entryCards = document.querySelectorAll('.k-dl-media-card');
+    expect(entryCards[0]).toHaveTextContent('ことりの約束');
+
+    fireEvent.click(entryCards[0] as HTMLElement);
+    await screen.findAllByRole('button', { name: '下载' });
+
+    fireEvent.click(screen.getByRole('button', { name: '仅 ASS' }));
+    expect(screen.getAllByRole('button', { name: '下载' })).toHaveLength(3);
+
+    fireEvent.click(screen.getByRole('button', { name: '仅 ASS' }));
+    expect(screen.getAllByRole('button', { name: '下载' })).toHaveLength(7);
+    await host.dispose();
+  });
 });
 
 describe('MokuroCatalogBrowser', () => {
@@ -68,6 +90,35 @@ describe('MokuroCatalogBrowser', () => {
     if (req.source.kind === 'mokuro-moe') expect(req.source.volume.mokuroUrl).toMatch(/\.mokuro$/);
     fireEvent.click(screen.getByRole('button', { name: 'mokuro.moe' }));
     expect(await screen.findByRole('button', { name: /よつばと/ })).toBeInTheDocument();
+    await host.dispose();
+  });
+
+  it('sorts series by score, latest, volumes and chars, and sorts volumes inside a series', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    mount(host, <MokuroCatalogBrowser />);
+    await screen.findByRole('button', { name: /放課後ノート/ });
+
+    fireEvent.click(screen.getByRole('button', { name: '评分最高' }));
+    const byScore = document.querySelectorAll('.k-dl-media-card');
+    expect(byScore[0]).toHaveTextContent('葬送のフリーレン');
+
+    fireEvent.click(screen.getByRole('button', { name: '最近更新' }));
+    const byLatest = document.querySelectorAll('.k-dl-media-card');
+    expect(byLatest[0]).toHaveTextContent('ゆるキャン△');
+
+    fireEvent.click(screen.getByRole('button', { name: '卷数最多' }));
+    const byVols = document.querySelectorAll('.k-dl-media-card');
+    expect(byVols[0]).toHaveTextContent('ハイキュー!!');
+
+    fireEvent.click(screen.getByRole('button', { name: '字数最多' }));
+    const byChars = document.querySelectorAll('.k-dl-media-card');
+    expect(byChars[0]).toHaveTextContent('ハイキュー!!');
+
+    fireEvent.click(byChars[0] as HTMLElement);
+    await screen.findAllByRole('button', { name: '下载并导入' });
+    fireEvent.click(screen.getByRole('button', { name: '倒序 (N→1)' }));
+    const volCards = document.querySelectorAll('.k-dl-volume-card');
+    expect(volCards[0]).toHaveTextContent('第04巻');
     await host.dispose();
   });
 });

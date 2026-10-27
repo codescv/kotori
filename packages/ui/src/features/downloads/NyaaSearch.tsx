@@ -3,8 +3,8 @@
  * chips, parsed technical media badges, and 1-click download.
  * Hosts without a torrent engine hand the magnet to an external app.
  */
-import { useState } from 'react';
-import type { NyaaSearchQuery, NyaaTorrentItem } from '@kotori/core';
+import { useMemo, useState } from 'react';
+import { sortNyaaItems, type NyaaSearchQuery, type NyaaTorrentItem } from '@kotori/core';
 import { Chip } from '../../components/m3/Chip';
 import { IconButton } from '../../components/m3/IconButton';
 import { LinearProgress } from '../../components/m3/Progress';
@@ -58,8 +58,9 @@ export function NyaaSearch() {
 
   const changeSort = (s: Sort): void => {
     setSort(s);
-    if (results) void search(filter, s);
   };
+
+  const sortedResults = useMemo(() => (results ? sortNyaaItems(results, sort) : undefined), [results, sort]);
 
   const download = async (item: NyaaTorrentItem): Promise<void> => {
     try {
@@ -142,10 +143,10 @@ export function NyaaSearch() {
           </div>
         </div>
       )}
-      {results && results.length === 0 && !loading && <p className="k-empty">{t('downloads.noResults')}</p>}
-      {results && results.length > 0 && (
+      {sortedResults && sortedResults.length === 0 && !loading && <p className="k-empty">{t('downloads.noResults')}</p>}
+      {sortedResults && sortedResults.length > 0 && (
         <ul className="k-dl-results" aria-label={t('downloads.tab.anime')}>
-          {results.map((item) => {
+          {sortedResults.map((item) => {
             const pn = item.parsedName;
             const mediaTags = extractMediaTags(item.title);
             return (

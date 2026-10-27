@@ -38,6 +38,7 @@ import {
   parseMokuroMoeListing,
   parseNyaaRss,
   resolveMokuroCatalogUrl,
+  sortNyaaItems,
 } from './adapters/core';
 import { uniqueId, type HostContext } from './context';
 import type { AnimeLibrary } from './library/anime';
@@ -615,7 +616,7 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     },
     async searchNyaa(query) {
       const response = await httpGet(buildNyaaRssUrl(query, settings().downloads.nyaaBaseUrl));
-      return parseNyaaRss(await response.text());
+      return sortNyaaItems(parseNyaaRss(await response.text()), query.sort);
     },
     // async so a missing API key rejects instead of throwing synchronously.
     searchJimaku: async (query) => jimaku().searchEntries(query),

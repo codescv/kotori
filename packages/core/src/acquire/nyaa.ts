@@ -191,3 +191,27 @@ export function parseNyaaRss(xml: string): NyaaTorrentItem[] {
   }
   return items;
 }
+
+/**
+ * Deterministically sort Nyaa torrent items according to `sort` (`seeders`
+ * by default), since `nyaa.si/?page=rss` ignores the `s=` and `o=` query
+ * parameters and always returns items in raw RSS order.
+ */
+export function sortNyaaItems(
+  items: readonly NyaaTorrentItem[],
+  sort: NyaaSearchQuery['sort'] = 'seeders',
+): NyaaTorrentItem[] {
+  const mode = sort ?? 'seeders';
+  return [...items].sort((a, b) => {
+    if (mode === 'date') {
+      return b.publishedAt - a.publishedAt || b.seeders - a.seeders || b.downloads - a.downloads;
+    }
+    if (mode === 'size') {
+      return (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) || b.seeders - a.seeders || b.publishedAt - a.publishedAt;
+    }
+    if (mode === 'downloads') {
+      return b.downloads - a.downloads || b.seeders - a.seeders || b.publishedAt - a.publishedAt;
+    }
+    return b.seeders - a.seeders || b.downloads - a.downloads || b.publishedAt - a.publishedAt;
+  });
+}

@@ -3,14 +3,15 @@
  * mokuro.moe catalog tree and a fake server-side file system for the path
  * browser.
  */
-import type {
-  DirectoryEntry,
-  JimakuEntry,
-  JimakuFile,
-  MokuroCatalogEntry,
-  MokuroCatalogListing,
-  NyaaSearchQuery,
-  NyaaTorrentItem,
+import {
+  sortNyaaItems,
+  type DirectoryEntry,
+  type JimakuEntry,
+  type JimakuFile,
+  type MokuroCatalogEntry,
+  type MokuroCatalogListing,
+  type NyaaSearchQuery,
+  type NyaaTorrentItem,
 } from '@kotori/core';
 import { hashString } from './explanations';
 
@@ -40,13 +41,13 @@ export function mockNyaaSearch(q: NyaaSearchQuery): NyaaTorrentItem[] {
       magnet: `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(title)}${TRACKERS.map((t) => `&tr=${encodeURIComponent(t)}`).join('')}`,
       seeders: Math.max(0, 480 - i * 37),
       leechers: 30 - i * 2,
-      downloads: 5200 - i * 300,
+      downloads: i === 2 ? 9400 : batch ? 8600 : 5200 - i * 300,
       sizeText: batch ? '14.2 GiB' : res === '720p' ? '358.4 MiB' : '1.4 GiB',
       sizeBytes: Math.round(sizeBytes),
       categoryId: q.category ?? '1_4',
       trusted: i % 4 !== 3,
       remake: i === 7,
-      publishedAt: NOW - i * DAY * 7,
+      publishedAt: i === 1 ? NOW + DAY : NOW - i * DAY * 7,
       parsedName: {
         raw: title,
         title: base,
@@ -58,7 +59,8 @@ export function mockNyaaSearch(q: NyaaSearchQuery): NyaaTorrentItem[] {
       },
     });
   }
-  return items.filter((it) => (q.filter === 'trusted-only' ? it.trusted : q.filter === 'no-remakes' ? !it.remake : true));
+  const filtered = items.filter((it) => (q.filter === 'trusted-only' ? it.trusted : q.filter === 'no-remakes' ? !it.remake : true));
+  return sortNyaaItems(filtered, q.sort);
 }
 
 const JIMAKU_ENTRIES: readonly JimakuEntry[] = [
@@ -104,6 +106,7 @@ const MOCK_MANGA_META: Record<
     volumes: number;
     pages: number;
     chars: number;
+    daysAgo: number;
     genres: readonly string[];
     tags: readonly string[];
   }
@@ -115,6 +118,7 @@ const MOCK_MANGA_META: Record<
     volumes: 4,
     pages: 720,
     chars: 58_400,
+    daysAgo: 40,
     genres: ['Slice of Life', 'School', 'Comedy'],
     tags: ['Club', 'Youth'],
   },
@@ -125,6 +129,7 @@ const MOCK_MANGA_META: Record<
     volumes: 15,
     pages: 3120,
     chars: 215_000,
+    daysAgo: 20,
     genres: ['Comedy', 'Slice of Life'],
     tags: ['Iyashikei', 'Parenting', 'Beginner Friendly'],
   },
@@ -135,6 +140,7 @@ const MOCK_MANGA_META: Record<
     volumes: 45,
     pages: 8910,
     chars: 842_000,
+    daysAgo: 10,
     genres: ['Sports', 'Drama', 'Comedy'],
     tags: ['Volleyball', 'Shounen'],
   },
@@ -145,6 +151,7 @@ const MOCK_MANGA_META: Record<
     volumes: 13,
     pages: 2560,
     chars: 312_000,
+    daysAgo: 5,
     genres: ['Adventure', 'Drama', 'Fantasy'],
     tags: ['Elves', 'Magic', 'Philosophical'],
   },
@@ -155,6 +162,7 @@ const MOCK_MANGA_META: Record<
     volumes: 16,
     pages: 2880,
     chars: 248_000,
+    daysAgo: 1,
     genres: ['Slice of Life', 'Comedy'],
     tags: ['Camping', 'Outdoors', 'Iyashikei'],
   },
@@ -172,7 +180,7 @@ export function mockMokuroCatalog(url?: string): MokuroCatalogListing {
       url: `${u}${encodeURIComponent(name)}/`,
       isMokuro: false,
       isImageArchive: false,
-      modifiedAt: NOW - 40 * DAY,
+      modifiedAt: NOW - (meta?.daysAgo ?? 40) * DAY,
       ...(meta
         ? {
             nativeTitle: name,

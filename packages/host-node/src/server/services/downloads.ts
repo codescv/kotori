@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { KotoriError } from '@kotori/core';
 import type { DirectoryEntry, DownloadsApi, FilesApi } from '@kotori/core';
-import { buildNyaaRssUrl, createJimakuClient, parseMokuroMoeListing, parseNyaaRss, resolveMokuroCatalogUrl } from '@kotori/core';
+import { buildNyaaRssUrl, createJimakuClient, parseMokuroMoeListing, parseNyaaRss, resolveMokuroCatalogUrl, sortNyaaItems } from '@kotori/core';
 import type { DownloadManager } from '../../downloads/manager';
 import type { SettingsStore } from '../../settings/store';
 
@@ -32,7 +32,7 @@ export function createDownloadsService(deps: DownloadsServiceDeps): DownloadsApi
     async searchNyaa(query) {
       if (!query.query?.trim()) throw new KotoriError('invalid-argument', 'Search query is empty');
       const xml = await fetchText(deps.fetch, buildNyaaRssUrl(query, deps.settings.get().downloads.nyaaBaseUrl));
-      return parseNyaaRss(xml);
+      return sortNyaaItems(parseNyaaRss(xml), query.sort);
     },
     searchJimaku: (query) => jimaku().searchEntries(query),
     listJimakuFiles: (entryId, episode) => jimaku().listFiles(entryId, episode),
