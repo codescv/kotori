@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildNyaaMagnet, buildNyaaRssUrl, NYAA_TRACKERS, parseNyaaRss, parseNyaaSize, sortNyaaItems } from './nyaa';
+import {
+  buildNyaaMagnet,
+  buildNyaaRssUrl,
+  buildNyaaSearchUrl,
+  mergeNyaaItems,
+  NYAA_TRACKERS,
+  parseNyaaRss,
+  parseNyaaSearchHtml,
+  parseNyaaSize,
+  sortNyaaItems,
+} from './nyaa';
 import { decodeXmlEntities } from './xml';
 import { parseMagnet } from './magnet';
 
@@ -128,5 +138,85 @@ describe('sortNyaaItems', () => {
     const byDate = sortNyaaItems(items, 'date');
     expect(byDate[0]?.publishedAt).toBeGreaterThanOrEqual(byDate[1]?.publishedAt ?? 0);
     expect(byDate[1]?.publishedAt).toBeGreaterThanOrEqual(byDate[2]?.publishedAt ?? 0);
+  });
+});
+
+describe('buildNyaaSearchUrl & parseNyaaSearchHtml', () => {
+  it('builds HTML search URL defaulting to category 1_0 (All Anime)', () => {
+    expect(buildNyaaSearchUrl({ query: 'bocchi' })).toBe(
+      'https://nyaa.si/?q=bocchi&c=1_0&f=0&s=seeders&o=desc',
+    );
+    expect(buildNyaaSearchUrl({ query: 'Bocchi the Rock!', category: '1_2', filter: 'trusted-only', sort: 'downloads', page: 2 })).toBe(
+      'https://nyaa.si/?q=Bocchi%20the%20Rock!&c=1_2&f=2&s=downloads&o=desc&p=2',
+    );
+  });
+
+  it('parses Nyaa HTML table rows including [Judas] Bocchi the Rock! batch and comment links', () => {
+    const html = `
+      <table class="table table-bordered table-hover table-striped torrent-list">
+        <tbody>
+          <tr class="danger">
+            <td>
+              <a href="/?c=1_2" title="Anime - English-translated"></a>
+            </td>
+            <td colspan="2">
+              <a href="/view/1861251#comments" class="comments" title="1 comment"><i class="fa fa-comments-o"></i>1</a>
+              <a href="/view/1861251" title="[Judas] Bocchi the Rock! (Season 1) [BD 1080p][HEVC x265 10bit][Multi-Subs] (Batch)">[Judas] Bocchi the Rock! (Season 1) [BD 1080p][HEVC x265 10bit][Multi-Subs] (Batch)</a>
+            </td>
+            <td class="text-center">
+              <a href="/download/1861251.torrent"><i class="fa fa-fw fa-download"></i></a>
+              <a href="magnet:?xt=urn:btih:99f948a9ea653f2f3679ce0a42792013628f894e&amp;dn=%5BJudas%5D"><i class="fa fa-fw fa-magnet"></i></a>
+            </td>
+            <td class="text-center">2.6 GiB</td>
+            <td class="text-center" data-timestamp="1723923229">2024-08-17 19:33</td>
+            <td class="text-center">180</td>
+            <td class="text-center">5</td>
+            <td class="text-center">15701</td>
+          </tr>
+          <tr class="success">
+            <td><a href="/?c=1_2" title="Anime - English-translated"></a></td>
+            <td colspan="2">
+              <a href="/view/1626385" title="[SubsPlease] Bocchi the Rock! (01-12) (1080p) [Batch]">[SubsPlease] Bocchi the Rock! (01-12) (1080p) [Batch]</a>
+            </td>
+            <td class="text-center">
+              <a href="/download/1626385.torrent"></a>
+              <a href="magnet:?xt=urn:btih:9f4961a9c71eeb53abce2ef2afc587b452dee5eb&amp;dn=x"></a>
+            </td>
+            <td class="text-center">16.1 GiB</td>
+            <td class="text-center" data-timestamp="1674035960">2023-01-18 09:59</td>
+            <td class="text-center">149</td>
+            <td class="text-center">2</td>
+            <td class="text-center">26729</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+    const items = parseNyaaSearchHtml(html);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({
+      title: '[Judas] Bocchi the Rock! (Season 1) [BD 1080p][HEVC x265 10bit][Multi-Subs] (Batch)',
+      pageUrl: 'https://nyaa.si/view/1861251',
+      torrentUrl: 'https://nyaa.si/download/1861251.torrent',
+      infoHash: '99f948a9ea653f2f3679ce0a42792013628f894e',
+      categoryId: '1_2',
+      sizeText: '2.6 GiB',
+      publishedAt: 1723923229000,
+      seeders: 180,
+      leechers: 5,
+      downloads: 15701,
+      trusted: false,
+      remake: true,
+    });
+    expect(items[1]).toMatchObject({
+      title: '[SubsPlease] Bocchi the Rock! (01-12) (1080p) [Batch]',
+      infoHash: '9f4961a9c71eeb53abce2ef2afc587b452dee5eb',
+      seeders: 149,
+      trusted: true,
+      remake: false,
+    });
+
+    const merged = mergeNyaaItems([items, [items[0]!]], 'downloads');
+    expect(merged).toHaveLength(2);
+    expect(merged[0]?.title).toContain('[SubsPlease]');
   });
 });

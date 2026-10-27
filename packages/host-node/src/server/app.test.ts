@@ -456,7 +456,7 @@ describe('downloads & discovery', () => {
   it('searches Nyaa and browses the mokuro.moe catalog through core parsers', async () => {
     const items = await h.host.downloads.searchNyaa({ query: 'show' });
     expect(items[0]).toMatchObject({ seeders: 12, trusted: true, infoHash: '0123456789abcdef0123456789abcdef01234567' });
-    expect(h.fetchLog.some((u) => u.startsWith('https://nyaa.si/?page=rss'))).toBe(true);
+    expect(h.fetchLog.some((u) => u.startsWith('https://nyaa.si/?'))).toBe(true);
     const listing = await h.host.downloads.browseMokuroCatalog();
     expect(listing.volumes[0]).toMatchObject({ name: 'Vol1', imagesKind: 'archive' });
     await expect(h.host.downloads.searchNyaa({ query: '  ' })).rejects.toMatchObject({ code: 'invalid-argument' });

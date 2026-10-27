@@ -5,7 +5,16 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { KotoriError } from '@kotori/core';
 import type { DirectoryEntry, DownloadsApi, FilesApi } from '@kotori/core';
-import { buildNyaaRssUrl, createJimakuClient, parseMokuroMoeListing, parseNyaaRss, resolveMokuroCatalogUrl, sortNyaaItems } from '@kotori/core';
+import {
+  buildNyaaRssUrl,
+  buildNyaaSearchUrl,
+  createJimakuClient,
+  parseMokuroMoeListing,
+  parseNyaaRss,
+  parseNyaaSearchHtml,
+  resolveMokuroCatalogUrl,
+  sortNyaaItems,
+} from '@kotori/core';
 import type { DownloadManager } from '../../downloads/manager';
 import type { SettingsStore } from '../../settings/store';
 
@@ -31,8 +40,18 @@ export function createDownloadsService(deps: DownloadsServiceDeps): DownloadsApi
   return {
     async searchNyaa(query) {
       if (!query.query?.trim()) throw new KotoriError('invalid-argument', 'Search query is empty');
-      const xml = await fetchText(deps.fetch, buildNyaaRssUrl(query, deps.settings.get().downloads.nyaaBaseUrl));
-      return sortNyaaItems(parseNyaaRss(xml), query.sort);
+      const base = deps.settings.get().downloads.nyaaBaseUrl;
+      try {
+        const html = await fetchText(deps.fetch, buildNyaaSearchUrl(query, base));
+        const items = parseNyaaSearchHtml(html, base);
+        if (items.length > 0 || html.includes('torrent-list')) {
+          return sortNyaaItems(items, query.sort);
+        }
+      } catch {
+        // Fallback to RSS endpoint below if HTML search endpoint is unavailable
+      }
+      const xml = await fetchText(deps.fetch, buildNyaaRssUrl(query, base));
+      return sortNyaaItems(parseNyaaRss(xml, base), query.sort);
     },
     searchJimaku: (query) => jimaku().searchEntries(query),
     listJimakuFiles: (entryId, episode) => jimaku().listFiles(entryId, episode),
