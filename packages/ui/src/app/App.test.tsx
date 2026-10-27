@@ -191,10 +191,11 @@ describe('App shell', () => {
     fireEvent.touchEnd(dlPage, { touches: [], changedTouches: [{ clientX: 80, clientY: 300 }] });
     expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('subtitles');
 
-    // Swipe right (dx = +160) -> returns from 'subtitles' to 'anime'
-    fireEvent.touchStart(dlPage, { touches: [{ clientX: 80, clientY: 300 }] });
-    fireEvent.touchMove(dlPage, { touches: [{ clientX: 240, clientY: 302 }] });
-    fireEvent.touchEnd(dlPage, { touches: [], changedTouches: [{ clientX: 240, clientY: 302 }] });
+    // Swipe right (dx = +160) on the blank tabpanel body (even if Android WebView fires touchcancel after horizontal lock) -> returns from 'subtitles' to 'anime'
+    const tabPanel = screen.getByTestId('downloads-tabpanel');
+    fireEvent.touchStart(tabPanel, { touches: [{ clientX: 80, clientY: 450 }] });
+    fireEvent.touchMove(tabPanel, { touches: [{ clientX: 240, clientY: 452 }] });
+    fireEvent.touchCancel(tabPanel);
     expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('anime');
 
     // Touch starting inside outermost 24px edge (clientX = 12) is ignored (reserved for Android edge-back gesture)

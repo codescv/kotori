@@ -92,7 +92,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const sb = useSubtitleBreakdown({ episodeId, trackId, contextCues: rowCues, sceneHint: seriesQ.data?.title });
 
   const [blind, setBlind] = useState(false);
-  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelTab, setPanelTab] = useState<PanelTab>('transcript');
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
@@ -110,17 +109,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     }
     return false;
   });
-
-  const toggleSubtitles = useCallback(
-    (explicit?: boolean) => {
-      setSubtitlesEnabled((prev) => {
-        const next = explicit !== undefined ? explicit : !prev;
-        showSnackbar(t(next ? 'player.subtitlesTurnedOn' : 'player.subtitlesTurnedOff'));
-        return next;
-      });
-    },
-    [t],
-  );
 
   // Opening a breakdown brings its tab forward (expanded) / its sheet up (compact).
   useEffect(() => {
@@ -322,10 +310,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
         case 'B':
           setBlind((b) => !b);
           break;
-        case 'c':
-        case 'C':
-          toggleSubtitles();
-          break;
         case 'Escape':
           if (useBreakdownStore.getState().isOpen) {
             closeBreakdown();
@@ -337,7 +321,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clock, prevRow, nextRow, toggleRepeatCue, toggleSubtitles, closeBreakdown]);
+  }, [clock, prevRow, nextRow, toggleRepeatCue, closeBreakdown]);
 
   const transcript = (
     <TranscriptPanel
@@ -376,8 +360,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
           <SubtitleTrackMenu
             episode={episode}
             trackId={trackId}
-            subtitlesEnabled={subtitlesEnabled}
-            onToggleSubtitles={toggleSubtitles}
             onSelectTrack={setTrackId}
             onTracksChanged={(id) => {
               reloadEpisode();
@@ -414,17 +396,15 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               <span>{formatClock(clock.currentMs)}</span>
             </div>
           )}
-          {subtitlesEnabled && (
-            <SubtitleOverlay
-              cues={cues}
-              activeIndexes={sync.activeIndexes}
-              mergeKaraoke={animeSettings.mergeKaraokeCues}
-              blind={blind}
-              onCharClick={onOverlayChar}
-              highlightFor={sb.highlightFor}
-              blindHint={t('player.blindHint')}
-            />
-          )}
+          <SubtitleOverlay
+            cues={cues}
+            activeIndexes={sync.activeIndexes}
+            mergeKaraoke={animeSettings.mergeKaraokeCues}
+            blind={blind}
+            onCharClick={onOverlayChar}
+            highlightFor={sb.highlightFor}
+            blindHint={t('player.blindHint')}
+          />
         </div>
         {clock.simulated && <p className="k-player__notice">{t('player.mediaError')}</p>}
 
@@ -455,13 +435,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               selected={Boolean(animeSettings.autoPreExplain)}
               data-testid="pre-explain-toggle"
               onClick={togglePreExplain}
-            />
-            <IconButton
-              icon="subtitles"
-              label={t('player.subtitlesToggle')}
-              selected={subtitlesEnabled && Boolean(trackId)}
-              data-testid="toggle-subtitles-btn"
-              onClick={() => toggleSubtitles()}
             />
             <IconButton icon={blind ? 'visibilityOff' : 'visibility'} label={t('player.blind')} selected={blind} onClick={() => setBlind((b) => !b)} />
             <Menu

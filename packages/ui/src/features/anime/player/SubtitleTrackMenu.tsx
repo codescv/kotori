@@ -17,8 +17,6 @@ import { showSnackbar } from '../../../stores/snackbar';
 export interface SubtitleTrackMenuProps {
   readonly episode: AnimeEpisode;
   readonly trackId: string | undefined;
-  readonly subtitlesEnabled?: boolean | undefined;
-  readonly onToggleSubtitles?: ((enabled: boolean) => void) | undefined;
   readonly onSelectTrack: (trackId: string) => void;
   /** Called after any host-side change to the episode's tracks. */
   readonly onTracksChanged: (selectTrackId?: string) => void;
@@ -90,8 +88,6 @@ export function formatSubtitleTrackLabel(track: SubtitleTrack, episode: AnimeEpi
 export function SubtitleTrackMenu({
   episode,
   trackId,
-  subtitlesEnabled = true,
-  onToggleSubtitles,
   onSelectTrack,
   onTracksChanged,
   t,
@@ -106,7 +102,6 @@ export function SubtitleTrackMenu({
     if (track.streamIndex === undefined) return;
     try {
       const extracted = await host.anime.extractEmbeddedTrack(episode.id, track.streamIndex);
-      onToggleSubtitles?.(true);
       onTracksChanged(extracted.id);
     } catch (e) {
       showSnackbar(errMsg(e), { tone: 'error' });
@@ -124,27 +119,17 @@ export function SubtitleTrackMenu({
   };
 
   const items: MenuItem[] = [];
-  if (onToggleSubtitles) {
-    items.push({
-      key: '__off',
-      label: t('player.subtitlesOff'),
-      icon: 'visibilityOff',
-      selected: !subtitlesEnabled,
-      onSelect: () => onToggleSubtitles(false),
-    });
-  }
   for (const track of episode.subtitleTracks) {
     const needsExtract = track.origin === 'embedded' && !track.filePath;
     items.push({
       key: track.id,
       label: formatSubtitleTrackLabel(track, episode),
-      selected: subtitlesEnabled && track.id === trackId,
+      selected: track.id === trackId,
       disabled: needsExtract && !caps.embeddedSubtitles,
       onSelect: () => {
         if (needsExtract) {
           void extract(track);
         } else {
-          onToggleSubtitles?.(true);
           onSelectTrack(track.id);
         }
       },

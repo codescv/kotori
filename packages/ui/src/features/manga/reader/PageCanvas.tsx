@@ -100,12 +100,40 @@ interface SingleState {
   readonly start: Point;
   last: Point;
   readonly target: EventTarget | null;
+  overscrollX: number;
 }
 
 const clampScale = (s: number, min = 1): number => Math.min(5, Math.max(min, s));
 
-const isInteractiveElement = (target: EventTarget | null): boolean =>
-  target instanceof Element && Boolean(target.closest('.k-block, .k-guide-marker, button, a, input, select, textarea'));
+const isControlElement = (target: EventTarget | null): boolean =>
+  target instanceof Element && Boolean(target.closest('.k-guide-marker, button, a, input, select, textarea'));
+
+const isBlockElement = (target: EventTarget | null): boolean =>
+  target instanceof Element && Boolean(target.closest('.k-block'));
+
+let pendingBlockTapTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Schedule a single-tap speech-bubble breakdown action after a short window so
+ * a second tap (double-tap 2× zoom) can pre-empt and cancel it.
+ */
+export function scheduleBlockTapPick(fn: () => void, delayMs = 230): void {
+  if (pendingBlockTapTimer !== null) {
+    clearTimeout(pendingBlockTapTimer);
+  }
+  pendingBlockTapTimer = setTimeout(() => {
+    pendingBlockTapTimer = null;
+    fn();
+  }, delayMs);
+}
+
+/** Cancel any pending single-tap speech-bubble breakdown action. */
+export function cancelPendingBlockTapPick(): void {
+  if (pendingBlockTapTimer !== null) {
+    clearTimeout(pendingBlockTapTimer);
+    pendingBlockTapTimer = null;
+  }
+}
 
 /**
  * Multi-gesture stage wrapper:
@@ -224,8 +252,10 @@ export function ZoomPan({
   const pinchedRef = useRef(false);
   const suppressClick = useRef(false);
   const lastTouchTime = useRef(0);
-  const lastTapRef = useRef<{ readonly time: number; readonly x: number; readonly y: number } | null>(null);
+  const lastTapRef = useRef<{ readonly time: number; readonly x: number; readonly y: number; readonly onBlock: boolean } | null>(null);
   const lastDoubleTapTime = useRef(0);
+
+  useEffect(() => () => cancelPendingBlockTapPick(), []);
 
   // Native non-passive touch listeners so Android WebView never cancels or hijacks 2-finger pinch or 1-finger swipe,
   // while leaving stationary single-finger taps (< 8px jitter) un-prevented so speech bubble taps fire immediately.
@@ -258,6 +288,7 @@ export function ZoomPan({
   const syncPointsStart = (pts: readonly Point[], target: EventTarget | null) => {
     suppressClick.current = false;
     if (pts.length >= 2) {
+      cancelPendingBlockTapPick();
       const a = pts[0]!;
       const b = pts[1]!;
       pinchRef.current = {
@@ -271,7 +302,11 @@ export function ZoomPan({
       setGesturing(true);
     } else if (pts.length === 1 && !pinchedRef.current) {
       const p = pts[0]!;
-      singleRef.current = { start: { x: p.x, y: p.y }, last: { x: p.x, y: p.y }, target };
+      const prevTap = lastTapRef.current;
+      if (prevTap && Date.now() - prevTap.time < 320 && Math.hypot(p.x - prevTap.x, p.y - prevTap.y) < 36) {
+        cancelPendingBlockTapPick();
+      }
+      singleRef.current = { start: { x: p.x, y: p.y }, last: { x: p.x, y: p.y }, target, overscrollX: 0 };
       movedRef.current = false;
       pinchedRef.current = false;
     }
@@ -279,6 +314,7 @@ export function ZoomPan({
 
   const syncPointsMove = (pts: readonly Point[], rect: BoxRect) => {
     if (pts.length >= 2) {
+      cancelPendingBlockTapPick();
       const a = pts[0]!;
       const b = pts[1]!;
       if (!pinchRef.current) {
@@ -313,7 +349,7 @@ export function ZoomPan({
         if (viewRef.current.scale < 1) {
           updateView({ scale: 1, x: 0, y: initialY() });
         }
-        singleRef.current = { start: { x: p.x, y: p.y }, last: { x: p.x, y: p.y }, target: null };
+        singleRef.current = { start: { x: p.x, y: p.y }, last: { x: p.x, y: p.y }, target: null, overscrollX: 0 };
         return;
       }
       const s = singleRef.current;
@@ -325,13 +361,25 @@ export function ZoomPan({
       s.last = { x: p.x, y: p.y };
 
       if (!movedRef.current && Math.hypot(dx, dy) > 8) {
+        cancelPendingBlockTapPick();
         movedRef.current = true;
         setGesturing(true);
       }
       if (!movedRef.current) return;
 
       if (viewRef.current.scale > 1.01) {
-        updateView((v) => clampView({ scale: v.scale, x: v.x + stepX, y: v.y + stepY }, rect));
+        const v = viewRef.current;
+        const nextUnclampedX = v.x + s.overscrollX + stepX;
+        const nextView = clampView({ scale: v.scale, x: nextUnclampedX, y: v.y + stepY }, rect);
+        const rawOverscrollX = nextUnclampedX - nextView.x;
+        if (Math.abs(rawOverscrollX) > 0.5 && (s.overscrollX !== 0 || Math.abs(stepX) > Math.abs(stepY) * 0.8)) {
+          s.overscrollX = rawOverscrollX;
+          setDragX(Math.sign(rawOverscrollX) * Math.min(Math.abs(rawOverscrollX) * 0.45, 90));
+        } else {
+          s.overscrollX = 0;
+          setDragX(0);
+        }
+        updateView(nextView);
       } else {
         const sh = rect.height > 0 ? rect.height : (stageSize?.height ?? 800);
         const ch = contentSize && contentSize.height > 0 ? contentSize.height : sh;
@@ -365,11 +413,16 @@ export function ZoomPan({
       setTimeout(() => {
         suppressClick.current = false;
       }, 80);
-      if (!wasPinched && single && viewRef.current.scale <= 1.01) {
-        const dx = single.last.x - single.start.x;
-        const dy = single.last.y - single.start.y;
-        if (Math.abs(dx) >= 42 && Math.abs(dx) > Math.abs(dy) * 1.15) {
-          if (dx < 0) onSwipeLeft?.();
+      if (!wasPinched && single) {
+        if (viewRef.current.scale <= 1.01) {
+          const dx = single.last.x - single.start.x;
+          const dy = single.last.y - single.start.y;
+          if (Math.abs(dx) >= 42 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+            if (dx < 0) onSwipeLeft?.();
+            else onSwipeRight?.();
+          }
+        } else if (Math.abs(single.overscrollX) >= 42) {
+          if (single.overscrollX < 0) onSwipeLeft?.();
           else onSwipeRight?.();
         }
       }
@@ -378,32 +431,41 @@ export function ZoomPan({
 
     suppressClick.current = false;
 
-    if (single && !isInteractiveElement(single.target)) {
+    if (single && !isControlElement(single.target)) {
+      const onBlock = isBlockElement(single.target);
       const tapX = single.last.x;
       const tapY = single.last.y;
       const relX = (tapX - rect.left) / Math.max(1, rect.width);
       const now = Date.now();
       const prevTap = lastTapRef.current;
 
-      // Edge tap at 1× scale turns the page immediately.
+      // Double-tap 2× zoom takes priority over single-tap speech-bubble breakdown and blank-tap immersive toggle.
+      if (prevTap && now - prevTap.time < 320 && Math.hypot(tapX - prevTap.x, tapY - prevTap.y) < 36) {
+        cancelPendingBlockTapPick();
+        lastTapRef.current = null;
+        lastDoubleTapTime.current = now;
+        if (!prevTap.onBlock) {
+          onBlankTap?.();
+        }
+        if (viewRef.current.scale > 1.01) updateView({ scale: 1, x: 0, y: initialY() });
+        else zoomAt(2, tapX, tapY, rect);
+        return;
+      }
+
+      if (onBlock) {
+        lastTapRef.current = { time: now, x: tapX, y: tapY, onBlock: true };
+        return;
+      }
+
+      // Edge tap at 1× scale outside speech bubbles turns the page immediately.
       if (viewRef.current.scale <= 1.01 && (relX <= 0.28 || relX >= 0.72)) {
         lastTapRef.current = null;
         onEdgeTap?.(relX <= 0.28 ? 'left' : 'right');
         return;
       }
 
-      // Center tap (or tap anywhere while zoomed in): detect double-tap to toggle 2× zoom,
-      // or toggle top/bottom reader UI (`onBlankTap`) on a single tap.
-      if (prevTap && now - prevTap.time < 320 && Math.hypot(tapX - prevTap.x, tapY - prevTap.y) < 36) {
-        lastTapRef.current = null;
-        lastDoubleTapTime.current = now;
-        onBlankTap?.();
-        if (viewRef.current.scale > 1.01) updateView({ scale: 1, x: 0, y: initialY() });
-        else zoomAt(2, tapX, tapY, rect);
-      } else {
-        lastTapRef.current = { time: now, x: tapX, y: tapY };
-        onBlankTap?.();
-      }
+      lastTapRef.current = { time: now, x: tapX, y: tapY, onBlock: false };
+      onBlankTap?.();
     }
   };
 
@@ -432,11 +494,12 @@ export function ZoomPan({
         zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY, resolveRect(e.currentTarget));
       }}
       onDoubleClick={(e) => {
-        if (disabled || isInteractiveElement(e.target)) return;
+        if (disabled || isControlElement(e.target)) return;
         if (Date.now() - lastDoubleTapTime.current < 450 || Date.now() - lastTouchTime.current < 450) return;
+        cancelPendingBlockTapPick();
         const rect = resolveRect(e.currentTarget);
         const relX = (e.clientX - rect.left) / Math.max(1, rect.width);
-        if (viewRef.current.scale <= 1.01 && (relX <= 0.28 || relX >= 0.72)) return;
+        if (!isBlockElement(e.target) && viewRef.current.scale <= 1.01 && (relX <= 0.28 || relX >= 0.72)) return;
         if (viewRef.current.scale > 1.01) updateView({ scale: 1, x: 0, y: initialY() });
         else zoomAt(2, e.clientX, e.clientY, rect);
       }}

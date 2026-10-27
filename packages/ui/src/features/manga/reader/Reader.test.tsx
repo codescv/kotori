@@ -326,4 +326,36 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     expect(zp.dataset['scale']).toBe('2.00');
     expect(reader.dataset['immersive']).toBe('false');
   });
+
+  it('turns the page when single-finger dragging past the horizontal boundary while zoomed in, and prioritizes double-tap 2x zoom over speech-bubble breakdown', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    const zp = screen.getByTestId('zoompan');
+
+    // 1. Double-tapping directly on a speech bubble (.k-block) zooms to 2.00x and does NOT open the AI breakdown
+    const overlay1 = await screen.findByTestId('block-overlay-1');
+    const block1 = overlay1.querySelector('[data-block-index="0"]') as HTMLElement;
+    expect(block1).toBeTruthy();
+
+    fireEvent.touchStart(block1, { touches: [{ clientX: 400, clientY: 300 }] });
+    fireEvent.touchEnd(block1, { touches: [], changedTouches: [{ clientX: 400, clientY: 300 }] });
+    fireEvent.touchStart(block1, { touches: [{ clientX: 404, clientY: 302 }] });
+    fireEvent.touchEnd(block1, { touches: [], changedTouches: [{ clientX: 404, clientY: 302 }] });
+
+    expect(zp.dataset['scale']).toBe('2.00');
+    // Wait past the 230ms single-tap timer to verify the breakdown was cancelled
+    await new Promise((r) => setTimeout(r, 270));
+    expect(useBreakdownStore.getState().isOpen).toBe(false);
+
+    // 2. While zoomed in (2.00x), single-finger drag past the right boundary (overscrollX >= 42) turns to next page (page 2 in RTL)
+    fireEvent.touchStart(zp, { touches: [{ clientX: 100, clientY: 400 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 550, clientY: 405 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 820, clientY: 405 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+
+    expect(spread().dataset['pageIndexes']).toBe('2');
+    // Turning the page resets zoom to 1.00x
+    expect(zp.dataset['scale']).toBe('1.00');
+  });
 });
