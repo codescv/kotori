@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     preloadPages: 2,
   },
   downloads: {
-    downloadDir: '~/.kotori/downloads',
+    downloadDir: '~/.kotori/anime',
     maxActiveDownloads: 3,
     maxPeersPerTorrent: 50,
     seedAfterComplete: false,

@@ -393,7 +393,7 @@ export class DownloadManager {
   }
 
   private async deleteTaskFiles(task: DownloadTask): Promise<void> {
-    const managed = [join(this.deps.dataDir, 'subtitles'), join(this.deps.dataDir, 'manga'), this.deps.settings().downloads.downloadDir].map((d) => resolve(d));
+    const managed = [join(this.deps.dataDir, 'subtitles'), join(this.deps.dataDir, 'manga'), join(this.deps.dataDir, 'anime'), join(this.deps.dataDir, 'downloads'), this.deps.settings().downloads.downloadDir].map((d) => resolve(d));
     const paths: string[] = [];
     if (task.kind === 'torrent') {
       for (const f of task.files ?? []) paths.push(join(task.targetDir, ...f.path.split('/')));

@@ -32,7 +32,7 @@ export function defaultSettings(dataDir: string): AppSettings {
     },
     manga: { defaultReadingMode: 'spread-rtl', showBlockOutlines: false, fit: 'contain', background: 'black', preloadPages: 2 },
     downloads: {
-      downloadDir: join(dataDir, 'downloads'),
+      downloadDir: join(dataDir, 'anime'),
       maxActiveDownloads: 3,
       maxPeersPerTorrent: 50,
       seedAfterComplete: false,
@@ -237,6 +237,10 @@ export class SettingsStore {
 
   /** Upgrade stored JSON from older schema versions (v1 is the first). */
   private migrate(raw: Record<string, unknown>): Record<string, unknown> {
-    return { ...raw, schemaVersion: 1 };
+    const out: Record<string, unknown> = { ...raw, schemaVersion: 1 };
+    if (isPlainObject(out['downloads']) && out['downloads']['downloadDir'] === join(this.dataDir, 'downloads')) {
+      out['downloads'] = { ...out['downloads'], downloadDir: join(this.dataDir, 'anime') };
+    }
+    return out;
   }
 }
