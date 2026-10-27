@@ -139,14 +139,25 @@ describe('Reader — other modes', () => {
 });
 
 describe('Reader — Android default width-fit & touch gestures', () => {
-  it('defaults to single-rtl and fits 100% of stage width on Android', async () => {
-    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
-    setup(host);
-    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
-    expect(screen.getByTestId('manga-reader').dataset['mode']).toBe('single-rtl');
-    expect(spread()).toHaveClass('k-spread--width');
-    const slot = spread().querySelector<HTMLElement>('[data-slot]');
-    expect(slot?.style.width).toBe('1000px');
+  it('defaults to single-rtl and fits 100% of stage width on Android (including async stage mount)', async () => {
+    const origW = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const origH = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 448 });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 778 });
+    try {
+      const host = createMockPlatformHost({ latencyMs: 10, platform: 'android' });
+      setup(host);
+      await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+      expect(screen.getByTestId('manga-reader').dataset['mode']).toBe('single-rtl');
+      expect(spread()).toHaveClass('k-spread--width');
+      const slot = spread().querySelector<HTMLElement>('[data-slot]');
+      expect(slot?.style.width).toBe('448px');
+    } finally {
+      if (origW) Object.defineProperty(HTMLElement.prototype, 'clientWidth', origW);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+      if (origH) Object.defineProperty(HTMLElement.prototype, 'clientHeight', origH);
+      else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    }
   });
 
   it('supports single-finger horizontal swipe and edge-tap page turning in RTL', async () => {

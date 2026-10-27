@@ -98,8 +98,7 @@ interface SingleState {
   readonly target: EventTarget | null;
 }
 
-const IDENTITY: View = { scale: 1, x: 0, y: 0 };
-const clampScale = (s: number): number => Math.min(5, Math.max(1, s));
+const clampScale = (s: number, min = 1): number => Math.min(5, Math.max(min, s));
 
 const isInteractiveElement = (target: EventTarget | null): boolean =>
   target instanceof Element && Boolean(target.closest('.k-block, .k-guide-marker, button, a, input, select, textarea'));
@@ -123,6 +122,8 @@ export function ZoomPan({
   onSwipeRight,
   onEdgeTap,
 }: ZoomPanProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const initialY = useCallback((): number => {
     const ch = contentSize?.height ?? 0;
     const sh = stageSize?.height ?? 0;
@@ -168,14 +169,15 @@ export function ZoomPan({
   );
 
   const clampView = useCallback(
-    (next: View, rect: BoxRect): View => {
-      const sw = stageSize && stageSize.width > 0 ? stageSize.width : rect.width;
-      const sh = stageSize && stageSize.height > 0 ? stageSize.height : rect.height;
+    (next: View, rect: BoxRect, allowUnderScale = false): View => {
+      const sw = rect.width > 0 ? rect.width : (stageSize?.width ?? 1000);
+      const sh = rect.height > 0 ? rect.height : (stageSize?.height ?? 800);
       const cw = contentSize && contentSize.width > 0 ? contentSize.width : sw;
       const ch = contentSize && contentSize.height > 0 ? contentSize.height : sh;
       if (next.scale <= 1.01) {
         const maxY = Math.max(0, (ch - sh) / 2);
-        return { scale: 1, x: 0, y: Math.min(maxY, Math.max(-maxY, next.y)) };
+        const scale = allowUnderScale ? clampScale(next.scale, 0.75) : 1;
+        return { scale, x: 0, y: Math.min(maxY, Math.max(-maxY, next.y)) };
       }
       const maxX = Math.max(0, (cw * next.scale - sw) / 2);
       const maxY = Math.max(0, (ch * next.scale - sh) / 2);
@@ -191,11 +193,11 @@ export function ZoomPan({
   // Re-clamp vertical alignment if contentSize / stageSize updates at 1× scale.
   useEffect(() => {
     if (viewRef.current.scale <= 1.01) {
-      const sw = stageSize?.width ?? 1000;
-      const sh = stageSize?.height ?? 800;
-      updateView((v) => clampView(v, { left: 0, top: 0, width: sw, height: sh }));
+      const el = containerRef.current;
+      const rect = el ? resolveRect(el) : { left: 0, top: 0, width: stageSize?.width ?? 1000, height: stageSize?.height ?? 800 };
+      updateView((v) => clampView(v, rect));
     }
-  }, [contentSize?.width, contentSize?.height, stageSize?.width, stageSize?.height, clampView, updateView]);
+  }, [contentSize?.width, contentSize?.height, stageSize?.width, stageSize?.height, clampView, resolveRect, updateView]);
 
   const zoomAt = useCallback(
     (factor: number, cx: number, cy: number, rect: BoxRect) => {
@@ -220,6 +222,26 @@ export function ZoomPan({
   const lastTouchTime = useRef(0);
   const lastTapRef = useRef<{ readonly time: number; readonly x: number; readonly y: number } | null>(null);
   const lastDoubleTapTime = useRef(0);
+
+  // Native non-passive touch listeners so Android WebView never cancels or hijacks 2-finger pinch or 1-finger swipe.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || disabled) return;
+    const onNativeTouchStart = (e: TouchEvent): void => {
+      if (e.touches.length >= 2 && e.cancelable) e.preventDefault();
+    };
+    const onNativeTouchMove = (e: TouchEvent): void => {
+      if ((e.touches.length >= 2 || movedRef.current || viewRef.current.scale > 1.01) && e.cancelable) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener('touchstart', onNativeTouchStart, { passive: false });
+    el.addEventListener('touchmove', onNativeTouchMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onNativeTouchStart);
+      el.removeEventListener('touchmove', onNativeTouchMove);
+    };
+  }, [disabled]);
 
   const syncPointsStart = (pts: readonly Point[], target: EventTarget | null) => {
     if (pts.length >= 2) {
@@ -260,13 +282,13 @@ export function ZoomPan({
       setGesturing(true);
       const dist = Math.max(10, Math.hypot(a.x - b.x, a.y - b.y));
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const scale = clampScale(p.startView.scale * (dist / p.startDist));
+      const scale = clampScale(p.startView.scale * (dist / p.startDist), 0.75);
       const px = p.startMid.x - rect.left - rect.width / 2;
       const py = p.startMid.y - rect.top - rect.height / 2;
       const k = scale / p.startView.scale;
       const rawX = px - (px - p.startView.x) * k + (mid.x - p.startMid.x);
       const rawY = py - (py - p.startView.y) * k + (mid.y - p.startMid.y);
-      updateView(clampView({ scale, x: rawX, y: rawY }, rect));
+      updateView(clampView({ scale, x: rawX, y: rawY }, rect, true));
       return;
     }
 
@@ -275,6 +297,9 @@ export function ZoomPan({
       if (pinchRef.current) {
         // Transitioned from 2 fingers down to 1 finger: re-anchor single-finger pan.
         pinchRef.current = null;
+        if (viewRef.current.scale < 1) {
+          updateView({ scale: 1, x: 0, y: initialY() });
+        }
         singleRef.current = { start: { x: p.x, y: p.y }, last: { x: p.x, y: p.y }, target: null };
         return;
       }
@@ -295,7 +320,7 @@ export function ZoomPan({
       if (viewRef.current.scale > 1.01) {
         updateView((v) => clampView({ scale: v.scale, x: v.x + stepX, y: v.y + stepY }, rect));
       } else {
-        const sh = stageSize && stageSize.height > 0 ? stageSize.height : rect.height;
+        const sh = rect.height > 0 ? rect.height : (stageSize?.height ?? 800);
         const ch = contentSize && contentSize.height > 0 ? contentSize.height : sh;
         const maxY = Math.max(0, (ch - sh) / 2);
         if (maxY > 2 && Math.abs(dy) >= Math.abs(dx)) {
@@ -310,6 +335,9 @@ export function ZoomPan({
   const finishAllPoints = (rect: BoxRect) => {
     setDragX(0);
     setGesturing(false);
+    if (viewRef.current.scale < 1) {
+      updateView({ scale: 1, x: 0, y: initialY() });
+    }
     const wasMoved = movedRef.current;
     const wasPinched = pinchedRef.current;
     const single = singleRef.current;
@@ -366,10 +394,14 @@ export function ZoomPan({
     pinchedRef.current = false;
     setDragX(0);
     setGesturing(false);
+    if (viewRef.current.scale < 1) {
+      updateView({ scale: 1, x: 0, y: initialY() });
+    }
   };
 
   return (
     <div
+      ref={containerRef}
       className={cx('k-zoompan', view.scale > 1.01 && 'is-zoomed', gesturing && 'is-gesturing', className)}
       data-testid="zoompan"
       data-scale={view.scale.toFixed(2)}
