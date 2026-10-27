@@ -177,6 +177,24 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
   propertyOrdering: ['translation', 'literalTranslation', 'register', 'tone', 'ruby', 'chunks', 'grammar'],
 } as const;
 
+export const RawBatchExplanationSchema = z.object({
+  items: arrayOf(RawExplanationSchema),
+});
+export type RawBatchExplanation = z.infer<typeof RawBatchExplanationSchema>;
+
+/** Gemini JSON schema for explaining N sentences in a single batch call. */
+export const BATCH_EXPLAIN_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    items: {
+      type: 'ARRAY',
+      items: EXPLAIN_RESPONSE_SCHEMA,
+    },
+  },
+  required: ['items'],
+  propertyOrdering: ['items'],
+} as const;
+
 // --- Vision (manga) ---------------------------------------------------------
 
 export const RawBubbleOcrSchema = z.object({

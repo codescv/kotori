@@ -23,12 +23,14 @@ import { buildTranscriptRows, formatClock } from '../../../lib/cues';
 import { useRouteStore } from '../../../app/routes';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
+import { showSnackbar } from '../../../stores/snackbar';
 import { RepeatControls, useRepeat } from './RepeatControls';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { SubtitleTrackMenu } from './SubtitleTrackMenu';
 import { activeRowIndex, TranscriptPanel } from './TranscriptPanel';
 import { useMediaClock, usePlayerSync } from './usePlayerSync';
 import { useSubtitleBreakdown } from './useSubtitleBreakdown';
+import { useSubtitlePreExplain } from './useSubtitlePreExplain';
 import './player.css';
 
 type PanelTab = 'transcript' | 'breakdown';
@@ -66,6 +68,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const t = useT();
   const expanded = useIsExpanded();
   const animeSettings = useSettingsStore((s) => s.settings.anime);
+  const updateSettings = useSettingsStore((s) => s.update);
   const openAnime = useRouteStore((s) => s.openAnime);
   const episodeId = episode.id;
 
@@ -139,6 +142,20 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   );
 
   const currentRowIdx = activeRowIndex(rows, activeRaw, clock.currentMs);
+  const preExplain = useSubtitlePreExplain({
+    enabled: Boolean(animeSettings.autoPreExplain),
+    episodeId,
+    trackId,
+    rows,
+    currentRowIdx,
+    sceneHint: seriesQ.data?.title,
+  });
+  const togglePreExplain = useCallback(() => {
+    const next = !animeSettings.autoPreExplain;
+    void updateSettings(host, { anime: { autoPreExplain: next } });
+    showSnackbar(t(next ? 'player.preExplainOn' : 'player.preExplainOff'));
+  }, [animeSettings.autoPreExplain, updateSettings, host, t]);
+
   const nextRow = useCallback(() => {
     const ms = clock.currentMs + animeSettings.seekPaddingMs + 10;
     jumpToRow(rows.find((r, i) => i !== currentRowIdx && r.cue.startMs > ms));
@@ -228,6 +245,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       onCharClick={sb.openCue}
       onExplainSelection={(rs) => sb.openMerged(rs.map((r) => r.cue))}
       highlightFor={sb.highlightFor}
+      cachedCueIndexes={preExplain.cachedCueIndexes}
+      prefetchingCueIndexes={preExplain.prefetchingCueIndexes}
       t={t}
     />
   );
@@ -302,6 +321,13 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             </span>
             <span className="k-spacer" />
             <RepeatControls repeat={repeat} onToggleCue={toggleRepeatCue} onToggleAb={toggleAb} canAb={selected.size > 0} t={t} />
+            <IconButton
+              icon="sparkle"
+              label={t('player.preExplain')}
+              selected={Boolean(animeSettings.autoPreExplain)}
+              data-testid="pre-explain-toggle"
+              onClick={togglePreExplain}
+            />
             <IconButton icon={blind ? 'visibilityOff' : 'visibility'} label={t('player.blind')} selected={blind} onClick={() => setBlind((b) => !b)} />
             <Menu
               items={[0.5, 0.75, 0.9, 1, 1.25, 1.5].map((r) => ({ key: String(r), label: `${r}×`, selected: clock.rate === r, onSelect: () => clock.setRate(r) }))}

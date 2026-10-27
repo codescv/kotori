@@ -9,8 +9,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 1,
   ai: {
     provider: { provider: 'gemini-api', apiKey: '' },
-    explainModel: 'gemini-3.8-flash',
-    visionModel: 'gemini-3.8-flash',
+    explainModel: 'gemini-3.5-flash-lite',
+    visionModel: 'gemini-3.5-flash-lite',
     temperature: 0.2,
     thinkingBudget: 0,
     targetLanguage: 'zh-CN',
@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoDownloadJimaku: true,
     jimakuApiKey: '',
     preferredSubtitleLanguages: ['ja'],
+    autoPreExplain: false,
   },
   manga: {
     defaultReadingMode: 'spread-rtl',

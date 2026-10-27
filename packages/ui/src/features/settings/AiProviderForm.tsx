@@ -175,8 +175,8 @@ const LANGS: readonly { value: TargetLanguage; label: string }[] = [
 ];
 
 export const MODEL_PRESETS: readonly string[] = [
-  'gemini-3.8-flash',
   'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
 ];
 
 function ModelComboField(props: {

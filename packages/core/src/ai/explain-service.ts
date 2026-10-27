@@ -20,10 +20,10 @@ import type {
 } from '../types';
 import { KotoriError } from '../util/errors';
 import { explanationCacheKey } from './cache-key';
-import { EXPLAIN_RESPONSE_SCHEMA, RawExplanationSchema } from './explain-schema';
+import { BATCH_EXPLAIN_RESPONSE_SCHEMA, EXPLAIN_RESPONSE_SCHEMA, RawBatchExplanationSchema, RawExplanationSchema } from './explain-schema';
 import { toSentenceExplanation } from './explanation';
 import type { GeminiClient, GeminiRequest } from './gemini-client';
-import { buildExplainPrompt, buildFollowUpPrompt, PROMPT_VERSION } from './prompts';
+import { buildBatchExplainPrompt, buildExplainPrompt, buildFollowUpPrompt, PROMPT_VERSION } from './prompts';
 import { generateStructured } from './structured';
 import { ocrBubble as visionOcrBubble, pageGuide as visionPageGuide } from './vision';
 
@@ -36,8 +36,9 @@ export interface ExplanationCache {
   clear(): Promise<{ readonly removed: number }>;
 }
 
-/** `AiApi` with streaming always available. */
+/** `AiApi` with streaming and batch explain always available. */
 export interface ExplainService extends AiApi {
+  explainBatch(requests: readonly ExplainRequest[], options?: AiCallOptions): Promise<readonly SentenceExplanation[]>;
   followUpStream(request: FollowUpRequest, onDelta: (delta: FollowUpDelta) => void, options?: AiCallOptions): Promise<FollowUpMessage>;
 }
 
@@ -145,6 +146,86 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
     }
   }
 
+  /** Batch explain up to N sentences in a single structured LLM request and cache each result individually. */
+  async function explainBatch(requests: readonly ExplainRequest[], options?: AiCallOptions): Promise<readonly SentenceExplanation[]> {
+    const signal = options?.signal;
+    try {
+      throwIfAborted(signal);
+      if (requests.length === 0) return [];
+      const settings = deps.settings();
+      const normalizedList: ExplainRequest[] = requests.map((r) => ({
+        ...r,
+        targetLanguage: r.targetLanguage ?? settings.targetLanguage ?? 'zh-CN',
+      }));
+      const ids = await Promise.all(normalizedList.map((r) => keyFor(r, settings)));
+      const results: Array<SentenceExplanation | undefined> = new Array(normalizedList.length);
+      const uncachedIndices: number[] = [];
+
+      for (let i = 0; i < normalizedList.length; i++) {
+        const req = normalizedList[i]!;
+        const id = ids[i]!;
+        if (!req.force && settings.cacheEnabled) {
+          const cached = await deps.cache.get(id);
+          if (cached) {
+            results[i] = { ...cached, fromCache: true };
+            continue;
+          }
+        }
+        if (req.sentence.trim()) {
+          uncachedIndices.push(i);
+        }
+      }
+
+      if (uncachedIndices.length === 0) {
+        return results.filter((x): x is SentenceExplanation => x !== undefined);
+      }
+      if (uncachedIndices.length === 1) {
+        const idx = uncachedIndices[0]!;
+        results[idx] = await explain(normalizedList[idx]!, options);
+        return results.filter((x): x is SentenceExplanation => x !== undefined);
+      }
+
+      throwIfAborted(signal);
+      const uncachedReqs = uncachedIndices.map((idx) => normalizedList[idx]!);
+      const prompt = buildBatchExplainPrompt(uncachedReqs);
+      const commonKnobs = knobs(settings);
+      const res = await generateStructured(
+        clientFor(settings),
+        {
+          model: settings.explainModel,
+          ...prompt,
+          responseSchema: BATCH_EXPLAIN_RESPONSE_SCHEMA,
+          ...commonKnobs,
+          timeoutMs: Math.max(commonKnobs.timeoutMs ?? 30_000, 60_000),
+        },
+        RawBatchExplanationSchema,
+        signal,
+      );
+      throwIfAborted(signal);
+
+      const items = res.value.items;
+      const count = Math.min(items.length, uncachedIndices.length);
+      for (let k = 0; k < count; k++) {
+        const origIdx = uncachedIndices[k]!;
+        const req = normalizedList[origIdx]!;
+        const id = ids[origIdx]!;
+        const expl = toSentenceExplanation(items[k]!, req, { id, model: settings.explainModel, usage: res.usage, now: now() });
+        if (settings.cacheEnabled) await deps.cache.put(expl);
+        results[origIdx] = expl;
+      }
+
+      // If the model returned fewer items than requested, fill any remaining slots sequentially
+      for (let k = count; k < uncachedIndices.length; k++) {
+        const origIdx = uncachedIndices[k]!;
+        results[origIdx] = await explain(normalizedList[origIdx]!, options);
+      }
+
+      return results.filter((x): x is SentenceExplanation => x !== undefined);
+    } catch (e) {
+      throw normaliseError(e, signal);
+    }
+  }
+
   /** Resolve the explanation a follow-up refers to (`not-found` if none). */
   async function resolveExplanation(request: FollowUpRequest): Promise<SentenceExplanation> {
     if (request.explanation) return request.explanation;
@@ -191,6 +272,7 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
 
   return {
     explain,
+    explainBatch,
 
     async getCachedExplanation(request) {
       const settings = deps.settings();

@@ -88,6 +88,7 @@ export function createAiService(deps: AiServiceDeps): HostAiService {
   return {
     ...service,
     explain: (request, options) => api.explain(request, options),
+    explainBatch: (requests, options) => service.explainBatch!(requests, options),
     getCachedExplanation: (request) => api.getCachedExplanation(request),
     followUp: (request, options) => api.followUp(request, options),
     followUpStream: (request, onDelta, options) => service.followUpStream(request, onDelta, options),

@@ -93,4 +93,23 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
     fireEvent.keyDown(window, { key: 'b' });
     expect(overlay).toHaveClass('is-blind');
   });
+
+  it('pre-explain toggle syncs globally and batch-prefetches up to 5 upcoming subtitle lines', async () => {
+    const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    await screen.findByTestId('overlay-cue');
+    const toggle = screen.getByTestId('pre-explain-toggle');
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(toggle);
+    await waitFor(async () => {
+      expect(useSettingsStore.getState().settings.anime.autoPreExplain).toBe(true);
+      expect((await host.settings.get()).anime.autoPreExplain).toBe(true);
+    });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    await waitFor(() => {
+      expect(host.calls.get('ai.explainBatch')).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByTestId('cue-cached').length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

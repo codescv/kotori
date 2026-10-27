@@ -47,6 +47,7 @@ const MANGA_METHODS: Record<keyof MangaApi, true> = {
 };
 const AI_METHODS: Record<keyof AiApi, true> = {
   explain: true,
+  explainBatch: true,
   getCachedExplanation: true,
   followUp: true,
   followUpStream: true,
@@ -148,8 +149,8 @@ describe('settings', () => {
     expect(s).toEqual(defaultSettings(`${DATA_ROOT}/downloads`));
     expect(s.ai).toMatchObject({
       provider: { provider: 'gemini-api', apiKey: '' },
-      explainModel: 'gemini-3.8-flash',
-      visionModel: 'gemini-3.8-flash',
+      explainModel: 'gemini-3.5-flash-lite',
+      visionModel: 'gemini-3.5-flash-lite',
       temperature: 0.2,
       targetLanguage: 'zh-CN',
       cacheEnabled: true,
@@ -173,7 +174,7 @@ describe('settings', () => {
     t.host.subscribe((e) => events.push(e));
     const next = await t.host.settings.update({ ai: { temperature: 0.5 }, anime: { preferredSubtitleLanguages: ['ja', 'en'] } });
     expect(next.ai.temperature).toBe(0.5);
-    expect(next.ai.explainModel).toBe('gemini-3.8-flash');
+    expect(next.ai.explainModel).toBe('gemini-3.5-flash-lite');
     expect(next.anime.preferredSubtitleLanguages).toEqual(['ja', 'en']);
     expect(next.anime.repeatCount).toBe(3);
     expect(events).toEqual([{ type: 'settings-changed', settings: next }]);
@@ -219,7 +220,7 @@ describe('settings', () => {
     const { host } = await makeHost();
     const result = await host.settings.testAi();
     expect(result.ok).toBe(false);
-    expect(result.model).toBe('gemini-3.8-flash');
+    expect(result.model).toBe('gemini-3.5-flash-lite');
     expect(result.message).toMatch(/^[a-z-]+: /);
   });
 });

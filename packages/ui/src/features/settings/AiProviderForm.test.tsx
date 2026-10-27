@@ -116,16 +116,16 @@ describe('AiProviderForm — Vertex AI', () => {
     const saved = (await host.settings.get()).ai;
     expect(saved.provider).toEqual({ provider: 'vertex-ai', project: 'kotori-proj', location: 'global', auth: { kind: 'access-token', accessToken: 'fake-access-token' } });
     expect(saved.provider).not.toHaveProperty('apiKey');
-    expect(saved.explainModel).toBe('gemini-3.8-flash');
+    expect(saved.explainModel).toBe('gemini-3.5-flash-lite');
     expect(useSettingsStore.getState().settings.ai.provider.provider).toBe('vertex-ai');
   });
 
   it('supports selecting models from dropdown menu, manual input, and editing API timeout', async () => {
     const host = await setup();
-    // Open dropdown menu on explainModel and select gemini-3.5-flash-lite
+    // Open dropdown menu on explainModel and select gemini-3.8-flash
     fireEvent.click(screen.getByRole('button', { name: '解析模型 options' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.5-flash-lite' }));
-    expect(screen.getByLabelText('解析模型')).toHaveValue('gemini-3.5-flash-lite');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.8-flash' }));
+    expect(screen.getByLabelText('解析模型')).toHaveValue('gemini-3.8-flash');
 
     // Manual input on visionModel
     type('视觉模型', 'gemini-custom-vision');
@@ -137,7 +137,7 @@ describe('AiProviderForm — Vertex AI', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await waitFor(async () => expect((await host.settings.get()).ai.timeoutMs).toBe(45000));
     const saved = (await host.settings.get()).ai;
-    expect(saved.explainModel).toBe('gemini-3.5-flash-lite');
+    expect(saved.explainModel).toBe('gemini-3.8-flash');
     expect(saved.visionModel).toBe('gemini-custom-vision');
   });
 });

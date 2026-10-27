@@ -120,6 +120,42 @@ describe('createExplainService.explain', () => {
     expect(seen).toEqual(['gemini-x']);
     expect(e.model).toBe('gemini-x');
   });
+
+  it('explainBatch explains multiple sentences in a single model call and populates per-sentence cache', async () => {
+    const req2: ExplainRequest = { sentence: '空へ駆け出そう', source: { kind: 'manual' }, targetLanguage: 'zh-CN' };
+    const raw2 = {
+      ruby: [{ base: '空', reading: 'そら' }, { base: 'へ' }, { base: '駆', reading: 'か' }, { base: 'け' }, { base: '出', reading: 'だ' }, { base: 'そう' }],
+      translation: '向着天空奔跑出去吧',
+      literalTranslation: '向天空跑出吧',
+      register: 'casual',
+      formality: 2,
+      chunks: [{ surface: '空へ駆け出そう', reading: 'そらへかけだそう', textbookForm: '空へ駆け出そう', role: 'predicate', gloss: '向天空跑出去吧' }],
+      vocab: [{ surface: '駆け出す', lemma: '駆け出す', reading: 'かけだす', pos: 'verb', meaning: '跑出去' }],
+      grammar: [{ pattern: '〜よう（意志形）', surface: '駆け出そう', meaning: '提议/意志' }],
+    };
+    const { client, cache, service } = setup([
+      () => ({ text: JSON.stringify({ items: [slang.raw, raw2] }), usage: { promptTokens: 20, outputTokens: 40 } }),
+    ]);
+
+    const results = await service.explainBatch!([req, req2]);
+    expect(results).toHaveLength(2);
+    expect(client.calls).toHaveLength(1);
+    expect(results[0]?.sentence).toBe(req.sentence);
+    expect(results[1]?.sentence).toBe(req2.sentence);
+    expect(results[0]?.fromCache).toBe(false);
+    expect(results[1]?.fromCache).toBe(false);
+
+    // Individual sentences are now cached under their standard single-sentence cache keys.
+    expect((await service.getCachedExplanation(req))?.id).toBe(results[0]?.id);
+    expect((await service.getCachedExplanation(req2))?.id).toBe(results[1]?.id);
+    expect(await cache.get(results[0]!.id)).toBeDefined();
+    expect(await cache.get(results[1]!.id)).toBeDefined();
+
+    // A subsequent explainBatch with all cached sentences makes 0 network calls.
+    const cachedBatch = await service.explainBatch!([req, req2]);
+    expect(client.calls).toHaveLength(1);
+    expect(cachedBatch.every((r) => r.fromCache)).toBe(true);
+  });
 });
 
 describe('createExplainService.followUp', () => {

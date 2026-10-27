@@ -536,6 +536,23 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
       async explain(req, opts) {
         return explainImpl(req, opts?.signal);
       },
+      async explainBatch(reqs, opts) {
+        track('ai.explainBatch');
+        const out: SentenceExplanation[] = [];
+        for (const r of reqs) {
+          if (opts?.signal?.aborted) throw new KotoriError('cancelled', 'Cancelled');
+          const cached = !r.force && settings.ai.cacheEnabled ? explanationCache.get(cacheKey(r.sentence, r.targetLanguage)) : undefined;
+          if (cached) {
+            out.push(cached);
+          } else {
+            await wait(latency * 2, opts?.signal);
+            const fresh: SentenceExplanation = { ...explanationFor(r.sentence, r.targetLanguage), createdAt: Date.now(), fromCache: false };
+            if (settings.ai.cacheEnabled) explanationCache.set(cacheKey(r.sentence, r.targetLanguage), { ...fresh, fromCache: true });
+            out.push(fresh);
+          }
+        }
+        return out;
+      },
       async getCachedExplanation(req) {
         track('ai.getCachedExplanation');
         if (req.force || !settings.ai.cacheEnabled) return undefined;

@@ -13,6 +13,7 @@ export function AnimeSection() {
       <Switch label={t('settings.anime.mergeKaraoke')} checked={anime.mergeKaraokeCues} onChange={(mergeKaraokeCues) => void patch({ anime: { mergeKaraokeCues } })} />
       <Switch label={t('settings.anime.hideSigns')} checked={anime.hideSigns} onChange={(hideSigns) => void patch({ anime: { hideSigns } })} />
       <Switch label={t('settings.anime.pauseAfterJump')} checked={anime.pauseAfterJump} onChange={(pauseAfterJump) => void patch({ anime: { pauseAfterJump } })} />
+      <Switch label={t('settings.anime.autoPreExplain')} checked={Boolean(anime.autoPreExplain)} onChange={(autoPreExplain) => void patch({ anime: { autoPreExplain } })} />
       <div className="k-settings-grid">
         <NumberField label={t('settings.anime.repeatCount')} value={anime.repeatCount} min={0} max={99} onCommit={(v) => void patch({ anime: { repeatCount: v ?? 0 } })} />
         <NumberField label={t('settings.anime.seekPadding')} value={anime.seekPaddingMs} min={0} max={5000} step={50} onCommit={(v) => void patch({ anime: { seekPaddingMs: v ?? 0 } })} />

@@ -15,8 +15,8 @@ export function defaultSettings(downloadDir: string): AppSettings {
     schemaVersion: 1,
     ai: {
       provider: { provider: 'gemini-api', apiKey: '' },
-      explainModel: 'gemini-3.8-flash',
-      visionModel: 'gemini-3.8-flash',
+      explainModel: 'gemini-3.5-flash-lite',
+      visionModel: 'gemini-3.5-flash-lite',
       temperature: 0.2,
       targetLanguage: 'zh-CN',
       cacheEnabled: true,
@@ -32,6 +32,7 @@ export function defaultSettings(downloadDir: string): AppSettings {
       autoDownloadJimaku: true,
       jimakuApiKey: '',
       preferredSubtitleLanguages: ['ja'],
+      autoPreExplain: false,
     },
     manga: {
       defaultReadingMode: 'spread-rtl',
