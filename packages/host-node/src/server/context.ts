@@ -76,7 +76,7 @@ function osName(): HostInfo['os'] {
 
 export async function createServerContext(options: ServerOptions, overrides: ContextOverrides = {}): Promise<ServerContext> {
   const dataDir = resolve(options.dataDir);
-  for (const sub of ['subtitles', 'downloads', 'manga', 'cache', 'torrents']) mkdirSync(join(dataDir, sub), { recursive: true });
+  for (const sub of ['subtitles', 'anime', 'downloads', 'manga', 'cache', 'torrents']) mkdirSync(join(dataDir, sub), { recursive: true });
   const db = openDatabase(join(dataDir, 'kotori.sqlite'));
   const repos = createRepositories(db);
   const settings = new SettingsStore(db, dataDir);

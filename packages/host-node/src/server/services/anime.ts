@@ -348,15 +348,25 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     importSeries: (request) => importOrRescan(request.path, request.titleOverride, request.anilistId, request.coverUrl),
     async scanRoots(roots) {
       const configured = roots ?? deps.settings.get().library.animeRoots;
-      const defaultDirs = process.env['VITEST']
-        ? []
-        : [
-            join(deps.settings.get().downloads.downloadDir, 'anime'),
-            deps.settings.get().downloads.downloadDir,
-            join(homedir(), 'download', 'anime'),
-            join(homedir(), 'Downloads', 'anime'),
-          ];
+      const defaultDirs = process.env['VITEST'] ? [] : [deps.settings.get().downloads.downloadDir];
       const allRoots = [...configured, ...defaultDirs].filter((p, i, a) => Boolean(p) && a.indexOf(p) === i);
+      const incompletePaths = new Set<string>();
+      try {
+        for (const task of deps.downloads().list()) {
+          if (task.status !== 'completed') {
+            for (const f of task.files ?? []) {
+              const firstSeg = f.path.split('/')[0];
+              if (firstSeg) incompletePaths.add(resolve(join(task.targetDir, firstSeg)));
+              incompletePaths.add(resolve(join(task.targetDir, ...f.path.split('/'))));
+            }
+            if (task.title) {
+              incompletePaths.add(resolve(join(task.targetDir, task.title)));
+            }
+          }
+        }
+      } catch {
+        // DownloadManager may not be initialized yet
+      }
       for (const rawRoot of allRoots) {
         const rootPath = rawRoot.startsWith('~/') ? join(homedir(), rawRoot.slice(2)) : resolve(rawRoot);
         if (!existsSync(rootPath)) continue;
@@ -366,6 +376,7 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
           for (const entry of entries) {
             if (entry.name.startsWith('.') || entry.name.startsWith('@')) continue;
             const childPath = join(rootPath, entry.name);
+            if (incompletePaths.has(resolve(childPath))) continue;
             if (entry.isDirectory()) {
               if (!repos.series.getByPath(childPath)) {
                 const s = await importOrRescan(childPath, undefined).catch(() => undefined);

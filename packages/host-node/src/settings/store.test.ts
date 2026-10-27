@@ -56,7 +56,7 @@ describe('defaultSettings', () => {
   it('derives the download dir from dataDir and passes validation', () => {
     const d = defaultSettings(DATA_DIR);
     expect(d.schemaVersion).toBe(1);
-    expect(d.downloads.downloadDir).toBe(join(DATA_DIR, 'downloads'));
+    expect(d.downloads.downloadDir).toBe(join(DATA_DIR, 'anime'));
     expect(d.ai.provider).toEqual({ provider: 'gemini-api', apiKey: '' });
     expect(d.ai).toMatchObject({ temperature: 0.2, targetLanguage: 'zh-CN', cacheEnabled: true, timeoutMs: 30_000 });
     expect(d.library).toEqual({ animeRoots: [], mangaRoots: [] });
@@ -294,7 +294,7 @@ describe('SettingsStore', () => {
     const s = new SettingsStore(db, '/other/data').get();
     expect(s.schemaVersion).toBe(1);
     expect(s.ui).toEqual({ ...defaultSettings('/other/data').ui, theme: 'dark' });
-    expect(s.downloads.downloadDir).toBe(join('/other/data', 'downloads'));
+    expect(s.downloads.downloadDir).toBe(join('/other/data', 'anime'));
     // Stored vertex variant replaces the gemini default entirely (no empty apiKey leak).
     expect(s.ai.provider).toEqual({ provider: 'vertex-ai', location: 'asia-northeast1', auth: { kind: 'adc' } });
     expect(s.ai.explainModel).toBe('gemini-3.8-flash');
