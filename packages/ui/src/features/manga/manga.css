@@ -24,7 +24,9 @@
 .k-reader--bg-white .k-reader__stage-wrap { background: #fff; }
 .k-reader--bg-surface .k-reader__stage-wrap { background: var(--md-sys-color-surface-container-lowest); }
 .k-reader__bar {
-  display: flex; align-items: center; gap: 4px; padding: 4px 8px; min-height: 56px; flex: none;
+  display: flex; align-items: center; gap: 4px;
+  padding: calc(4px + var(--k-safe-top)) calc(8px + var(--k-safe-right)) 4px calc(8px + var(--k-safe-left));
+  min-height: calc(56px + var(--k-safe-top)); flex: none;
   background: var(--md-sys-color-surface-container); overflow-x: auto; scrollbar-width: none;
 }
 .k-reader__title { margin: 0 8px 0 4px; min-width: 0; max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -48,6 +50,7 @@
 
 /* ---- zoom / spread / page ----------------------------------------------------------- */
 .k-zoompan { position: absolute; inset: 0; overflow: hidden; touch-action: none; display: flex; }
+.k-zoompan * { touch-action: none; }
 .k-zoompan.is-zoomed { cursor: grab; }
 .k-zoompan__content {
   flex: 1; display: flex; align-items: center; justify-content: center; transform-origin: center center;
