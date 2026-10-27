@@ -66,6 +66,8 @@ export interface ZoomPanProps {
   readonly onSwipeRight?: (() => void) | undefined;
   /** Called when the user taps the left or right edge zone of the stage outside OCR blocks. */
   readonly onEdgeTap?: ((side: 'left' | 'right') => void) | undefined;
+  /** Temporary vertical offset (in CSS px) to pan the active speech bubble above the mobile BottomSheet. */
+  readonly avoidOffsetY?: number | undefined;
 }
 
 interface View {
@@ -121,6 +123,7 @@ export function ZoomPan({
   onSwipeLeft,
   onSwipeRight,
   onEdgeTap,
+  avoidOffsetY = 0,
 }: ZoomPanProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -493,7 +496,7 @@ export function ZoomPan({
     >
       <div
         className="k-zoompan__content"
-        style={{ transform: `translate(${view.x + dragX}px, ${view.y}px) scale(${view.scale})` }}
+        style={{ transform: `translate(${view.x + dragX}px, ${view.y + avoidOffsetY}px) scale(${view.scale})` }}
       >
         {children}
       </div>

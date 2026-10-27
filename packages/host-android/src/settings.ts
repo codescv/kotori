@@ -40,6 +40,7 @@ export function defaultSettings(downloadDir: string): AppSettings {
       fit: 'contain',
       background: 'black',
       preloadPages: 2,
+      autoPreExplain: false,
     },
     downloads: {
       downloadDir,

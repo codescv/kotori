@@ -187,6 +187,12 @@ export function BlockOverlay({ volumeId, page, showOutlines, sceneHint }: BlockO
       focusCharIndex: charIndex,
       ...blockContext(page, block.index),
       sceneHint,
+      bubblePreview: {
+        imageUrl: page.imageUrl,
+        pageWidth: page.width > 0 ? page.width : 800,
+        pageHeight: page.height > 0 ? page.height : 1200,
+        rect: block.rect,
+      },
     });
   };
 

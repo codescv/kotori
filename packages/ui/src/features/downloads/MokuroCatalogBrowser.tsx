@@ -2,20 +2,30 @@
  * mokuro.moe catalog browser: breadcrumbs, search filter, sort chips, rich
  * series cards with 5:7 cover art & community metadata, and importable volumes.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { compareNatural, type MokuroCatalogEntry, type MokuroCatalogListing, type MokuroCatalogVolume } from '@kotori/core';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { compareNatural, type MangaVolume, type MokuroCatalogEntry, type MokuroCatalogListing, type MokuroCatalogVolume } from '@kotori/core';
+import { useRouteStore } from '../../app/routes';
 import { Button } from '../../components/m3/Button';
 import { Chip } from '../../components/m3/Chip';
 import { Icon } from '../../components/m3/Icon';
 import { LinearProgress } from '../../components/m3/Progress';
 import { TextField } from '../../components/m3/TextField';
 import { useHost } from '../../host/HostContext';
+import { useHostEvents } from '../../host/useHostEvents';
 import { useT } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
 import { showSnackbar } from '../../stores/snackbar';
 import { CoverThumb } from './CoverThumb';
 import { formatBytes, formatCharCount, formatDate } from './format';
 import { useDownloadsStore } from './useDownloadsStore';
+
+function normaliseVolumeKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\.(?:mokuro|cbz|zip)$/i, '')
+    .replace(/[\s\-_【】[\]()（）]+/g, '');
+}
 
 type SeriesSort = 'default' | 'score' | 'latest' | 'volumes' | 'chars';
 type VolumeSort = 'asc' | 'desc' | 'pages';
@@ -47,6 +57,40 @@ export function MokuroCatalogBrowser() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [started, setStarted] = useState<ReadonlySet<string>>(new Set());
+  const [libraryVolumes, setLibraryVolumes] = useState<readonly MangaVolume[]>([]);
+
+  const reloadLibraryVolumes = useCallback(() => {
+    host.manga
+      .listVolumes()
+      .then((list) => setLibraryVolumes(list))
+      .catch(() => {});
+  }, [host]);
+
+  useEffect(() => {
+    reloadLibraryVolumes();
+  }, [reloadLibraryVolumes]);
+
+  useHostEvents((e) => {
+    if (
+      (e.type === 'library-changed' && e.scope === 'manga') ||
+      (e.type === 'download-updated' && e.task.status === 'completed' && e.task.kind === 'mokuro-volume')
+    ) {
+      reloadLibraryVolumes();
+    }
+  });
+
+  const libraryByKey = useMemo(() => {
+    const map = new Map<string, MangaVolume>();
+    for (const v of libraryVolumes) {
+      map.set(normaliseVolumeKey(v.title), v);
+    }
+    return map;
+  }, [libraryVolumes]);
+
+  const matchLibraryVolume = useCallback(
+    (v: MokuroCatalogVolume): MangaVolume | undefined => libraryByKey.get(normaliseVolumeKey(v.name)),
+    [libraryByKey],
+  );
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -122,6 +166,21 @@ export function MokuroCatalogBrowser() {
   const seriesName = listing?.path[listing.path.length - 1];
   const seriesCover = listing?.coverUrl ?? volumes[0]?.coverUrl;
   const seriesTotalPages = useMemo(() => volumes.reduce((acc, v) => acc + (v.pageCount ?? 0), 0), [volumes]);
+  const unownedVolumes = useMemo(
+    () => volumes.filter((v) => !matchLibraryVolume(v) && !started.has(v.mokuroUrl)),
+    [volumes, matchLibraryVolume, started],
+  );
+
+  const downloadAllUnowned = async (): Promise<void> => {
+    for (const v of unownedVolumes) {
+      await download(v);
+    }
+  };
+
+  const openInReader = (volumeId: string): void => {
+    useRouteStore.getState().setTab('manga');
+    useRouteStore.getState().openManga({ kind: 'reader', volumeId });
+  };
 
   return (
     <section className="k-dl-search">
@@ -175,6 +234,18 @@ export function MokuroCatalogBrowser() {
                   {seriesTotalPages > 0 && <span className="k-tag k-tag--muted">共 {seriesTotalPages.toLocaleString()} 页</span>}
                   <span className="k-tag k-tag--tone">内置 OCR (.mokuro + CBZ)</span>
                 </div>
+                {unownedVolumes.length > 1 && (
+                  <div className="k-row" style={{ marginTop: 8 }}>
+                    <Button
+                      variant="filled"
+                      icon="download"
+                      onClick={() => void downloadAllUnowned()}
+                      data-testid="mokuro-download-all"
+                    >
+                      {`一键下载全部未拥有分卷（${unownedVolumes.length} 卷）`}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -193,29 +264,44 @@ export function MokuroCatalogBrowser() {
           )}
           <h3 className="k-title-small k-muted">{t('downloads.mokuro.volumes')}</h3>
           <div className="k-dl-media-list">
-            {volumes.map((v) => (
-              <div key={v.mokuroUrl} className="k-dl-volume-card">
-                <CoverThumb src={v.coverUrl ?? seriesCover} alt={v.name} fallbackIcon="book" size="sm" />
-                <div className="k-dl-media-card__body">
-                  <div className="k-dl-media-card__title">{v.name}</div>
-                  <div className="k-dl-media-card__badges">
-                    <span className="k-tag k-tag--muted">.mokuro + {v.imagesKind === 'archive' ? 'cbz/zip' : 'dir'}</span>
-                    {v.pageCount !== undefined && <span className="k-tag">{v.pageCount} 页</span>}
-                    {v.sizeBytes !== undefined && <span className="k-tag k-tag--muted">{formatBytes(v.sizeBytes)}</span>}
+            {volumes.map((v) => {
+              const owned = matchLibraryVolume(v);
+              return (
+                <div key={v.mokuroUrl} className="k-dl-volume-card">
+                  <CoverThumb src={v.coverUrl ?? seriesCover} alt={v.name} fallbackIcon="book" size="sm" />
+                  <div className="k-dl-media-card__body">
+                    <div className="k-dl-media-card__title">{v.name}</div>
+                    <div className="k-dl-media-card__badges">
+                      <span className="k-tag k-tag--muted">.mokuro + {v.imagesKind === 'archive' ? 'cbz/zip' : 'dir'}</span>
+                      {v.pageCount !== undefined && <span className="k-tag">{v.pageCount} 页</span>}
+                      {v.sizeBytes !== undefined && <span className="k-tag k-tag--muted">{formatBytes(v.sizeBytes)}</span>}
+                      {owned && <span className="k-tag k-tag--tone">已入库</span>}
+                    </div>
+                  </div>
+                  <div className="k-dl-media-card__actions">
+                    {owned ? (
+                      <Button
+                        variant="tonal"
+                        icon="book"
+                        onClick={() => openInReader(owned.id)}
+                        data-testid="mokuro-open-library"
+                      >
+                        去阅读
+                      </Button>
+                    ) : (
+                      <Button
+                        variant={started.has(v.mokuroUrl) ? 'tonal' : 'filled'}
+                        icon={started.has(v.mokuroUrl) ? 'check' : 'download'}
+                        disabled={started.has(v.mokuroUrl)}
+                        onClick={() => void download(v)}
+                      >
+                        {t('downloads.mokuro.download')}
+                      </Button>
+                    )}
                   </div>
                 </div>
-                <div className="k-dl-media-card__actions">
-                  <Button
-                    variant={started.has(v.mokuroUrl) ? 'tonal' : 'filled'}
-                    icon={started.has(v.mokuroUrl) ? 'check' : 'download'}
-                    disabled={started.has(v.mokuroUrl)}
-                    onClick={() => void download(v)}
-                  >
-                    {t('downloads.mokuro.download')}
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

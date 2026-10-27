@@ -96,6 +96,7 @@ export const RawExplanationSchema = z.object({
   literalTranslation: optString,
   register: z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase().trim() : undefined), z.enum(REGISTERS).optional().catch(undefined)),
   tone: optString,
+  culturalNote: optString,
   ruby: arrayOf(RawRubySchema),
   chunks: arrayOf(RawChunkSchema),
   grammar: arrayOf(RawGrammarSchema),
@@ -120,6 +121,7 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
     literalTranslation: S,
     register: { type: 'STRING', enum: [...REGISTERS] },
     tone: S,
+    culturalNote: S,
     ruby: RUBY_ITEMS,
     chunks: {
       type: 'ARRAY',
@@ -174,7 +176,7 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
     },
   },
   required: ['translation', 'ruby', 'chunks', 'grammar'],
-  propertyOrdering: ['translation', 'literalTranslation', 'register', 'tone', 'ruby', 'chunks', 'grammar'],
+  propertyOrdering: ['translation', 'literalTranslation', 'register', 'tone', 'culturalNote', 'ruby', 'chunks', 'grammar'],
 } as const;
 
 export const RawBatchExplanationSchema = z.object({

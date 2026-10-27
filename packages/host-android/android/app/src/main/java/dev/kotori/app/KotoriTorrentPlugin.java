@@ -5,6 +5,9 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -16,6 +19,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
@@ -179,6 +184,184 @@ public class KotoriTorrentPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Failed to open external link: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Download a release APK to the app cache directory with live progress events
+     * (`apkDownloadProgress`) and launch the Android system package installer via
+     * `FileProvider`.
+     */
+    @PluginMethod
+    public void downloadAndInstallApk(PluginCall call) {
+        final String url = call.getString("url", "");
+        final String version = call.getString("version", "latest");
+        if (url == null || url.trim().isEmpty()) {
+            call.reject("Missing APK download URL");
+            return;
+        }
+        executor.execute(() -> {
+            try {
+                File updatesDir = new File(getContext().getCacheDir(), "updates");
+                if (!updatesDir.exists()) {
+                    updatesDir.mkdirs();
+                }
+                String safeVer = version.replaceAll("[^a-zA-Z0-9._-]", "_");
+                File apkFile = new File(updatesDir, "kotori-" + safeVer + ".apk");
+                File tmpFile = new File(updatesDir, "kotori-" + safeVer + ".apk.tmp");
+
+                HttpURLConnection conn = null;
+                String currentUrl = url.trim();
+                for (int redirect = 0; redirect < 6; redirect++) {
+                    conn = (HttpURLConnection) new URL(currentUrl).openConnection();
+                    conn.setInstanceFollowRedirects(true);
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(60000);
+                    conn.setRequestProperty("User-Agent", "Kotori-Updater/1.0");
+                    conn.setRequestProperty(
+                        "Accept",
+                        "application/octet-stream, application/vnd.android.package-archive, */*"
+                    );
+                    conn.setRequestProperty("Accept-Encoding", "identity");
+                    int status = conn.getResponseCode();
+                    if (status == HttpURLConnection.HTTP_MOVED_TEMP
+                        || status == HttpURLConnection.HTTP_MOVED_PERM
+                        || status == HttpURLConnection.HTTP_SEE_OTHER
+                        || status == 307
+                        || status == 308) {
+                        String loc = conn.getHeaderField("Location");
+                        conn.disconnect();
+                        if (loc == null || loc.isEmpty()) {
+                            throw new Exception("Redirect with empty Location header");
+                        }
+                        currentUrl = loc;
+                        continue;
+                    }
+                    if (status < 200 || status >= 300) {
+                        conn.disconnect();
+                        throw new Exception("HTTP " + status + " when downloading APK");
+                    }
+                    break;
+                }
+                if (conn == null) {
+                    throw new Exception("Failed to open connection");
+                }
+
+                long totalBytes = conn.getContentLengthLong();
+                long downloadedBytes = 0;
+                long lastNotifyMs = 0;
+
+                try (InputStream in = conn.getInputStream();
+                     FileOutputStream out = new FileOutputStream(tmpFile)) {
+                    byte[] buf = new byte[32768];
+                    int n;
+                    while ((n = in.read(buf)) >= 0) {
+                        out.write(buf, 0, n);
+                        downloadedBytes += n;
+                        long now = System.currentTimeMillis();
+                        if (now - lastNotifyMs >= 250 || (totalBytes > 0 && downloadedBytes >= totalBytes)) {
+                            lastNotifyMs = now;
+                            JSObject progress = new JSObject();
+                            progress.put("downloadedBytes", downloadedBytes);
+                            progress.put("totalBytes", totalBytes);
+                            progress.put(
+                                "percent",
+                                totalBytes > 0
+                                    ? Math.min(100, (int) ((downloadedBytes * 100L) / totalBytes))
+                                    : -1
+                            );
+                            notifyListeners("apkDownloadProgress", progress);
+                        }
+                    }
+                    out.flush();
+                } finally {
+                    conn.disconnect();
+                }
+
+                if (tmpFile.length() < 1024) {
+                    tmpFile.delete();
+                    throw new Exception("Downloaded file is too small (" + downloadedBytes + " bytes)");
+                }
+                try (FileInputStream checkIn = new FileInputStream(tmpFile)) {
+                    byte[] magic = new byte[4];
+                    if (checkIn.read(magic) != 4
+                        || magic[0] != 0x50
+                        || magic[1] != 0x4B
+                        || magic[2] != 0x03
+                        || magic[3] != 0x04) {
+                        tmpFile.delete();
+                        throw new Exception("Downloaded file is not a valid APK package");
+                    }
+                }
+                if (apkFile.exists()) {
+                    apkFile.delete();
+                }
+                if (!tmpFile.renameTo(apkFile)) {
+                    throw new Exception("Failed to finalize downloaded APK file");
+                }
+
+                boolean launched = launchApkInstaller(apkFile);
+                JSObject ret = new JSObject();
+                ret.put("filePath", apkFile.getAbsolutePath());
+                ret.put("sizeBytes", apkFile.length());
+                ret.put("installed", launched);
+                ret.put("needsPermission", !launched);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("APK download failed: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Re-trigger the Android package installer for an already-downloaded APK file
+     * (e.g. after the user grants "Install unknown apps" permission).
+     */
+    @PluginMethod
+    public void installApkFile(PluginCall call) {
+        String filePath = call.getString("filePath", "");
+        if (filePath == null || filePath.trim().isEmpty()) {
+            call.reject("Missing filePath");
+            return;
+        }
+        File apkFile = new File(filePath);
+        if (!apkFile.exists()) {
+            call.reject("APK file not found: " + filePath);
+            return;
+        }
+        try {
+            boolean launched = launchApkInstaller(apkFile);
+            JSObject ret = new JSObject();
+            ret.put("installed", launched);
+            ret.put("needsPermission", !launched);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to launch APK installer: " + e.getMessage(), e);
+        }
+    }
+
+    private boolean launchApkInstaller(File apkFile) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!getContext().getPackageManager().canRequestPackageInstalls()) {
+                Intent permIntent = new Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getContext().getPackageName())
+                );
+                permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(permIntent);
+                return false;
+            }
+        }
+        Uri apkUri = FileProvider.getUriForFile(
+            getContext(),
+            getContext().getPackageName() + ".fileprovider",
+            apkFile
+        );
+        Intent installIntent = new Intent(Intent.ACTION_VIEW);
+        installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+        installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        getContext().startActivity(installIntent);
+        return true;
     }
 
     @PluginMethod

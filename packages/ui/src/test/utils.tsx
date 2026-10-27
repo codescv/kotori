@@ -3,6 +3,7 @@ import { render, type RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { useRouteStore } from '../app/routes';
 import { useAnimeStore } from '../features/anime/useAnimeStore';
+import { useUpdateStore } from '../features/updater/updater';
 import { HostProvider } from '../host/HostContext';
 import { createMockPlatformHost, type MockHostOptions, type MockPlatformHost } from '../host/mock-host';
 import { useBreakdownStore } from '../stores/breakdown';
@@ -15,6 +16,7 @@ export function resetStores(): void {
   useRouteStore.getState().reset();
   useSnackbarStore.getState().reset();
   useAnimeStore.getState().reset();
+  useUpdateStore.getState().reset();
 }
 
 export function renderWithHost(ui: ReactElement, options: MockHostOptions = {}): RenderResult & { host: MockPlatformHost } {

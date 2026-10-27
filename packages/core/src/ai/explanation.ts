@@ -144,6 +144,7 @@ export function toSentenceExplanation(raw: RawExplanation, req: Pick<ExplainRequ
   if (raw.literalTranslation !== undefined) expl.literalTranslation = raw.literalTranslation;
   if (raw.register !== undefined) expl.register = raw.register;
   if (raw.tone !== undefined) expl.tone = raw.tone;
+  if (raw.culturalNote !== undefined && raw.culturalNote.trim() !== '') expl.culturalNote = raw.culturalNote.trim();
   if (meta.usage !== undefined) expl.usage = meta.usage;
   return expl;
 }

@@ -2,6 +2,7 @@
 import type { Id, VocabEntry } from '@kotori/core';
 import type { Translate } from '../../i18n';
 import { pitchAccentMark } from '../../lib/explanation';
+import { speakJapanese } from '../../lib/tts';
 import { cx } from '../m3/cx';
 import { RubyText } from './RubyText';
 
@@ -37,6 +38,18 @@ export function VocabList({ vocab, linkedIds, onSelect, t }: VocabListProps) {
               )}
               <span className={cx('k-pos', `k-pos--${v.partOfSpeech}`)}>{t(`pos.${v.partOfSpeech}`)}</span>
               {v.jlpt && <span className="k-jlpt">{v.jlpt}</span>}
+              <button
+                type="button"
+                className="k-vocab__tts"
+                title="朗读词汇"
+                data-testid={`vocab-tts-${v.id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  speakJapanese(v.lemma || v.surface);
+                }}
+              >
+                🔊
+              </button>
             </div>
             <div className="k-vocab__meaning">
               {v.surface !== v.lemma && (

@@ -16,11 +16,19 @@ import type {
   ExplainSource,
   FollowUpMessage,
   KotoriErrorCode,
+  MangaRect,
   PlatformHost,
   SentenceExplanation,
   TargetLanguage,
 } from '@kotori/core';
 import { useSettingsStore } from './settings';
+
+export interface BubbleCropPreview {
+  readonly imageUrl: string;
+  readonly pageWidth: number;
+  readonly pageHeight: number;
+  readonly rect: MangaRect;
+}
 
 export interface BreakdownOpenInput {
   readonly sentence: string;
@@ -30,6 +38,7 @@ export interface BreakdownOpenInput {
   readonly contextAfter?: readonly string[] | undefined;
   readonly sceneHint?: string | undefined;
   readonly force?: boolean | undefined;
+  readonly bubblePreview?: BubbleCropPreview | undefined;
 }
 
 export interface BreakdownError {
@@ -52,11 +61,16 @@ export interface BreakdownState {
   readonly followUpPending: boolean;
   /** Number of `ai.explain` network calls issued (diagnostics + tests). */
   readonly explainCalls: number;
+  /** Optional manga speech-bubble crop preview for the currently inspected block. */
+  readonly bubblePreview: BubbleCropPreview | undefined;
+  /** Optional anime player callback to replay a `[startMs, endMs]` audio slice. */
+  readonly audioReplayHandler: ((startMs: number, endMs: number) => void) | undefined;
 
   open(host: PlatformHost, input: BreakdownOpenInput): Promise<void>;
   /** Show an already-computed explanation (e.g. from `ocrBubble({ explain: true })`). */
-  show(explanation: SentenceExplanation, source: ExplainSource, focusCharIndex?: number): void;
+  show(explanation: SentenceExplanation, source: ExplainSource, focusCharIndex?: number, bubblePreview?: BubbleCropPreview): void;
   setFocus(charIndex: number | undefined): void;
+  setAudioReplayHandler(handler: ((startMs: number, endMs: number) => void) | undefined): void;
   retry(host: PlatformHost): Promise<void>;
   askFollowUp(host: PlatformHost, question: string): Promise<void>;
   setOpen(open: boolean): void;
@@ -99,6 +113,8 @@ const initial = {
   focusCharIndex: undefined as number | undefined,
   error: undefined as BreakdownError | undefined,
   streamingText: undefined as string | undefined,
+  bubblePreview: undefined as BubbleCropPreview | undefined,
+  audioReplayHandler: undefined as ((startMs: number, endMs: number) => void) | undefined,
 };
 
 export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
@@ -113,7 +129,12 @@ export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
       (current.status === 'ready' || current.status === 'loading');
     if (sameSentence) {
       // Same sentence ⇒ pure state update: 0 latency, no network.
-      set({ isOpen: true, focusCharIndex: input.focusCharIndex, request: { ...current.request!, source: input.source } });
+      set({
+        isOpen: true,
+        focusCharIndex: input.focusCharIndex,
+        request: { ...current.request!, source: input.source },
+        ...(input.bubblePreview !== undefined ? { bubblePreview: input.bubblePreview } : {}),
+      });
       return;
     }
 
@@ -132,6 +153,7 @@ export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
       thread: [],
       streamingText: undefined,
       followUpPending: false,
+      bubblePreview: input.bubblePreview,
     });
 
     try {
@@ -153,7 +175,7 @@ export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
     }
   },
 
-  show(explanation, source, focusCharIndex) {
+  show(explanation, source, focusCharIndex, bubblePreview) {
     inflight?.abort();
     token++;
     set({
@@ -166,11 +188,16 @@ export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
       thread: [],
       streamingText: undefined,
       followUpPending: false,
+      bubblePreview,
     });
   },
 
   setFocus(charIndex) {
     set({ focusCharIndex: charIndex });
+  },
+
+  setAudioReplayHandler(audioReplayHandler) {
+    set({ audioReplayHandler });
   },
 
   async retry(host) {
@@ -184,6 +211,7 @@ export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
       contextBefore: req.contextBefore,
       contextAfter: req.contextAfter,
       sceneHint: req.sceneHint,
+      bubblePreview: get().bubblePreview,
     });
   },
 

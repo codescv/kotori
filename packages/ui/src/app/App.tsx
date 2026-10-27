@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import type { PlatformHost } from '@kotori/core';
 import { SnackbarHost } from '../components/m3/Snackbar';
 import { useAnimeStore } from '../features/anime/useAnimeStore';
+import { useUpdateStore } from '../features/updater/updater';
 import { HostProvider, useHost } from '../host/HostContext';
 import { useHostEvents } from '../host/useHostEvents';
 import { useSettingsStore } from '../stores/settings';
@@ -20,6 +21,9 @@ function AppInner() {
   const receive = useSettingsStore((s) => s.receive);
   useEffect(() => {
     load(host).catch((e: unknown) => showSnackbar(e instanceof Error ? e.message : String(e), { tone: 'error' }));
+    if (host.info.platform !== 'mock' && !host.info.version.includes('mock') && !host.info.version.includes('test')) {
+      void useUpdateStore.getState().checkForUpdate(host, { silent: true });
+    }
   }, [host, load]);
   useHostEvents((e) => {
     if (e.type === 'settings-changed') receive(e.settings);

@@ -31,7 +31,7 @@ export function defaultSettings(dataDir: string): AppSettings {
       preferredSubtitleLanguages: ['ja'],
       autoPreExplain: false,
     },
-    manga: { defaultReadingMode: 'spread-rtl', showBlockOutlines: false, fit: 'contain', background: 'black', preloadPages: 2 },
+    manga: { defaultReadingMode: 'spread-rtl', showBlockOutlines: false, fit: 'contain', background: 'black', preloadPages: 2, autoPreExplain: false },
     downloads: {
       downloadDir: join(dataDir, 'anime'),
       maxActiveDownloads: 3,
@@ -166,6 +166,7 @@ export function validateSettings(s: AppSettings): void {
   oneOf('manga.fit', s.manga.fit, FITS);
   oneOf('manga.background', s.manga.background, BACKGROUNDS);
   number('manga.preloadPages', s.manga.preloadPages, 0, 20);
+  if (s.manga.autoPreExplain !== undefined) bool('manga.autoPreExplain', s.manga.autoPreExplain);
   // downloads
   str('downloads.downloadDir', s.downloads.downloadDir);
   number('downloads.maxActiveDownloads', s.downloads.maxActiveDownloads, 1, 20);

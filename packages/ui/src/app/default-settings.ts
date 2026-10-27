@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     fit: 'contain',
     background: 'surface',
     preloadPages: 2,
+    autoPreExplain: false,
   },
   downloads: {
     downloadDir: '~/.kotori/anime',
