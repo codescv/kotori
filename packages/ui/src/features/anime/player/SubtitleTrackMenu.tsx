@@ -17,6 +17,8 @@ import { showSnackbar } from '../../../stores/snackbar';
 export interface SubtitleTrackMenuProps {
   readonly episode: AnimeEpisode;
   readonly trackId: string | undefined;
+  readonly subtitlesEnabled?: boolean | undefined;
+  readonly onToggleSubtitles?: ((enabled: boolean) => void) | undefined;
   readonly onSelectTrack: (trackId: string) => void;
   /** Called after any host-side change to the episode's tracks. */
   readonly onTracksChanged: (selectTrackId?: string) => void;
@@ -25,7 +27,75 @@ export interface SubtitleTrackMenuProps {
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function SubtitleTrackMenu({ episode, trackId, onSelectTrack, onTracksChanged, t }: SubtitleTrackMenuProps) {
+const LANG_NAMES: Readonly<Record<string, string>> = {
+  ja: '日本語',
+  jpn: '日本語',
+  zh: '中文',
+  'zh-cn': '简中',
+  'zh-tw': '繁中',
+  en: 'English',
+  eng: 'English',
+};
+
+const ORIGIN_NAMES: Readonly<Record<string, string>> = {
+  jimaku: 'Jimaku',
+  ajatt: 'AJATT',
+  embedded: '内嵌',
+  external: '外挂',
+  imported: '导入',
+};
+
+/**
+ * Format a concise, mobile-friendly label for a subtitle track so 70-character
+ * raw release filenames (`Jimaku · [SubsPlease] ... - 01 (1080p) [CRC].ja.ass`)
+ * never overflow the track menu.
+ */
+export function formatSubtitleTrackLabel(track: SubtitleTrack, episode: AnimeEpisode): string {
+  const langKey = (track.language ?? '').toLowerCase();
+  const langLabel = LANG_NAMES[langKey] ?? (track.language ? track.language.toUpperCase() : undefined);
+  const fmtLabel = track.format.toUpperCase();
+  const originLabel = ORIGIN_NAMES[track.origin] ?? track.origin;
+
+  const videoStem = episode.fileName.replace(/\.[^.]+$/, '');
+  let cleaned = track.label
+    .replace(/^(?:Jimaku|AJATT|External|Embedded|Imported)\s*·\s*/i, '')
+    .replace(/\.(?:ass|ssa|srt|vtt)$/i, '')
+    .trim();
+  if (videoStem && cleaned.toLowerCase().startsWith(videoStem.toLowerCase())) {
+    cleaned = cleaned.slice(videoStem.length).replace(/^[.\s_-]+/, '');
+  }
+  // Strip release groups, CRC hashes, resolution tags, and language extensions if it's still a raw filename.
+  if (cleaned.length > 24 || cleaned.includes('[') || cleaned.includes('1080p') || cleaned.includes('720p')) {
+    cleaned = cleaned
+      .replace(/\[[^\]]*\]/g, '')
+      .replace(/\([^)]*(?:1080p|720p|2160p|480p|BD|WEB|HEVC|x264|x265|AAC|FLAC)[^)]*\)/gi, '')
+      .replace(/(?:^|[.\s_-])(?:ja|jpn|jp|en|eng|zh|chs|cht|sc|tc)$/i, '')
+      .trim();
+    // If what remains is just the series/episode name, omit it in favor of clean metadata tags.
+    if (
+      cleaned.length > 22 ||
+      (episode.parsedName.title && cleaned.toLowerCase().includes(episode.parsedName.title.toLowerCase()))
+    ) {
+      cleaned = '';
+    }
+  } else {
+    cleaned = cleaned.replace(/^(?:ja|jpn|jp|en|eng|zh|chs|cht)\b[.\s·_-]*/i, '').trim();
+  }
+
+  const parts = [langLabel, fmtLabel, originLabel, cleaned].filter((x): x is string => Boolean(x && x.trim()));
+  const base = parts.length > 0 ? parts.join(' · ') : track.label;
+  return `${base}${track.delayMs ? ` (${track.delayMs > 0 ? '+' : ''}${track.delayMs}ms)` : ''}`;
+}
+
+export function SubtitleTrackMenu({
+  episode,
+  trackId,
+  subtitlesEnabled = true,
+  onToggleSubtitles,
+  onSelectTrack,
+  onTracksChanged,
+  t,
+}: SubtitleTrackMenuProps) {
   const host = useHost();
   const caps = host.info.capabilities;
   const [addOpen, setAddOpen] = useState(false);
@@ -36,6 +106,7 @@ export function SubtitleTrackMenu({ episode, trackId, onSelectTrack, onTracksCha
     if (track.streamIndex === undefined) return;
     try {
       const extracted = await host.anime.extractEmbeddedTrack(episode.id, track.streamIndex);
+      onToggleSubtitles?.(true);
       onTracksChanged(extracted.id);
     } catch (e) {
       showSnackbar(errMsg(e), { tone: 'error' });
@@ -52,16 +123,33 @@ export function SubtitleTrackMenu({ episode, trackId, onSelectTrack, onTracksCha
     }
   };
 
-  const items: MenuItem[] = episode.subtitleTracks.map((track) => {
+  const items: MenuItem[] = [];
+  if (onToggleSubtitles) {
+    items.push({
+      key: '__off',
+      label: t('player.subtitlesOff'),
+      icon: 'visibilityOff',
+      selected: !subtitlesEnabled,
+      onSelect: () => onToggleSubtitles(false),
+    });
+  }
+  for (const track of episode.subtitleTracks) {
     const needsExtract = track.origin === 'embedded' && !track.filePath;
-    return {
+    items.push({
       key: track.id,
-      label: `${track.label}${track.delayMs ? ` (${track.delayMs > 0 ? '+' : ''}${track.delayMs}ms)` : ''}`,
-      selected: track.id === trackId,
+      label: formatSubtitleTrackLabel(track, episode),
+      selected: subtitlesEnabled && track.id === trackId,
       disabled: needsExtract && !caps.embeddedSubtitles,
-      onSelect: () => (needsExtract ? void extract(track) : onSelectTrack(track.id)),
-    };
-  });
+      onSelect: () => {
+        if (needsExtract) {
+          void extract(track);
+        } else {
+          onToggleSubtitles?.(true);
+          onSelectTrack(track.id);
+        }
+      },
+    });
+  }
   items.push({ key: '__add', label: t('player.addFile'), icon: 'add', onSelect: () => setAddOpen(true) });
   items.push({
     key: '__jimaku',

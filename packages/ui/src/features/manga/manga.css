@@ -31,7 +31,12 @@
   min-height: calc(56px + var(--k-safe-top)); flex: none;
   background: var(--md-sys-color-surface-container); overflow-x: auto; scrollbar-width: none;
 }
-.k-reader__title { margin: 0 8px 0 4px; min-width: 0; max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-reader__title { flex: 1 1 72px; margin: 0 6px 0 4px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 839px) {
+  .k-reader__bar { gap: 2px; }
+  .k-reader__bar .k-icon-btn { width: 36px; height: 36px; }
+  .k-reader__title { font: var(--md-sys-typescale-title-small); }
+}
 .k-reader__page {
   border: 0; background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
   color: var(--md-sys-color-on-surface); white-space: nowrap; cursor: pointer;

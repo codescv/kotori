@@ -23,8 +23,15 @@
   --md-sys-typescale-label-small: 500 11px/16px var(--md-ref-typeface-plain);
 
   --kotori-font-scale: 1;
-  --kotori-jp-sentence-size: calc(26px * var(--kotori-font-scale));
-  --kotori-subtitle-size: calc(clamp(20px, 2.6vw, 34px) * var(--kotori-font-scale));
+  --kotori-jp-sentence-size: calc(24px * var(--kotori-font-scale));
+  --kotori-subtitle-size: calc(clamp(16px, 2.2vw, 28px) * var(--kotori-font-scale));
+}
+
+@media (max-width: 839px) {
+  :root {
+    --kotori-jp-sentence-size: calc(19px * var(--kotori-font-scale));
+    --kotori-subtitle-size: calc(clamp(13px, 3.4vw, 16px) * var(--kotori-font-scale));
+  }
 }
 
 .k-display-small { font: var(--md-sys-typescale-display-small); }

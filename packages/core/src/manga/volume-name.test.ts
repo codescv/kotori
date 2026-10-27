@@ -14,6 +14,8 @@ describe('parseVolumeName', () => {
     ['Chainsaw Man 03', 'Chainsaw Man', 3],
     ['/library/manga/Frieren/Frieren 02/', 'Frieren', 2],
     ['C:\\manga\\Vol3.mokuro', 'Vol3', 3],
+    ['(一般コミック) [あずまきよひこ] よつばと! 第01巻 [DL版].cbz', 'よつばと!', 1],
+    ['[山田鐘人×アベツカサ] 葬送のフリーレン 第03巻 [Digital].mokuro', '葬送のフリーレン', 3],
   ])('%s', (name, seriesTitle, volumeNumber) => {
     expect(parseVolumeName(name)).toEqual({ seriesTitle, volumeNumber });
   });

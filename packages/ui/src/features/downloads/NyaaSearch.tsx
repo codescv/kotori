@@ -61,6 +61,30 @@ const STATUS_LABELS: Readonly<Record<string, string>> = {
   NOT_YET_RELEASED: '未开播',
 };
 
+function formatNyaaWorkHeadline(item: NyaaTorrentItem, series?: AniListMediaInfo): string {
+  const pn = item.parsedName;
+  const workTitle =
+    series?.nativeTitle ??
+    series?.chineseTitle ??
+    series?.romajiTitle ??
+    (pn.title.trim() !== '' ? pn.title.trim() : item.title);
+  if (pn.episodeRange) {
+    return `${workTitle} · 合集 ${pn.episodeRange[0]}–${pn.episodeRange[1]}`;
+  }
+  if (pn.isBatch) {
+    return `${workTitle} · 全集 Batch`;
+  }
+  if (pn.episode !== undefined) {
+    return `${workTitle} · 第 ${pn.episode} 集`;
+  }
+  return workTitle;
+}
+
+function formatNyaaResultTaskTitle(item: NyaaTorrentItem, series?: AniListMediaInfo): string {
+  const headline = formatNyaaWorkHeadline(item, series);
+  return headline === item.title ? item.title : `${headline} (${item.title})`;
+}
+
 export function NyaaSearch() {
   const host = useHost();
   const t = useT();
@@ -315,6 +339,7 @@ export function NyaaSearch() {
             ...(metaSource.coverUrl ? { coverUrl: metaSource.coverUrl } : {}),
           }
         : undefined;
+      const headline = formatNyaaResultTaskTitle(item, metaSource);
       const task = await host.downloads.start({
         source: {
           kind: 'torrent',
@@ -324,12 +349,12 @@ export function NyaaSearch() {
           nyaa: item,
           ...(seriesMeta ? { series: seriesMeta } : {}),
         },
-        title: item.title,
+        title: headline,
         autoImport: true,
       });
       upsert(task);
       setStarted((s) => new Set(s).add(item.infoHash));
-      showSnackbar(t('downloads.nyaa.started', { title: item.title }));
+      showSnackbar(t('downloads.nyaa.started', { title: formatNyaaWorkHeadline(item, metaSource) }));
     } catch (e) {
       showSnackbar(t('common.error', { message: e instanceof Error ? e.message : String(e) }), { tone: 'error' });
     }
@@ -763,6 +788,9 @@ export function NyaaSearch() {
                     )}
                     <div className="k-dl-result__main">
                       <div className="k-dl-result__title" title={item.title}>
+                        {formatNyaaWorkHeadline(item, selectedSeries ?? directAniInfo)}
+                      </div>
+                      <div className="k-dl-result__sub k-muted" title={item.title}>
                         {item.title}
                       </div>
                       <div className="k-dl-result__meta">

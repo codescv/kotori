@@ -7,6 +7,7 @@ import { Button } from '../../components/m3/Button';
 import { FilledCard, OutlinedCard } from '../../components/m3/Card';
 import { CircularProgress } from '../../components/m3/Progress';
 import { useT } from '../../i18n';
+import { formatAnimeSeriesTitle } from '../../lib/cues';
 import { fetchAniListByIds, fetchAniListBySearch, type AniListMediaInfo } from '../downloads/anilist';
 import { ImportSeriesDialog } from './ImportSeriesDialog';
 import { useAnimeStore } from './useAnimeStore';
@@ -58,8 +59,9 @@ function SeriesCard({
 }) {
   const t = useT();
   const coverUrl = series.coverUrl ?? meta?.coverUrl;
+  const displayTitle = formatAnimeSeriesTitle(series, meta);
   const subTitle = [meta?.chineseTitle, meta?.nativeTitle, meta?.romajiTitle]
-    .filter((x, i, a): x is string => Boolean(x) && x !== series.title && a.indexOf(x) === i)
+    .filter((x, i, a): x is string => Boolean(x) && x !== displayTitle && a.indexOf(x) === i)
     .slice(0, 2)
     .join(' · ');
   const studio = meta?.studios?.[0];
@@ -75,8 +77,8 @@ function SeriesCard({
         {meta?.score !== undefined && <span className="k-tag k-tag--tone k-series-card__score">★ {meta.score}%</span>}
       </div>
       <div className="k-series-card__body">
-        <span className="k-series-card__title" lang="ja" title={series.title}>
-          {series.title}
+        <span className="k-series-card__title" lang="ja" title={displayTitle}>
+          {displayTitle}
         </span>
         {subTitle && (
           <span className="k-series-card__subtitle k-muted" title={subTitle}>
@@ -122,7 +124,7 @@ export function AnimeLibrary() {
           <div className="k-continue__text">
             <span className="k-label-medium k-muted">{t('anime.library.continue')}</span>
             <span className="k-title-medium" lang="ja">
-              {recent.title}
+              {formatAnimeSeriesTitle(recent, metaMap[recent.id])}
             </span>
           </div>
           <Button variant="tonal" icon="play">

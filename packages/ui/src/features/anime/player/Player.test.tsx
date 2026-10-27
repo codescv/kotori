@@ -112,4 +112,28 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       expect(screen.getAllByTestId('cue-cached').length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  it('toggles video subtitles off and back on via the control bar button, C key, and track menu', async () => {
+    renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    expect(await screen.findByTestId('overlay-cue')).toBeInTheDocument();
+
+    const subToggleBtn = screen.getByTestId('toggle-subtitles-btn');
+    expect(subToggleBtn).toHaveAttribute('aria-pressed', 'true');
+
+    // Click the control bar subtitle toggle button to hide video subtitles
+    fireEvent.click(subToggleBtn);
+    expect(subToggleBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('overlay-cue')).toBeNull();
+
+    // Press 'c' key to turn subtitles back on
+    fireEvent.keyDown(window, { key: 'c' });
+    expect(subToggleBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByTestId('overlay-cue')).toBeInTheDocument();
+
+    // Open the subtitle track menu and click "关闭视频字幕"
+    fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+    const offItem = screen.getByRole('menuitem', { name: '关闭视频字幕' });
+    fireEvent.click(offItem);
+    expect(screen.queryByTestId('overlay-cue')).toBeNull();
+  });
 });

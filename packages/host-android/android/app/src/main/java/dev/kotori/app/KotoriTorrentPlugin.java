@@ -213,7 +213,7 @@ public class KotoriTorrentPlugin extends Plugin {
                 String currentUrl = url.trim();
                 for (int redirect = 0; redirect < 6; redirect++) {
                     conn = (HttpURLConnection) new URL(currentUrl).openConnection();
-                    conn.setInstanceFollowRedirects(true);
+                    conn.setInstanceFollowRedirects(false);
                     conn.setConnectTimeout(15000);
                     conn.setReadTimeout(60000);
                     conn.setRequestProperty("User-Agent", "Kotori-Updater/1.0");
@@ -233,7 +233,7 @@ public class KotoriTorrentPlugin extends Plugin {
                         if (loc == null || loc.isEmpty()) {
                             throw new Exception("Redirect with empty Location header");
                         }
-                        currentUrl = loc;
+                        currentUrl = new URL(new URL(currentUrl), loc).toString();
                         continue;
                     }
                     if (status < 200 || status >= 300) {

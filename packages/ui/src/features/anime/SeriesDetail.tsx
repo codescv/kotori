@@ -8,7 +8,7 @@ import { List, ListItem } from '../../components/m3/List';
 import { CircularProgress, LinearProgress } from '../../components/m3/Progress';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
-import { formatClock } from '../../lib/cues';
+import { formatAnimeEpisodeTitle, formatAnimeSeriesTitle, formatClock } from '../../lib/cues';
 import { showSnackbar } from '../../stores/snackbar';
 import { fetchAniListByIds, fetchAniListBySearch, type AniListMediaInfo } from '../downloads/anilist';
 import { useAnimeStore } from './useAnimeStore';
@@ -57,9 +57,10 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   }, [series]);
 
   const coverUrl = series?.coverUrl ?? aniMeta?.coverUrl;
+  const displaySeriesTitle = formatAnimeSeriesTitle(series, aniMeta);
   const subTitles = series
     ? [aniMeta?.chineseTitle, aniMeta?.nativeTitle, aniMeta?.romajiTitle, aniMeta?.englishTitle]
-        .filter((x, i, a): x is string => Boolean(x) && x !== series.title && a.indexOf(x) === i)
+        .filter((x, i, a): x is string => Boolean(x) && x !== displaySeriesTitle && a.indexOf(x) === i)
         .join(' · ')
     : '';
 
@@ -77,7 +78,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
           )}
           <div className="k-series-hero__text">
             <h1 className="k-headline-small" lang="ja">
-              {series.title}
+              {displaySeriesTitle}
             </h1>
             {subTitles && <div className="k-body-medium k-muted">{subTitles}</div>}
             <div className="k-series-card__badges">
@@ -157,12 +158,23 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
         {episodes?.map((ep) => {
           const textTracks = ep.subtitleTracks.filter((s) => s.origin !== 'embedded' || s.filePath).length;
           const pct = ep.progress && ep.progress.durationMs > 0 ? ep.progress.positionMs / ep.progress.durationMs : undefined;
+          const epTitle = formatAnimeEpisodeTitle(ep, displaySeriesTitle);
           return (
             <ListItem
               key={ep.id}
               onClick={() => openAnime({ kind: 'player', seriesId, episodeId: ep.id })}
               leading={<span className="k-title-medium">{ep.parsedName.episode ?? '–'}</span>}
-              headline={<span lang="ja">{ep.title}</span>}
+              headline={
+                <span lang="ja">
+                  {displaySeriesTitle && !epTitle.includes(displaySeriesTitle) && (
+                    <>
+                      <span>{displaySeriesTitle}</span>
+                      {' · '}
+                    </>
+                  )}
+                  <span>{epTitle}</span>
+                </span>
+              }
               supporting={
                 <>
                   {ep.fileName}

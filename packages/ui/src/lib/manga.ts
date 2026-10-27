@@ -9,6 +9,7 @@ import {
   charIndexAt as coreCharIndexAt,
   compareNatural,
   deriveCharRegions,
+  parseVolumeName,
   spreadIndexForPage as coreSpreadIndexForPage,
   type MangaBlock,
   type MangaRect,
@@ -73,16 +74,39 @@ export const rectWidth = (r: MangaRect): number => r.right - r.left;
 export const rectHeight = (r: MangaRect): number => r.bottom - r.top;
 
 /**
- * Derive a clean series title from a `MangaVolume` (using `v.seriesTitle` when
- * set, or stripping trailing volume/chapter numbers like `第01巻`, `Vol. 2`,
- * `(3)`, `01` from `v.title`).
+ * Derive a clean series title (`作品名称`) from a `MangaVolume` (using
+ * `v.seriesTitle` when set, or parsing `v.title` with `parseVolumeName` so
+ * author tags, archive extensions, and volume numbers are stripped).
  */
-export function inferMangaSeriesTitle(v: Pick<MangaVolume, 'title' | 'seriesTitle'>): string {
-  if (v.seriesTitle && v.seriesTitle.trim() !== '') return v.seriesTitle.trim();
+export function inferMangaSeriesTitle(v: { readonly title: string; readonly seriesTitle?: string | undefined }): string {
+  const rawSeries = v.seriesTitle && v.seriesTitle.trim() !== '' ? v.seriesTitle.trim() : '';
+  if (rawSeries && !rawSeries.startsWith('[') && !rawSeries.startsWith('(')) {
+    return rawSeries;
+  }
+  const parsed = parseVolumeName(rawSeries || v.title).seriesTitle.trim();
+  if (parsed) return parsed;
   const stripped = v.title
     .replace(/\s*(?:第\s*\d+\s*[巻卷話话]|(?:vol(?:ume)?\.?|v)\s*\d+|\(\d+\)|\[\d+\]|[-_#]\s*\d+|\s+\d{1,3})\s*$/i, '')
     .trim();
   return stripped || v.title.trim();
+}
+
+/**
+ * Format a clean display title for a manga volume that prioritizes the work
+ * name (`作品名称`) + volume number over raw archive/mokuro filenames.
+ */
+export function formatMangaVolumeTitle(v: {
+  readonly title: string;
+  readonly seriesTitle?: string | undefined;
+  readonly volumeNumber?: number | undefined;
+}): string {
+  const seriesTitle = inferMangaSeriesTitle(v);
+  const parsed = parseVolumeName(v.title);
+  const volNum = v.volumeNumber ?? parsed.volumeNumber;
+  if (volNum !== undefined && seriesTitle && !/^\d+$/.test(seriesTitle)) {
+    return `${seriesTitle} · 第 ${volNum} 卷`;
+  }
+  return seriesTitle || v.title;
 }
 
 /** Sort volumes within the same series in reading order (volumeNumber → natural title). */

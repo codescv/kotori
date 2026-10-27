@@ -6,6 +6,7 @@ import { resetStores } from '../../test/utils';
 import {
   compareSemanticVersions,
   parseGithubReleaseJson,
+  parseGithubReleasesAtom,
   parseSemanticVersion,
   useUpdateStore,
 } from './updater';
@@ -53,6 +54,30 @@ describe('updater version & GitHub release parser', () => {
       apkUrl: 'https://github.com/codescv/kotori/releases/download/v0.1.11/kotori-0.1.11-android.apk',
       apkName: 'kotori-0.1.11-android.apk',
       apkSizeBytes: 4200000,
+    });
+  });
+
+  it('parses GitHub releases.atom XML feed when REST API is rate-limited', () => {
+    const atomXml = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>tag:github.com,2008:Repository/1/v0.1.13</id>
+    <updated>2026-10-27T10:00:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/codescv/kotori/releases/tag/v0.1.13"/>
+    <title>Kotori v0.1.13</title>
+    <content type="html">&lt;p&gt;Android UI &amp;amp; subtitle toggle&lt;/p&gt;</content>
+  </entry>
+</feed>`;
+    const parsed = parseGithubReleasesAtom(atomXml);
+    expect(parsed).toEqual({
+      tagName: 'v0.1.13',
+      version: '0.1.13',
+      title: 'Kotori v0.1.13',
+      notes: 'Android UI & subtitle toggle',
+      publishedAt: '2026-10-27T10:00:00Z',
+      htmlUrl: 'https://github.com/codescv/kotori/releases/tag/v0.1.13',
+      apkUrl: 'https://github.com/codescv/kotori/releases/download/v0.1.13/kotori-0.1.13-android.apk',
+      apkName: 'kotori-0.1.13-android.apk',
     });
   });
 

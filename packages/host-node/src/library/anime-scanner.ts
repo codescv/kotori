@@ -188,7 +188,12 @@ export async function scanAnimeFolder(path: string, options: { maxDepth?: number
   const episodes = videos
     .map((v): ScannedEpisode => {
       const parsedName = parseEpisodeName(v.name);
-      const epLabel = parsedName.episode !== undefined ? `第${parsedName.episode}話` : stem(v.name);
+      const epLabel =
+        parsedName.episode !== undefined
+          ? `第${parsedName.episode}話`
+          : parsedName.title !== ''
+            ? parsedName.title
+            : stem(v.name);
       return {
         filePath: v.path,
         fileName: v.name,
@@ -201,6 +206,8 @@ export async function scanAnimeFolder(path: string, options: { maxDepth?: number
     })
     .sort(compareEpisodes);
   const cover = files.find((f) => f.dir === rootDir && COVER_NAMES.test(f.name));
-  const title = inferTitle(episodes, basename(st.isFile() ? stem(path) : path));
+  const rawFallback = basename(st.isFile() ? stem(path) : path);
+  const cleanedFallback = parseEpisodeName(rawFallback).title || rawFallback;
+  const title = inferTitle(episodes, cleanedFallback);
   return cover ? { sourcePath: path, title, coverPath: cover.path, episodes } : { sourcePath: path, title, episodes };
 }

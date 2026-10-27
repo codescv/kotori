@@ -15,7 +15,7 @@ import { useHost } from '../../host/HostContext';
 import { useAsync } from '../../host/useAsync';
 import { useHostEvent } from '../../host/useHostEvents';
 import { useT } from '../../i18n';
-import { inferMangaSeriesTitle, sortVolumesInSeries } from '../../lib/manga';
+import { formatMangaVolumeTitle, inferMangaSeriesTitle, sortVolumesInSeries } from '../../lib/manga';
 import { showSnackbar } from '../../stores/snackbar';
 import { ImportVolumeDialog } from './ImportVolumeDialog';
 
@@ -111,10 +111,11 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
         {displayedList.map((v) => {
           const progress = v.progress && v.pageCount > 1 ? (v.progress.pageIndex + 1) / v.pageCount : undefined;
           const sTitle = inferMangaSeriesTitle(v);
+          const displayTitle = formatMangaVolumeTitle(v);
           const siblings = seriesGroups.get(sTitle) ?? [v];
           const volIndex = siblings.findIndex((x) => x.id === v.id);
           return (
-            <ElevatedCard key={v.id} className="k-volume-card" onClick={() => onOpen(v.id)} aria-label={v.title} data-testid={`volume-${v.id}`}>
+            <ElevatedCard key={v.id} className="k-volume-card" onClick={() => onOpen(v.id)} aria-label={displayTitle} data-testid={`volume-${v.id}`}>
               <div className="k-volume-card__cover">
                 {v.coverUrl ? <img src={v.coverUrl} alt="" loading="lazy" /> : <div className="k-volume-card__placeholder">📖</div>}
                 <span className={v.hasOcr ? 'k-tag k-volume-card__badge' : 'k-tag k-tag--muted k-volume-card__badge'}>
@@ -123,7 +124,7 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
               </div>
               <div className="k-volume-card__body">
                 <div className="k-volume-card__title" lang="ja" title={v.title}>
-                  {v.title}
+                  {displayTitle}
                 </div>
                 {siblings.length > 1 && (
                   <div className="k-volume-card__series k-label-small" data-testid={`volume-series-${v.id}`}>

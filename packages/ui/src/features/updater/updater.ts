@@ -15,6 +15,7 @@ import { showSnackbar } from '../../stores/snackbar';
 
 export const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/codescv/kotori/releases/latest';
 export const GITHUB_RELEASES_LIST_URL = 'https://api.github.com/repos/codescv/kotori/releases?per_page=5';
+export const GITHUB_RELEASES_ATOM_URL = 'https://github.com/codescv/kotori/releases.atom';
 export const GITHUB_RELEASES_HTML_URL = 'https://github.com/codescv/kotori/releases';
 
 export interface ReleaseInfo {
@@ -198,22 +199,95 @@ export function parseGithubReleaseJson(data: unknown): ReleaseInfo | undefined {
   };
 }
 
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * Fallback parser for `https://github.com/codescv/kotori/releases.atom` when
+ * `api.github.com` is rate-limited or unreachable.
+ */
+export function parseGithubReleasesAtom(xml: string): ReleaseInfo | undefined {
+  const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = entryRe.exec(xml)) !== null) {
+    const entry = m[1] ?? '';
+    const linkMatch = /<link[^>]+href="([^"]*\/releases\/tag\/([^"?#]+))"/i.exec(entry);
+    const idMatch = /<id>[^<]*\/([^/<]+)<\/id>/i.exec(entry);
+    const rawTag = decodeURIComponent((linkMatch?.[2] ?? idMatch?.[1] ?? '').trim());
+    const semver = parseSemanticVersion(rawTag);
+    if (!rawTag || !semver) continue;
+    const version = `${semver[0]}.${semver[1]}.${semver[2]}`;
+    const titleRaw = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(entry)?.[1]?.trim() ?? rawTag;
+    const title = decodeHtmlEntities(titleRaw) || rawTag;
+    const updated = /<updated>([^<]+)<\/updated>/i.exec(entry)?.[1]?.trim() ?? '';
+    const contentRaw = /<content[^>]*>([\s\S]*?)<\/content>/i.exec(entry)?.[1]?.trim() ?? '';
+    const notes = decodeHtmlEntities(contentRaw)
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const htmlUrl = linkMatch?.[1] ?? `${GITHUB_RELEASES_HTML_URL}/tag/${rawTag}`;
+    const apkName = `kotori-${version}-android.apk`;
+    const apkUrl = `${GITHUB_RELEASES_HTML_URL}/download/${rawTag}/${apkName}`;
+    return {
+      tagName: rawTag,
+      version,
+      title,
+      notes,
+      publishedAt: updated,
+      htmlUrl,
+      apkUrl,
+      apkName,
+    };
+  }
+  return undefined;
+}
+
 async function fetchLatestRelease(fetchImpl: typeof fetch): Promise<ReleaseInfo> {
   const headers = { Accept: 'application/vnd.github+json' };
-  const res = await fetchImpl(GITHUB_RELEASE_API_URL, { headers });
-  if (res.ok) {
-    const info = parseGithubReleaseJson(await res.json());
-    if (info) return info;
+  let lastStatus: number | undefined;
+  try {
+    const res = await fetchImpl(GITHUB_RELEASE_API_URL, { headers });
+    lastStatus = res.status;
+    if (res.ok) {
+      const info = parseGithubReleaseJson(await res.json());
+      if (info) return info;
+    }
+  } catch {
+    // Fall through to list / Atom feed
   }
-  const listRes = await fetchImpl(GITHUB_RELEASES_LIST_URL, { headers });
-  if (!listRes.ok) {
-    throw new Error(`HTTP ${listRes.status}`);
+  try {
+    const listRes = await fetchImpl(GITHUB_RELEASES_LIST_URL, { headers });
+    lastStatus = listRes.status;
+    if (listRes.ok) {
+      const info = parseGithubReleaseJson(await listRes.json());
+      if (info) return info;
+    }
+  } catch {
+    // Fall through to Atom feed
   }
-  const info = parseGithubReleaseJson(await listRes.json());
-  if (!info) {
-    throw new Error('未找到有效的版本发布记录');
+  try {
+    const atomRes = await fetchImpl(GITHUB_RELEASES_ATOM_URL, {
+      headers: { Accept: 'application/atom+xml, application/xml, text/xml, */*' },
+    });
+    lastStatus = atomRes.status;
+    if (atomRes.ok) {
+      const info = parseGithubReleasesAtom(await atomRes.text());
+      if (info) return info;
+    }
+  } catch {
+    // Handled below
   }
-  return info;
+  if (lastStatus !== undefined && lastStatus >= 400) {
+    throw new Error(`HTTP ${lastStatus}`);
+  }
+  throw new Error('未找到有效的版本发布记录');
 }
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({

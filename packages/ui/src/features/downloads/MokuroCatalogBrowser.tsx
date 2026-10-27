@@ -3,7 +3,7 @@
  * series cards with 5:7 cover art & community metadata, and importable volumes.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { compareNatural, type MangaVolume, type MokuroCatalogEntry, type MokuroCatalogListing, type MokuroCatalogVolume } from '@kotori/core';
+import { compareNatural, parseVolumeName, type MangaVolume, type MokuroCatalogEntry, type MokuroCatalogListing, type MokuroCatalogVolume } from '@kotori/core';
 import { useRouteStore } from '../../app/routes';
 import { Button } from '../../components/m3/Button';
 import { Chip } from '../../components/m3/Chip';
@@ -266,11 +266,23 @@ export function MokuroCatalogBrowser() {
           <div className="k-dl-media-list">
             {volumes.map((v) => {
               const owned = matchLibraryVolume(v);
+              const parsedVol = parseVolumeName(v.name);
+              const cleanVolTitle =
+                seriesName && parsedVol.volumeNumber !== undefined
+                  ? `${seriesName} · 第 ${parsedVol.volumeNumber} 卷`
+                  : parsedVol.seriesTitle || v.name;
               return (
                 <div key={v.mokuroUrl} className="k-dl-volume-card">
-                  <CoverThumb src={v.coverUrl ?? seriesCover} alt={v.name} fallbackIcon="book" size="sm" />
+                  <CoverThumb src={v.coverUrl ?? seriesCover} alt={cleanVolTitle} fallbackIcon="book" size="sm" />
                   <div className="k-dl-media-card__body">
-                    <div className="k-dl-media-card__title">{v.name}</div>
+                    <div className="k-dl-media-card__title" title={v.name}>
+                      {cleanVolTitle}
+                    </div>
+                    {cleanVolTitle !== v.name && (
+                      <div className="k-dl-media-card__subtitle" title={v.name}>
+                        {v.name}
+                      </div>
+                    )}
                     <div className="k-dl-media-card__badges">
                       <span className="k-tag k-tag--muted">.mokuro + {v.imagesKind === 'archive' ? 'cbz/zip' : 'dir'}</span>
                       {v.pageCount !== undefined && <span className="k-tag">{v.pageCount} 页</span>}

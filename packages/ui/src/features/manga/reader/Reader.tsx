@@ -24,7 +24,7 @@ import { AdaptiveSheet } from '../../../components/m3/Sheet';
 import type { IconName } from '../../../components/m3/Icon';
 import { useHost } from '../../../host/HostContext';
 import { useT } from '../../../i18n';
-import { buildSpreads, findNextSeriesVolume, spreadIndexForPage } from '../../../lib/manga';
+import { buildSpreads, findNextSeriesVolume, formatMangaVolumeTitle, spreadIndexForPage } from '../../../lib/manga';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
@@ -339,7 +339,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
       <header className="k-reader__bar">
         <IconButton icon="back" label={t('common.back')} onClick={onExit} />
         <h1 className="k-reader__title k-title-medium" lang="ja" title={volume?.title}>
-          {volume?.title ?? t('common.loading')}
+          {volume ? formatMangaVolumeTitle(volume) : t('common.loading')}
         </h1>
         <button
           type="button"
@@ -459,7 +459,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                   data-testid="next-volume-banner"
                   onClick={() => onOpenVolume(nextVolume.id)}
                 >
-                  {`继续阅读下一卷：${nextVolume.title} →`}
+                  {`继续阅读下一卷：${formatMangaVolumeTitle(nextVolume)} →`}
                 </button>
               )}
               <button

@@ -42,11 +42,19 @@ const VOLUME_PATTERNS: readonly RegExp[] = [
   /(?<![\p{L}\p{N}.])(\d{1,4}(?:\.\d+)?)\s*$/u,
 ];
 
-/** Tidy a leftover title: underscores → spaces, drop empty brackets & edge separators. */
+/** Tidy a leftover title: underscores → spaces, drop leading author/category tags, empty brackets & edge separators. */
 function cleanTitle(s: string): string {
-  return s
+  let out = s
     .replace(/_/g, ' ')
-    .replace(/[([{【「（]\s*[)\]}】」）]/g, '')
+    .replace(/[([{【「（]\s*[)\]}】」）]/g, '');
+  // Strip leading bracketed author / category metadata like `(一般コミック) [あずまきよひこ] ` when followed by actual title text.
+  const withoutLeadingTags = out.replace(/^(?:\s*(?:\[[^\]]+\]|\([^)]+\)|【[^】]+】)\s*)+(?=\S)/, '');
+  if (withoutLeadingTags.trim() !== '') {
+    out = withoutLeadingTags;
+  }
+  // Strip trailing release tags in square/lenticular brackets like `[DL版]`, `[Digital]`, `[mokuro]`.
+  out = out.replace(/(?:\s*(?:\[(?:DL版|Digital|mokuro|Raw|Scan[^\]]*)\]|【(?:DL版|Digital|mokuro|Raw|Scan[^】]*)】)\s*)+$/i, '');
+  return out
     .replace(/\s+/g, ' ')
     .replace(/^[\s\-–—.,:;~#]+|[\s\-–—.,:;~#]+$/g, '')
     .trim();

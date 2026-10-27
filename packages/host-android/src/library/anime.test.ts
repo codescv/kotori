@@ -41,6 +41,8 @@ describe('anime library', () => {
     const episodes = await t.host.anime.listEpisodes(series.id);
     expect(episodes.map((e) => e.parsedName.episode)).toEqual([1, 2]);
     const [ep1, ep2] = episodes;
+    expect(ep1?.title).toBe('第1話');
+    expect(ep2?.title).toBe('第2話');
     expect(ep1?.container).toBe('mkv');
     expect(ep1?.mediaUrl).toBe('https://localhost/_capacitor_file_/storage/emulated/0/Anime/Frieren/[SubsPlease] Sousou no Frieren - 01 (1080p) [ABCD1234].mkv');
     expect(ep1?.subtitleTracks).toHaveLength(2);

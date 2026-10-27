@@ -227,10 +227,16 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
       const id = stableId('ep', video.path);
       const prev = oldById.get(id);
       const parsedName = parseEpisodeName(video.name);
+      const epTitle =
+        parsedName.episode !== undefined
+          ? `第${parsedName.episode}話`
+          : parsedName.title !== ''
+            ? parsedName.title
+            : stem(video.name);
       const episode: StoredEpisode = {
         id,
         seriesId,
-        title: stem(video.name),
+        title: epTitle,
         fileName: video.name,
         filePath: video.path,
         container: VIDEO_EXT[extname(video.name)] ?? 'other',
@@ -245,13 +251,21 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
         const trackId = stableId('trk', sub.path);
         const prevTrack = oldTrackById.get(trackId);
         const language = detectSubtitleLanguageFromName(sub.name);
-        const suffix = stem(sub.name).slice(stem(video.name).length).replace(/^[.\s_-]+/, '');
+        const rawSuffix = stem(sub.name).startsWith(stem(video.name))
+          ? stem(sub.name).slice(stem(video.name).length).replace(/^[.\s_-]+/, '')
+          : '';
+        const extUpper = extname(sub.name).toUpperCase();
+        const langUpper = language ? language.toUpperCase() : 'External';
+        const cleanLabel =
+          rawSuffix === '' || rawSuffix.toLowerCase() === (language ?? '').toLowerCase()
+            ? `${langUpper} (${extUpper})`
+            : `${rawSuffix} · ${extUpper}`;
         episodeTracks.push({
           id: trackId,
           episodeId: id,
           origin: 'external',
           format: SUBTITLE_EXT[extname(sub.name)] ?? 'srt',
-          label: suffix === '' ? sub.name : `${suffix} · ${extname(sub.name).toUpperCase()}`,
+          label: cleanLabel,
           ...(language === undefined ? {} : { language }),
           filePath: sub.path,
           isDefault: prevTrack?.isDefault ?? false,
@@ -275,10 +289,12 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
     const commonTitle = [...titles.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
     const resolvedAnilistId = anilistId ?? existing?.anilistId;
     const resolvedCoverUrl = coverUrl ?? existing?.coverUrl;
+    const fallbackRootName = basename(scan.root);
+    const cleanedFallbackTitle = parseEpisodeName(fallbackRootName).title || fallbackRootName;
     const series: StoredSeries = {
       ...(existing ?? {}),
       id: seriesId,
-      title: titleOverride ?? existing?.title ?? commonTitle ?? basename(scan.root),
+      title: titleOverride ?? existing?.title ?? commonTitle ?? cleanedFallbackTitle,
       sourcePath,
       episodeCount: episodes.length,
       addedAt: existing?.addedAt ?? now,

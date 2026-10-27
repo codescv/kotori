@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { MangaBlock } from '@kotori/core';
-import { blockAt, buildSpreads, charIndexAt, clientToPage, deriveCharRegions, fitWithin, normaliseDragRect, spreadIndexForPage } from './manga';
+import {
+  blockAt,
+  buildSpreads,
+  charIndexAt,
+  clientToPage,
+  deriveCharRegions,
+  fitWithin,
+  formatMangaVolumeTitle,
+  inferMangaSeriesTitle,
+  normaliseDragRect,
+  spreadIndexForPage,
+} from './manga';
 
 const pages = [
   { index: 0, width: 1200, height: 1700 },
@@ -116,5 +127,20 @@ describe('geometry helpers', () => {
   });
   it('clientToPage maps the rendered box to page pixels', () => {
     expect(clientToPage(150, 120, { left: 100, top: 20, width: 200, height: 400 }, 1200, 2400)).toEqual({ x: 300, y: 600 });
+  });
+  it('formatMangaVolumeTitle prioritizes work title + volume number over raw filenames', () => {
+    expect(
+      inferMangaSeriesTitle({
+        title: '(一般コミック) [あずまきよひこ] よつばと! 第01巻 [DL版]',
+        seriesTitle: undefined,
+      }),
+    ).toBe('よつばと!');
+    expect(
+      formatMangaVolumeTitle({
+        title: '(一般コミック) [あずまきよひこ] よつばと! 第01巻 [DL版]',
+        seriesTitle: 'よつばと!',
+        volumeNumber: 1,
+      }),
+    ).toBe('よつばと! · 第 1 卷');
   });
 });

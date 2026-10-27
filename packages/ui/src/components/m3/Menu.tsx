@@ -56,7 +56,9 @@ export function Menu({ trigger, items, align = 'end', className, header, childre
               }}
             >
               {item.icon ? <Icon name={item.icon} size={20} /> : item.selected ? <Icon name="check" size={20} /> : <span className="k-menu__spacer" />}
-              <span>{item.label}</span>
+              <span className="k-menu__label" title={typeof item.label === 'string' ? item.label : undefined}>
+                {item.label}
+              </span>
             </button>
           ))}
           {children}
