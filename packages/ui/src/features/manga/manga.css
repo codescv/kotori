@@ -75,11 +75,14 @@
   transition: fill var(--md-sys-motion-duration-short4), stroke var(--md-sys-motion-duration-short4);
 }
 .k-block.show-outline .k-block__hit { stroke: color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent); stroke-dasharray: 6 4; }
-.k-block:hover .k-block__hit, .k-block:focus-visible .k-block__hit { fill: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent); stroke: var(--md-sys-color-primary); }
+.k-block:focus-visible .k-block__hit { fill: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent); stroke: var(--md-sys-color-primary); }
+@media (hover: hover) {
+  .k-block:hover .k-block__hit { fill: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent); stroke: var(--md-sys-color-primary); }
+  .k-block:hover .k-block__cell:hover { fill: color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent); }
+}
 .k-block.is-active .k-block__hit { fill: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent); stroke: var(--md-sys-color-primary); stroke-dasharray: none; }
 .k-block--vlm .k-block__hit { stroke: color-mix(in srgb, var(--md-sys-color-tertiary) 60%, transparent); }
 .k-block__cell { fill: transparent; transition: fill var(--md-sys-motion-duration-short2); }
-.k-block:hover .k-block__cell:hover { fill: color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent); }
 .k-block__cell.is-hl { fill: color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent); }
 .k-block__cell.is-focus { fill: color-mix(in srgb, var(--md-sys-color-primary) 50%, transparent); }
 

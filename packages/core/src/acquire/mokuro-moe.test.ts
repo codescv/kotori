@@ -109,9 +109,13 @@ describe('parseMokuroMoeListing', () => {
       series: [
         {
           name: '14 Sai no Koi',
+          cover: '14 Sai no Koi/14-Sai-no-Koi-01.webp',
           volume_count: 12,
+          total_pages: 2140,
+          total_chars: 149677,
           latest_volume_modified: 1700000000,
           titles: { native: '14歳の恋', romaji: '14-sai no Koi', english: 'Love at Fourteen' },
+          community: { score: 78, genres: ['Romance', 'Slice of Life'], tags: ['Age Gap', 'School'] },
         },
       ],
     });
@@ -126,24 +130,43 @@ describe('parseMokuroMoeListing', () => {
         modifiedAt: 1700000000000,
         isMokuro: false,
         isImageArchive: false,
+        coverUrl: 'https://mokuro.moe/mokuro-reader/14%20Sai%20no%20Koi/14-Sai-no-Koi-01.webp',
+        nativeTitle: '14歳の恋',
+        romajiTitle: '14-sai no Koi',
+        englishTitle: 'Love at Fourteen',
+        volumeCount: 12,
+        totalPages: 2140,
+        totalChars: 149677,
+        score: 78,
+        genres: ['Romance', 'Slice of Life'],
+        tags: ['Age Gap', 'School'],
       },
     ]);
 
     const seriesJson = JSON.stringify({
       name: '#Zombie Sagashitemasu',
+      cover: '#Zombie Sagashitemasu/-Zombie-Sagashitemasu-01.webp',
       volumes: [
-        { name: '-Zombie-Sagashitemasu-01', ocr_pending: false },
+        {
+          name: '-Zombie-Sagashitemasu-01',
+          cover: '#Zombie Sagashitemasu/-Zombie-Sagashitemasu-01.webp',
+          page_count: 194,
+          ocr_pending: false,
+        },
         { name: '-Zombie-Sagashitemasu-02', ocr_pending: true },
       ],
     });
     const series = parseMokuroMoeListing(seriesJson, 'https://mokuro.moe/catalog/api/series?name=%23Zombie%20Sagashitemasu');
     expect(series.path).toEqual(['#Zombie Sagashitemasu']);
+    expect(series.coverUrl).toBe('https://mokuro.moe/mokuro-reader/%23Zombie%20Sagashitemasu/-Zombie-Sagashitemasu-01.webp');
     expect(series.volumes).toEqual([
       {
         name: '-Zombie-Sagashitemasu-01',
         mokuroUrl: 'https://mokuro.moe/mokuro-reader/%23Zombie%20Sagashitemasu/-Zombie-Sagashitemasu-01.mokuro',
         imagesUrl: 'https://mokuro.moe/mokuro-reader/%23Zombie%20Sagashitemasu/-Zombie-Sagashitemasu-01.cbz',
         imagesKind: 'archive',
+        coverUrl: 'https://mokuro.moe/mokuro-reader/%23Zombie%20Sagashitemasu/-Zombie-Sagashitemasu-01.webp',
+        pageCount: 194,
       },
     ]);
   });

@@ -1,8 +1,9 @@
 /**
- * Jimaku subtitle search: entries → files → download. A missing API key
- * surfaces a call-to-action that jumps to the settings page.
+ * Jimaku subtitle search: entries (enriched with AniList cover art & metadata)
+ * → files → download. A missing API key surfaces a call-to-action that jumps
+ * to the settings page.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { JimakuEntry, JimakuFile } from '@kotori/core';
 import { Button } from '../../components/m3/Button';
 import { Icon } from '../../components/m3/Icon';
@@ -14,6 +15,8 @@ import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
 import { showSnackbar } from '../../stores/snackbar';
+import { fetchAniListByIds, type AniListMediaInfo } from './anilist';
+import { CoverThumb } from './CoverThumb';
 import { formatBytes, formatDate } from './format';
 import { useDownloadsStore } from './useDownloadsStore';
 
@@ -25,10 +28,24 @@ export function JimakuSearch() {
   const hasKey = useSettingsStore((s) => s.settings.anime.jimakuApiKey.trim().length > 0);
   const [query, setQuery] = useState('');
   const [entries, setEntries] = useState<readonly JimakuEntry[] | undefined>();
+  const [aniMap, setAniMap] = useState<ReadonlyMap<number, AniListMediaInfo>>(new Map());
   const [entry, setEntry] = useState<JimakuEntry | undefined>();
   const [files, setFiles] = useState<readonly JimakuFile[] | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<{ message: string; auth: boolean } | undefined>();
+
+  useEffect(() => {
+    if (!entries || entries.length === 0) return;
+    let alive = true;
+    const ids = entries.map((e) => e.anilistId).filter((id): id is number => id !== undefined);
+    if (ids.length === 0) return;
+    void fetchAniListByIds(ids).then((map) => {
+      if (alive && map.size > 0) setAniMap(map);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [entries]);
 
   const run = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
     setLoading(true);
@@ -41,7 +58,7 @@ export function JimakuSearch() {
       return undefined;
     } finally {
       setLoading(false);
-    }
+    };
   };
 
   const search = async (): Promise<void> => {
@@ -78,6 +95,8 @@ export function JimakuSearch() {
     </div>
   );
 
+  const selectedAni = entry?.anilistId ? aniMap.get(entry.anilistId) : undefined;
+
   return (
     <section className="k-dl-search">
       {!hasKey && keyCta}
@@ -106,6 +125,25 @@ export function JimakuSearch() {
               {entry.japaneseName ?? entry.name} · {t('downloads.jimaku.files')}
             </h3>
           </div>
+          <div className="k-dl-banner">
+            <CoverThumb src={selectedAni?.coverUrl} alt={entry.japaneseName ?? entry.name} fallbackIcon="subtitles" size="lg" />
+            <div className="k-dl-banner__info">
+              <div className="k-dl-banner__title">{entry.japaneseName ?? entry.name}</div>
+              {(entry.englishName || entry.name !== (entry.japaneseName ?? entry.name)) && (
+                <div className="k-dl-media-card__subtitle">
+                  {[entry.name !== (entry.japaneseName ?? entry.name) ? entry.name : undefined, entry.englishName].filter(Boolean).join(' · ')}
+                </div>
+              )}
+              <div className="k-dl-media-card__badges">
+                {selectedAni?.score !== undefined && <span className="k-tag k-tag--tone">★ {selectedAni.score}%</span>}
+                {selectedAni?.format && <span className="k-tag">{selectedAni.format}</span>}
+                {selectedAni?.seasonYear && <span className="k-tag k-tag--muted">{selectedAni.seasonYear}</span>}
+                {selectedAni?.episodes && <span className="k-tag">{selectedAni.episodes} 话</span>}
+                {files && <span className="k-tag">{files.length} 个字幕文件</span>}
+                {entry.anilistId && <span className="k-tag k-tag--muted">AniList #{entry.anilistId}</span>}
+              </div>
+            </div>
+          </div>
           {files && files.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
           <List>
             {(files ?? []).map((f) => (
@@ -114,6 +152,7 @@ export function JimakuSearch() {
                 leading={<Icon name={f.isTextSubtitle ? 'subtitles' : 'folder'} />}
                 headline={f.name}
                 supporting={[
+                  f.extension ? f.extension.toUpperCase() : '',
                   f.episode !== undefined ? t('downloads.jimaku.episode', { n: f.episode }) : f.archiveFormat ? t('downloads.jimaku.archive') : '',
                   formatBytes(f.sizeBytes),
                   formatDate(f.lastModifiedAt),
@@ -132,18 +171,51 @@ export function JimakuSearch() {
       ) : (
         <>
           {entries && entries.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
-          <List>
-            {(entries ?? []).map((e) => (
-              <ListItem
-                key={e.id}
-                leading={<Icon name="subtitles" />}
-                headline={e.japaneseName ?? e.name}
-                supporting={[e.englishName ?? e.name, e.anilistId ? `AniList ${e.anilistId}` : '', e.flags.unverified ? 'unverified' : ''].filter(Boolean).join(' · ')}
-                trailing={<Icon name="chevronRight" />}
-                onClick={() => void openEntry(e)}
-              />
-            ))}
-          </List>
+          {entries && entries.length > 0 && (
+            <div className="k-dl-media-list">
+              {entries.map((e) => {
+                const ani = e.anilistId ? aniMap.get(e.anilistId) : undefined;
+                const primary = e.japaneseName ?? e.name;
+                const secondary = [
+                  e.name !== primary ? e.name : undefined,
+                  e.englishName && e.englishName !== e.name && e.englishName !== primary ? e.englishName : undefined,
+                ]
+                  .filter((x): x is string => Boolean(x))
+                  .join(' · ');
+                return (
+                  <button key={e.id} type="button" className="k-dl-media-card" onClick={() => void openEntry(e)}>
+                    <CoverThumb src={ani?.coverUrl} alt={primary} fallbackIcon="subtitles" size="md" />
+                    <div className="k-dl-media-card__body">
+                      <div className="k-dl-media-card__title">{primary}</div>
+                      {secondary && <div className="k-dl-media-card__subtitle">{secondary}</div>}
+                      <div className="k-dl-media-card__badges">
+                        {ani?.score !== undefined && <span className="k-tag k-tag--tone">★ {ani.score}%</span>}
+                        {ani?.format && <span className="k-tag">{ani.format}</span>}
+                        {ani?.seasonYear && <span className="k-tag k-tag--muted">{ani.seasonYear}</span>}
+                        {ani?.episodes && <span className="k-tag">{ani.episodes} 话</span>}
+                        {e.flags.movie && <span className="k-tag">Movie</span>}
+                        {e.anilistId && <span className="k-tag k-tag--muted">AniList #{e.anilistId}</span>}
+                        {e.flags.unverified && <span className="k-tag k-tag--muted">unverified</span>}
+                        {e.lastModifiedAt && <span className="k-dl-media-card__sub">更新于 {formatDate(e.lastModifiedAt)}</span>}
+                      </div>
+                      {ani?.genres && ani.genres.length > 0 && (
+                        <div className="k-dl-media-card__chips">
+                          {ani.genres.slice(0, 4).map((g) => (
+                            <span key={g} className="k-dl-chip">
+                              {g}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="k-dl-media-card__chevron" aria-hidden="true">
+                      <Icon name="chevronRight" />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
     </section>

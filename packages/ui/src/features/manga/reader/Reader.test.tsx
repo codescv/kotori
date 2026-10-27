@@ -228,4 +228,25 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     fireEvent.touchEnd(zp, { touches: [] });
     expect(zp.dataset['scale']).toBe('1.00');
   });
+
+  it('opens the AI breakdown on the very first tap on a speech bubble even right after a swipe page turn', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    const zp = screen.getByTestId('zoompan');
+
+    // First swipe to turn to page 2 (which previously left suppressClick.current = true).
+    fireEvent.touchStart(zp, { touches: [{ clientX: 150, clientY: 400 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 280, clientY: 405 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(spread().dataset['pageIndexes']).toBe('2');
+
+    // Now perform a single tap on the first speech bubble of page 2.
+    const block = await screen.findByTestId('block-2-0');
+    fireEvent.touchStart(block, { touches: [{ clientX: 400, clientY: 300 }] });
+    fireEvent.touchEnd(block, { touches: [], changedTouches: [{ clientX: 400, clientY: 300 }] });
+
+    await waitFor(() => expect(useBreakdownStore.getState().open).toBe(true));
+    expect(useBreakdownStore.getState().request?.sentence.length).toBeGreaterThan(0);
+  });
 });

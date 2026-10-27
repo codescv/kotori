@@ -9,7 +9,7 @@
  * network). The focused chunk's cells are painted on the bubble, so the
  * sentence ⇄ chunk highlight is visible on the page as well.
  */
-import { memo, useMemo, type KeyboardEvent, type MouseEvent } from 'react';
+import { memo, useMemo, useRef, type KeyboardEvent, type MouseEvent, type TouchEvent } from 'react';
 import type { CharSpan, MangaBlock, MangaPage } from '@kotori/core';
 import { deriveSelection } from '../../../components/breakdown/useBreakdownSelection';
 import { cx } from '../../../components/m3/cx';
@@ -54,20 +54,61 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
   const regions = useMemo(() => deriveCharRegions(block), [block]);
   const { rect } = block;
   const pad = Math.max(6, block.fontSize * 0.25);
+  const touchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
+  const lastTouchPickRef = useRef(0);
 
-  const onClick = (e: MouseEvent<SVGGElement>): void => {
-    e.stopPropagation();
-    const target = e.target as Element;
+  const pickAtPoint = (target: Element, clientX: number, clientY: number): void => {
     const direct = attrInt(target.closest('[data-char-start]'), 'data-char-start');
-    if (direct !== undefined) return onPick(block, direct);
+    if (direct !== undefined) {
+      onPick(block, direct);
+      return;
+    }
     const svg = target.closest('svg');
     const box = svg?.getBoundingClientRect();
     const vb = (svg?.getAttribute('viewBox') ?? '').split(/\s+/).map(Number);
     const vbW = vb[2];
     const vbH = vb[3];
-    if (!box || box.width === 0 || !vbW || !vbH) return onPick(block, 0);
-    const { x, y } = clientToPage(e.clientX, e.clientY, box, vbW, vbH);
+    if (!box || box.width === 0 || !vbW || !vbH) {
+      onPick(block, 0);
+      return;
+    }
+    const { x, y } = clientToPage(clientX, clientY, box, vbW, vbH);
     onPick(block, charIndexAt(block, x, y));
+  };
+
+  const onClick = (e: MouseEvent<SVGGElement>): void => {
+    e.stopPropagation();
+    if (Date.now() - lastTouchPickRef.current < 450) return;
+    pickAtPoint(e.target as Element, e.clientX, e.clientY);
+  };
+  const onTouchStart = (e: TouchEvent<SVGGElement>): void => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0]!;
+      touchStartRef.current = { x: t.clientX, y: t.clientY };
+    } else {
+      touchStartRef.current = null;
+    }
+  };
+  const onTouchMove = (e: TouchEvent<SVGGElement>): void => {
+    const start = touchStartRef.current;
+    if (!start || e.touches.length !== 1) {
+      touchStartRef.current = null;
+      return;
+    }
+    const t = e.touches[0]!;
+    if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) {
+      touchStartRef.current = null;
+    }
+  };
+  const onTouchEnd = (e: TouchEvent<SVGGElement>): void => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || e.changedTouches.length !== 1 || e.touches.length > 0) return;
+    const t = e.changedTouches[0]!;
+    if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) return;
+    lastTouchPickRef.current = Date.now();
+    const hitEl = (typeof document !== 'undefined' ? document.elementFromPoint(t.clientX, t.clientY) : null) ?? (e.target as Element);
+    pickAtPoint(hitEl, t.clientX, t.clientY);
   };
   const onKey = (e: KeyboardEvent<SVGGElement>): void => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -84,6 +125,9 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
       tabIndex={0}
       aria-label={block.text}
       onClick={onClick}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
       onKeyDown={onKey}
     >
       <rect

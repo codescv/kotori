@@ -300,7 +300,7 @@ export const en: Messages = {
   'settings.library.mangaRoots': 'Manga folders',
   'settings.library.add': 'Add folder',
   'settings.about.nameOrigin':
-    'Kotori (小鳥 / 言採り): On the surface a cute "little bird" (小鳥); broken down, "word (言 koto) + gatherer (採り tori)" — a poetic Japanese name for a Sentence Miner.',
+    'Kotori (小鳥 / 言採り): On the surface a cute "little bird" (小鳥); broken down, "word (言 koto) + gatherer (採り tori)" — one who gathers words and phrases.',
   'settings.about.platform': 'Platform: {platform} · {os} · v{version}',
   'settings.about.dataDir': 'Data folder: {dir}',
   'settings.invalidNumber': 'Enter a valid number',

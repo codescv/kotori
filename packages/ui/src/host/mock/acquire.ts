@@ -95,11 +95,100 @@ export function mockJimakuFiles(entryId: number, episode?: number): JimakuFile[]
 
 const CATALOG_ROOT = 'https://mokuro.moe/manga/';
 
+const MOCK_MANGA_META: Record<
+  string,
+  {
+    romaji: string;
+    english: string;
+    score: number;
+    volumes: number;
+    pages: number;
+    chars: number;
+    genres: readonly string[];
+    tags: readonly string[];
+  }
+> = {
+  放課後ノート: {
+    romaji: 'Houkago Note',
+    english: 'After-School Notebook',
+    score: 84,
+    volumes: 4,
+    pages: 720,
+    chars: 58_400,
+    genres: ['Slice of Life', 'School', 'Comedy'],
+    tags: ['Club', 'Youth'],
+  },
+  'よつばと！': {
+    romaji: 'Yotsuba to!',
+    english: 'Yotsuba&!',
+    score: 89,
+    volumes: 15,
+    pages: 3120,
+    chars: 215_000,
+    genres: ['Comedy', 'Slice of Life'],
+    tags: ['Iyashikei', 'Parenting', 'Beginner Friendly'],
+  },
+  'ハイキュー!!': {
+    romaji: 'Haikyuu!!',
+    english: 'Haikyu!!',
+    score: 91,
+    volumes: 45,
+    pages: 8910,
+    chars: 842_000,
+    genres: ['Sports', 'Drama', 'Comedy'],
+    tags: ['Volleyball', 'Shounen'],
+  },
+  葬送のフリーレン: {
+    romaji: 'Sousou no Frieren',
+    english: 'Frieren: Beyond Journey’s End',
+    score: 93,
+    volumes: 13,
+    pages: 2560,
+    chars: 312_000,
+    genres: ['Adventure', 'Drama', 'Fantasy'],
+    tags: ['Elves', 'Magic', 'Philosophical'],
+  },
+  'ゆるキャン△': {
+    romaji: 'Yuru Camp△',
+    english: 'Laid-Back Camp',
+    score: 86,
+    volumes: 16,
+    pages: 2880,
+    chars: 248_000,
+    genres: ['Slice of Life', 'Comedy'],
+    tags: ['Camping', 'Outdoors', 'Iyashikei'],
+  },
+};
+
 export function mockMokuroCatalog(url?: string): MokuroCatalogListing {
   const u = url && url.startsWith(CATALOG_ROOT) ? url : CATALOG_ROOT;
   const rel = decodeURIComponent(u.slice(CATALOG_ROOT.length)).replace(/\/$/, '');
   const path = rel ? rel.split('/') : [];
-  const dir = (name: string): MokuroCatalogEntry => ({ kind: 'dir', name, url: `${u}${encodeURIComponent(name)}/`, isMokuro: false, isImageArchive: false, modifiedAt: NOW - 40 * DAY });
+  const dir = (name: string): MokuroCatalogEntry => {
+    const meta = MOCK_MANGA_META[name];
+    return {
+      kind: 'dir',
+      name,
+      url: `${u}${encodeURIComponent(name)}/`,
+      isMokuro: false,
+      isImageArchive: false,
+      modifiedAt: NOW - 40 * DAY,
+      ...(meta
+        ? {
+            nativeTitle: name,
+            romajiTitle: meta.romaji,
+            englishTitle: meta.english,
+            score: meta.score,
+            volumeCount: meta.volumes,
+            totalPages: meta.pages,
+            totalChars: meta.chars,
+            genres: meta.genres,
+            tags: meta.tags,
+            sizeText: `${meta.volumes} vols · ${meta.pages}p`,
+          }
+        : {}),
+    };
+  };
   if (path.length === 0) {
     const entries = ['放課後ノート', 'よつばと！', 'ハイキュー!!', '葬送のフリーレン', 'ゆるキャン△'].map(dir);
     return { url: u, path, entries, volumes: [] };
@@ -113,7 +202,7 @@ export function mockMokuroCatalog(url?: string): MokuroCatalogListing {
     const imagesUrl = `${u}${encodeURIComponent(name)}.zip`;
     entries.push({ kind: 'file', name: `${name}.mokuro`, url: mokuroUrl, sizeText: '1.2M', sizeBytes: 1_250_000, modifiedAt: NOW - v * DAY, isMokuro: true, isImageArchive: false });
     entries.push({ kind: 'file', name: `${name}.zip`, url: imagesUrl, sizeText: '86M', sizeBytes: 86_000_000 + v * 1_000_000, modifiedAt: NOW - v * DAY, isMokuro: false, isImageArchive: true });
-    volumes.push({ name, mokuroUrl, imagesUrl, imagesKind: 'archive' as const, sizeBytes: 87_250_000 + v * 1_000_000 });
+    volumes.push({ name, mokuroUrl, imagesUrl, imagesKind: 'archive' as const, sizeBytes: 87_250_000 + v * 1_000_000, pageCount: 176 + v * 4 });
   }
   return { url: u, path, entries, volumes };
 }
