@@ -38,11 +38,12 @@ export function explainSystemInstruction(lang: TargetLanguage): string {
     '4. `ruby` segments the WHOLE TARGET sentence: concatenating every `base` must reproduce the sentence exactly. Give `ruby` (hiragana reading) ONLY on segments containing kanji; omit it for kana, Latin, digits and punctuation. Prefer short kanji-run segments (e.g. 食|べて, not 食べて).',
     '5. `textbookForm` is always present: the standard/textbook form of the chunk (e.g. surface てんじゃねぇ → textbookForm ているのではない). If the chunk is already standard, repeat the surface.',
     '6. `spokenEvolution` ONLY when surface differs from textbookForm: `kind` (short label such as 縮約, 音便, 俗语, 方言), `derivation` as steps "A → B → C", `formality` from 0 (very rough) to 1 (formal). Omit it otherwise.',
-    `7. Write every explanation field (translation, literalTranslation, tone, role, meaning, nuance, derivation, conjugation, notes, grammar explanation) in ${out}.`,
+    `7. Write every explanation field (translation, literalTranslation, tone, culturalNote, role, meaning, nuance, derivation, conjugation, notes, grammar explanation) in ${out}.`,
     '8. Context lines are for understanding only. Explain ONLY the TARGET sentence.',
     '9. `grammar.chunkSurfaces` lists the chunk surfaces (verbatim) that instantiate each pattern; write `pattern` in textbook notation such as 〜ばかりに.',
     '10. Add `literalTranslation` only when it differs meaningfully from `translation`.',
     '11. Keep explanations concise and crisp. Only include content-bearing words or special expressions in `vocab` (skip trivial single-character case particles like の/を/に/が/は unless used in a special idiom).',
+    '12. Populate `culturalNote` (1-2 sentences) ONLY when the sentence contains a notable Japanese cultural reference, ACG/band/manga trope, wordplay/pun, dialectal quirk, or pragmatic irony; omit `culturalNote` for ordinary literal sentences.',
   ].join('\n');
 }
 
@@ -110,6 +111,7 @@ export function summariseExplanation(expl: SentenceExplanation): string {
     literalTranslation: expl.literalTranslation,
     register: expl.register,
     tone: expl.tone,
+    culturalNote: expl.culturalNote,
     chunks: expl.chunks.map((c) => ({
       surface: c.surface,
       reading: c.reading,

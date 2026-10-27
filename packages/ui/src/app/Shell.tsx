@@ -16,6 +16,7 @@ import { AnimePage } from '../features/anime/AnimePage';
 import { DownloadsPage } from '../features/downloads/DownloadsPage';
 import { MangaPage } from '../features/manga/MangaPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import { UpdateBanner } from '../features/updater/UpdateBanner';
 import { useRouteStore, type Tab } from './routes';
 
 const TABS: readonly { readonly tab: Tab; readonly icon: IconName; readonly label: MessageKey }[] = [
@@ -98,6 +99,7 @@ export function Shell() {
     <div className={cx('k-shell', expanded ? 'k-shell--expanded' : 'k-shell--compact')} data-kotori-shell>
       {expanded && nav}
       <main className="k-shell__content" data-tab={tab}>
+        <UpdateBanner />
         {tab === 'anime' && <AnimePage />}
         {tab === 'manga' && <MangaPage />}
         {tab === 'downloads' && <DownloadsPage />}

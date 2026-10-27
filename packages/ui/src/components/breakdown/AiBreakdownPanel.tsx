@@ -14,9 +14,10 @@ import { useCallback, useState } from 'react';
 import type { FollowUpMessage, SentenceExplanation } from '@kotori/core';
 import { useHost } from '../../host/HostContext';
 import { useT, type Translate } from '../../i18n';
-import { useBreakdownStore } from '../../stores/breakdown';
+import { useBreakdownStore, type BubbleCropPreview } from '../../stores/breakdown';
 import { useSettingsStore } from '../../stores/settings';
 import { vocabForChunk } from '../../lib/explanation';
+import { speakJapanese } from '../../lib/tts';
 import { AssistantAvatar } from '../AssistantAvatar';
 import { Button } from '../m3/Button';
 import { cx } from '../m3/cx';
@@ -39,11 +40,57 @@ export interface AiBreakdownPanelProps {
   readonly streamingText?: string | undefined;
   readonly followUpPending?: boolean;
   readonly onRegenerate?: () => void;
+  readonly onReplayAudio?: (() => void) | undefined;
+  readonly bubblePreview?: BubbleCropPreview | undefined;
   readonly t?: Translate;
   readonly className?: string | undefined;
 }
 
 type Section = 'chunks' | 'vocab' | 'grammar';
+
+function BubbleCropHeader({ preview }: { readonly preview: BubbleCropPreview }) {
+  const [expanded, setExpanded] = useState(false);
+  const pw = Math.max(1, preview.pageWidth || 800);
+  const ph = Math.max(1, preview.pageHeight || 1200);
+  const bw = Math.max(24, preview.rect.right - preview.rect.left);
+  const bh = Math.max(24, preview.rect.bottom - preview.rect.top);
+  const padX = Math.round(bw * (expanded ? 0.55 : 0.25));
+  const padY = Math.round(bh * (expanded ? 0.55 : 0.25));
+  const vx = Math.max(0, preview.rect.left - padX);
+  const vy = Math.max(0, preview.rect.top - padY);
+  const vw = Math.min(pw - vx, bw + padX * 2);
+  const vh = Math.min(ph - vy, bh + padY * 2);
+
+  return (
+    <div
+      className={cx('k-breakdown__bubble-crop', expanded && 'is-expanded')}
+      onClick={() => setExpanded((v) => !v)}
+      title={expanded ? '点击收起原图裁切' : '点击放大查看气泡上下文'}
+      data-testid="breakdown-bubble-crop"
+    >
+      <svg
+        className="k-breakdown__bubble-crop-svg"
+        viewBox={`${vx} ${vy} ${vw} ${vh}`}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <image href={preview.imageUrl} width={pw} height={ph} />
+        <rect
+          x={preview.rect.left}
+          y={preview.rect.top}
+          width={bw}
+          height={bh}
+          rx={4}
+          fill="none"
+          stroke="var(--md-sys-color-primary)"
+          strokeWidth={Math.max(2, Math.round(Math.min(pw, ph) * 0.003))}
+        />
+      </svg>
+      <span className="k-breakdown__bubble-crop-hint">
+        {expanded ? '🔍 原图上下文（点击收起）' : '🖼️ 原漫气泡裁切（点击展开）'}
+      </span>
+    </div>
+  );
+}
 
 export function AiBreakdownPanel({
   explanation,
@@ -54,6 +101,8 @@ export function AiBreakdownPanel({
   streamingText,
   followUpPending = false,
   onRegenerate,
+  onReplayAudio,
+  bubblePreview,
   t: tProp,
   className,
 }: AiBreakdownPanelProps) {
@@ -64,9 +113,11 @@ export function AiBreakdownPanel({
   const persona = useSettingsStore((s) => s.settings.ai.persona);
   const personaName = persona?.name?.trim();
   const copy = useCallback(() => void navigator.clipboard?.writeText(explanation.sentence).catch(() => {}), [explanation.sentence]);
+  const speak = useCallback(() => void speakJapanese(explanation.sentence), [explanation.sentence]);
 
   return (
     <div className={cx('k-breakdown', className)} data-testid="ai-breakdown-panel">
+      {bubblePreview && <BubbleCropHeader preview={bubblePreview} />}
       {/* Direct child of the scroll content so `position: sticky` keeps it in view. */}
       <div className="k-breakdown__sentence" data-testid="breakdown-sentence">
         <RubyText
@@ -83,6 +134,26 @@ export function AiBreakdownPanel({
           {explanation.tone && <span className="k-tag k-tag--tone">{explanation.tone}</span>}
           {explanation.fromCache && <span className="k-tag k-tag--muted">{t('breakdown.fromCache')}</span>}
           <span className="k-breakdown__meta-spacer" />
+          {onReplayAudio && (
+            <button
+              type="button"
+              className="k-breakdown__action-pill"
+              onClick={onReplayAudio}
+              title="重听该句原声片段"
+              data-testid="breakdown-replay-audio"
+            >
+              🔊 原声
+            </button>
+          )}
+          <button
+            type="button"
+            className="k-breakdown__action-pill"
+            onClick={speak}
+            title="日语语音朗读 (TTS)"
+            data-testid="breakdown-tts-sentence"
+          >
+            🗣️ 朗读
+          </button>
           <IconButton icon="file" size="small" label={t('breakdown.copy')} onClick={copy} />
           {onRegenerate && <IconButton icon="refresh" size="small" label={t('breakdown.regenerate')} onClick={onRegenerate} />}
         </div>
@@ -99,6 +170,15 @@ export function AiBreakdownPanel({
             )}
           </div>
         </div>
+        {explanation.culturalNote && (
+          <div className="k-breakdown__cultural-note" data-testid="breakdown-cultural-note">
+            <span className="k-breakdown__cultural-icon" aria-hidden="true">💡</span>
+            <div className="k-breakdown__cultural-body">
+              <strong className="k-breakdown__cultural-label">文化与语境小贴士</strong>
+              <p className="k-breakdown__cultural-text">{explanation.culturalNote}</p>
+            </div>
+          </div>
+        )}
       </section>
 
       <Tabs<Section>
@@ -175,9 +255,19 @@ export function BreakdownPanel({ className }: { readonly className?: string | un
   const setFocus = useBreakdownStore((s) => s.setFocus);
   const askFollowUp = useBreakdownStore((s) => s.askFollowUp);
   const retry = useBreakdownStore((s) => s.retry);
+  const bubblePreview = useBreakdownStore((s) => s.bubblePreview);
+  const audioReplayHandler = useBreakdownStore((s) => s.audioReplayHandler);
 
   const onFollowUp = useCallback((q: string) => void askFollowUp(host, q), [askFollowUp, host]);
   const onRegenerate = useCallback(() => void retry(host), [retry, host]);
+  const onReplayAudio =
+    request?.source.kind === 'subtitle' && audioReplayHandler
+      ? () => {
+          if (request.source.kind === 'subtitle') {
+            audioReplayHandler(request.source.startMs, request.source.endMs);
+          }
+        }
+      : undefined;
 
   if (status === 'loading' && request) return <BreakdownSkeleton sentence={request.sentence} focusCharIndex={focusCharIndex} t={t} />;
   if (status === 'error' && error) {
@@ -211,6 +301,8 @@ export function BreakdownPanel({ className }: { readonly className?: string | un
         streamingText={streamingText}
         followUpPending={followUpPending}
         onRegenerate={onRegenerate}
+        onReplayAudio={onReplayAudio}
+        bubblePreview={request?.source.kind === 'manga' ? bubblePreview : undefined}
         t={t}
       />
     );

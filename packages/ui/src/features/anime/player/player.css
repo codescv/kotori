@@ -16,6 +16,13 @@
   background: #000; overflow: hidden; border-radius: var(--md-sys-shape-corner-large);
 }
 .k-player--compact .k-player__stage { border-radius: 0; max-height: 40vh; }
+.k-player__speed-pill, .k-player__gesture-toast {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 6;
+  padding: 5px 14px; border-radius: 999px; background: rgb(0 0 0 / 0.72); color: #fff;
+  font: var(--md-sys-typescale-label-large); pointer-events: none; backdrop-filter: blur(6px);
+  box-shadow: var(--md-sys-elevation-2);
+}
+.k-player__gesture-toast { top: 50%; transform: translate(-50%, -50%); font: var(--md-sys-typescale-title-medium); padding: 8px 18px; }
 .k-player__video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
 .k-player__sim {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;

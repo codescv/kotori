@@ -250,6 +250,8 @@ export interface SentenceExplanation {
   readonly register?: 'polite' | 'plain' | 'casual' | 'rough' | 'honorific' | 'humble' | 'dialect' | 'literary';
   /** One-line summary of speaker intent / tone. */
   readonly tone?: string;
+  /** Optional cultural / ACG / slang / pragmatic note when the line contains a notable reference or trope. */
+  readonly culturalNote?: string;
   readonly targetLanguage: TargetLanguage;
   readonly model: string;
   readonly promptVersion: string;
@@ -1073,6 +1075,8 @@ export interface MangaSettings {
   readonly background: 'black' | 'surface' | 'white';
   /** Preload ±N pages. */
   readonly preloadPages: number;
+  /** Automatically pre-explain speech bubbles on the current spread in 1 batch request while reading. */
+  readonly autoPreExplain?: boolean;
 }
 
 export interface DownloadSettings {

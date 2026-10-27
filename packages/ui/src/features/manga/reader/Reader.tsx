@@ -24,7 +24,7 @@ import { AdaptiveSheet } from '../../../components/m3/Sheet';
 import type { IconName } from '../../../components/m3/Icon';
 import { useHost } from '../../../host/HostContext';
 import { useT } from '../../../i18n';
-import { buildSpreads, spreadIndexForPage } from '../../../lib/manga';
+import { buildSpreads, findNextSeriesVolume, spreadIndexForPage } from '../../../lib/manga';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
@@ -34,12 +34,14 @@ import { GuideMarkers, PageGuideSheet } from './PageGuideSheet';
 import { ZoomPan } from './PageCanvas';
 import { computeSpreadLayout, SpreadLayout } from './SpreadLayout';
 import { useElementSize } from './useElementSize';
+import { useMangaPreExplain } from './useMangaPreExplain';
 import { Webtoon } from './Webtoon';
 import '../manga.css';
 
 export interface ReaderProps {
   readonly volumeId: string;
   readonly onExit: () => void;
+  readonly onOpenVolume?: ((volumeId: string) => void) | undefined;
 }
 
 const MODES: readonly { readonly mode: MangaReadingMode; readonly icon: IconName }[] = [
@@ -55,11 +57,13 @@ export const isRtl = (mode: MangaReadingMode): boolean => mode === 'spread-rtl' 
 const isTyping = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
-export function Reader({ volumeId, onExit }: ReaderProps) {
+export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const host = useHost();
   const t = useT();
   const mangaSettings = useSettingsStore((s) => s.settings.manga);
+  const updateSettings = useSettingsStore((s) => s.update);
   const [volume, setVolume] = useState<MangaVolume | undefined>();
+  const [allVolumes, setAllVolumes] = useState<readonly MangaVolume[]>([]);
   const [pages, setPages] = useState<MangaPage[] | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [anchor, setAnchor] = useState(0);
@@ -69,20 +73,29 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
   const [tocOpen, setTocOpen] = useState(false);
   const [tocFilter, setTocFilter] = useState<'all' | 'dialogue'>('all');
   const [guides, setGuides] = useState<ReadonlyMap<number, MangaPageGuideResult>>(new Map());
+  const [scrubPreviewSpreadIdx, setScrubPreviewSpreadIdx] = useState<number | undefined>(undefined);
+  const [jumpBackPage, setJumpBackPage] = useState<number | undefined>(undefined);
+  const jumpBackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const stageRef = useRef<HTMLDivElement>(null);
   const stage = useElementSize(stageRef);
 
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
+  const breakdownRequest = useBreakdownStore((s) => s.request);
   const closeBreakdown = useBreakdownStore((s) => s.close);
 
   // ---- load -----------------------------------------------------------------
   useEffect(() => {
     let alive = true;
-    Promise.all([host.manga.getVolume(volumeId), host.manga.getPages(volumeId)])
-      .then(([v, ps]) => {
+    Promise.all([
+      host.manga.getVolume(volumeId),
+      host.manga.getPages(volumeId),
+      host.manga.listVolumes().catch(() => [] as readonly MangaVolume[]),
+    ])
+      .then(([v, ps, list]) => {
         if (!alive) return;
         setVolume(v);
         setPages([...ps]);
+        setAllVolumes(list);
         setAnchor(Math.min(Math.max(0, v.progress?.pageIndex ?? 0), Math.max(0, ps.length - 1)));
       })
       .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
@@ -242,6 +255,55 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
   const onPageUpdated = useCallback((p: MangaPage) => setPages((ps) => ps?.map((x) => (x.index === p.index ? p : x))), []);
 
   const sceneHint = volume ? (volume.seriesTitle ?? volume.title) : undefined;
+  useMangaPreExplain({
+    enabled: Boolean(mangaSettings.autoPreExplain),
+    volumeId,
+    spreadPages,
+    sceneHint,
+  });
+  const togglePreExplain = useCallback(() => {
+    const next = !mangaSettings.autoPreExplain;
+    void updateSettings(host, { manga: { autoPreExplain: next } });
+    showSnackbar(next ? '已开启本页气泡后台静默预解析' : '已关闭本页气泡静默预解析');
+  }, [mangaSettings.autoPreExplain, updateSettings, host]);
+
+  const jumpToPage = useCallback(
+    (targetPage: number) => {
+      if (Math.abs(targetPage - anchor) >= 3) {
+        setJumpBackPage(anchor);
+        if (jumpBackTimerRef.current !== undefined) clearTimeout(jumpBackTimerRef.current);
+        jumpBackTimerRef.current = setTimeout(() => setJumpBackPage(undefined), 8000);
+      }
+      setAnchor(targetPage);
+    },
+    [anchor],
+  );
+  useEffect(
+    () => () => {
+      if (jumpBackTimerRef.current !== undefined) clearTimeout(jumpBackTimerRef.current);
+    },
+    [],
+  );
+
+  // Compute vertical auto-avoidance when a lower-half bubble is opened on mobile (`BottomSheet`).
+  const avoidOffsetY = useMemo(() => {
+    if (!breakdownOpen || !isMobileDefault || breakdownRequest?.source.kind !== 'manga') return 0;
+    const src = breakdownRequest.source;
+    if (src.volumeId !== volumeId) return 0;
+    const page = spreadPages.find((p) => p.index === src.pageIndex);
+    if (!page) return 0;
+    const block = src.blockIndex !== undefined ? page.blocks.find((b) => b.index === src.blockIndex) : undefined;
+    if (!block) return 0;
+    const ph = page.height > 0 ? page.height : 1200;
+    const centerRatio = (block.rect.top + block.rect.bottom) / (2 * ph);
+    if (centerRatio <= 0.45) return 0;
+    const sh = stage.height > 0 ? stage.height : 640;
+    return -Math.round(sh * 0.28);
+  }, [breakdownOpen, isMobileDefault, breakdownRequest, volumeId, spreadPages, stage.height]);
+
+  const nextVolume = useMemo(() => findNextSeriesVolume(allVolumes, volumeId), [allVolumes, volumeId]);
+  const isLastSpread = spreads.length > 0 && spreadIdx >= spreads.length - 1;
+
   const pickGuideBubble = useCallback(
     (page: MangaPage, b: MangaGuideBubble) => {
       const block = b.blockIndex !== undefined ? page.blocks.find((x) => x.index === b.blockIndex) : undefined;
@@ -310,6 +372,13 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
           }}
           data-testid="toc-toggle"
         />
+        <IconButton
+          icon="sparkle"
+          label="本页气泡静默预解析"
+          selected={Boolean(mangaSettings.autoPreExplain)}
+          onClick={togglePreExplain}
+          data-testid="manga-pre-explain-toggle"
+        />
         <IconButton icon={outlines ? 'visibility' : 'visibilityOff'} label={t('manga.reader.outlines')} selected={outlines} onClick={() => setOutlines((o) => !o)} />
         <IconButton
           icon="crop"
@@ -356,6 +425,7 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
                   onSwipeLeft={rtl ? goPrev : goNext}
                   onSwipeRight={rtl ? goNext : goPrev}
                   onEdgeTap={handleEdgeTap}
+                  avoidOffsetY={avoidOffsetY}
                 >
                   <SpreadLayout
                     spread={spread}
@@ -368,6 +438,30 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
                   />
                 </ZoomPan>
               </div>
+              {jumpBackPage !== undefined && jumpBackPage !== anchor && (
+                <button
+                  type="button"
+                  className="k-reader__jump-back"
+                  data-testid="jump-return-btn"
+                  onClick={() => {
+                    const target = jumpBackPage;
+                    setJumpBackPage(undefined);
+                    setAnchor(target);
+                  }}
+                >
+                  {`↩ 跳回第 ${jumpBackPage + 1} 页`}
+                </button>
+              )}
+              {isLastSpread && nextVolume && onOpenVolume && (
+                <button
+                  type="button"
+                  className="k-reader__next-volume"
+                  data-testid="next-volume-banner"
+                  onClick={() => onOpenVolume(nextVolume.id)}
+                >
+                  {`继续阅读下一卷：${nextVolume.title} →`}
+                </button>
+              )}
               <button
                 type="button"
                 className="k-reader__edge k-reader__edge--left"
@@ -387,18 +481,49 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
                 <span className="k-reader__edge-icon">›</span>
               </button>
               {spreads.length > 1 && (
-                <input
-                  className={cx('k-reader__scrubber', rtl && 'is-rtl')}
-                  type="range"
-                  min={0}
-                  max={spreads.length - 1}
-                  value={spreadIdx}
-                  aria-label={t('manga.reader.page', { current: pageLabel, total })}
-                  onChange={(e) => {
-                    const s = spreads[Number(e.currentTarget.value)];
-                    if (s?.pageIndexes[0] !== undefined) setAnchor(s.pageIndexes[0]);
-                  }}
-                />
+                <div
+                  className="k-reader__scrubber-wrap"
+                  onPointerLeave={() => setScrubPreviewSpreadIdx(undefined)}
+                >
+                  {scrubPreviewSpreadIdx !== undefined && spreads[scrubPreviewSpreadIdx] && (() => {
+                    const previewPageIdx = spreads[scrubPreviewSpreadIdx]!.pageIndexes[0] ?? 0;
+                    const previewPage = pages[previewPageIdx];
+                    if (!previewPage) return null;
+                    return (
+                      <div className="k-reader__scrubber-preview" data-testid="scrubber-preview">
+                        <img className="k-reader__scrubber-thumb" src={previewPage.imageUrl} alt="" />
+                        <div className="k-reader__scrubber-meta">
+                          <strong>{`第 ${previewPageIdx + 1} 页`}</strong>
+                          {previewPage.blocks[0]?.text && (
+                            <span lang="ja">{previewPage.blocks[0].text}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <input
+                    className={cx('k-reader__scrubber', rtl && 'is-rtl')}
+                    type="range"
+                    min={0}
+                    max={spreads.length - 1}
+                    value={spreadIdx}
+                    aria-label={t('manga.reader.page', { current: pageLabel, total })}
+                    onPointerMove={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      if (rect.width <= 0) return;
+                      const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                      const norm = rtl ? 1 - ratio : ratio;
+                      const idx = Math.round(norm * (spreads.length - 1));
+                      setScrubPreviewSpreadIdx(idx);
+                    }}
+                    onChange={(e) => {
+                      const idx = Number(e.currentTarget.value);
+                      setScrubPreviewSpreadIdx(idx);
+                      const s = spreads[idx];
+                      if (s?.pageIndexes[0] !== undefined) jumpToPage(s.pageIndexes[0]);
+                    }}
+                  />
+                </div>
               )}
             </>
           )}
@@ -478,7 +603,7 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
                     className={cx('k-toc__item', isCurrent && 'is-current')}
                     data-testid={`toc-page-${p.index}`}
                     onClick={() => {
-                      setAnchor(p.index);
+                      jumpToPage(p.index);
                       setTocOpen(false);
                     }}
                   >

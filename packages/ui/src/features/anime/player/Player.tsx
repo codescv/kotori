@@ -109,6 +109,17 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   }, [breakdownOpen]);
   useEffect(() => () => useBreakdownStore.getState().close(), []);
 
+  // Register audio slice replay handler for the AI Breakdown panel (`🔊 原声`).
+  useEffect(() => {
+    const setHandler = useBreakdownStore.getState().setAudioReplayHandler;
+    setHandler((startMs: number, endMs: number) => {
+      clock.seek(Math.max(0, startMs - 80));
+      setPauseAt(Math.max(startMs + 250, endMs + 120));
+      clock.play();
+    });
+    return () => setHandler(undefined);
+  }, [clock]);
+
   // Pause at the end of a line after a jump (AnimeSettings.pauseAfterJump).
   useEffect(() => {
     if (pauseAt !== undefined && clock.currentMs >= pauseAt) {
@@ -192,6 +203,74 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       sb.openCue(cue, i);
     },
     [clock, sb],
+  );
+
+  // Touch & pointer precision listening gestures:
+  // - Long-press (450 ms) on video stage -> temporary 2.0x speed
+  // - Double-tap / double-click left 35% -> prevRow, right 35% -> nextRow, center 30% -> fullscreen
+  const [longPressFast, setLongPressFast] = useState(false);
+  const [gestureToast, setGestureToast] = useState<string | undefined>(undefined);
+  const savedRateRef = useRef<number>(1);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const flashGestureToast = useCallback((label: string) => {
+    setGestureToast(label);
+    if (toastTimerRef.current !== undefined) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setGestureToast(undefined), 900);
+  }, []);
+
+  const endLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== undefined) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = undefined;
+    }
+    if (longPressFast) {
+      clock.setRate(savedRateRef.current);
+      setLongPressFast(false);
+    }
+  }, [clock, longPressFast]);
+
+  const onStagePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.k-sub-line')) return;
+      if (longPressTimerRef.current !== undefined) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = setTimeout(() => {
+        savedRateRef.current = clock.rate;
+        clock.setRate(2);
+        if (!clock.playing) clock.play();
+        setLongPressFast(true);
+      }, 450);
+    },
+    [clock],
+  );
+
+  const onStageDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.k-sub-line')) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const relX = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
+      if (relX < 0.35) {
+        prevRow();
+        flashGestureToast('⏮ 上一句');
+      } else if (relX > 0.65) {
+        nextRow();
+        flashGestureToast('⏭ 下一句');
+      } else {
+        videoRef.current?.parentElement?.requestFullscreen?.().catch(() => {});
+      }
+    },
+    [prevRow, nextRow, flashGestureToast],
+  );
+
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current !== undefined) clearTimeout(longPressTimerRef.current);
+      if (toastTimerRef.current !== undefined) clearTimeout(toastTimerRef.current);
+    },
+    [],
   );
 
   // Keyboard shortcuts (ignored while typing).
@@ -280,8 +359,25 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
           {expanded && <IconButton icon="list" label={t('player.transcript')} selected={panelOpen} onClick={() => setPanelOpen((o) => !o)} />}
         </header>
 
-        <div className="k-player__stage" onDoubleClick={() => videoRef.current?.parentElement?.requestFullscreen?.().catch(() => {})}>
+        <div
+          className="k-player__stage"
+          onDoubleClick={onStageDoubleClick}
+          onPointerDown={onStagePointerDown}
+          onPointerUp={endLongPress}
+          onPointerLeave={endLongPress}
+          onPointerCancel={endLongPress}
+        >
           <video ref={videoRef} className="k-player__video" src={episode.mediaUrl} playsInline preload="metadata" onClick={clock.toggle} />
+          {longPressFast && (
+            <div className="k-player__speed-pill" data-testid="longpress-speed-badge">
+              ⏩ 2.0× 倍速播放中
+            </div>
+          )}
+          {gestureToast && (
+            <div className="k-player__gesture-toast" data-testid="gesture-cue-toast">
+              {gestureToast}
+            </div>
+          )}
           {clock.simulated && (
             <div className="k-player__sim">
               <Icon name="movie" size={48} />

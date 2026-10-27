@@ -2,11 +2,12 @@
  * Manga library: cover grid with OCR / raw badges and reading progress.
  * Refreshes on `library-changed` (scope `manga`) host events.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { MangaVolume } from '@kotori/core';
 import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { Button } from '../../components/m3/Button';
 import { ElevatedCard } from '../../components/m3/Card';
+import { Chip } from '../../components/m3/Chip';
 import { Dialog } from '../../components/m3/Dialog';
 import { IconButton } from '../../components/m3/IconButton';
 import { CircularProgress, LinearProgress } from '../../components/m3/Progress';
@@ -14,6 +15,7 @@ import { useHost } from '../../host/HostContext';
 import { useAsync } from '../../host/useAsync';
 import { useHostEvent } from '../../host/useHostEvents';
 import { useT } from '../../i18n';
+import { inferMangaSeriesTitle, sortVolumesInSeries } from '../../lib/manga';
 import { showSnackbar } from '../../stores/snackbar';
 import { ImportVolumeDialog } from './ImportVolumeDialog';
 
@@ -27,6 +29,7 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
   const volumes = useAsync(() => host.manga.listVolumes(), [host]);
   const [importOpen, setImportOpen] = useState(false);
   const [removing, setRemoving] = useState<MangaVolume | undefined>();
+  const [selectedSeries, setSelectedSeries] = useState<string>('__all__');
   useHostEvent('library-changed', (e) => e.scope === 'manga' && volumes.reload());
 
   const remove = async (v: MangaVolume): Promise<void> => {
@@ -40,6 +43,36 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
   };
 
   const list = volumes.data ?? [];
+  const seriesGroups = useMemo(() => {
+    const map = new Map<string, MangaVolume[]>();
+    for (const v of list) {
+      const s = inferMangaSeriesTitle(v);
+      const arr = map.get(s) ?? [];
+      arr.push(v);
+      map.set(s, arr);
+    }
+    for (const [k, arr] of map.entries()) {
+      map.set(k, sortVolumesInSeries(arr));
+    }
+    return map;
+  }, [list]);
+
+  const multiVolumeSeries = useMemo(
+    () => [...seriesGroups.entries()].filter(([, arr]) => arr.length > 1),
+    [seriesGroups],
+  );
+
+  const displayedList = useMemo(() => {
+    if (selectedSeries !== '__all__' && seriesGroups.has(selectedSeries)) {
+      return seriesGroups.get(selectedSeries) ?? [];
+    }
+    const out: MangaVolume[] = [];
+    for (const [, arr] of seriesGroups.entries()) {
+      out.push(...arr);
+    }
+    return out;
+  }, [selectedSeries, seriesGroups]);
+
   return (
     <div className="k-page k-manga-library">
       <header className="k-page__header">
@@ -50,6 +83,23 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
           {t('manga.library.import')}
         </Button>
       </header>
+      {multiVolumeSeries.length > 0 && (
+        <div className="k-row k-manga-library__series-bar" data-testid="manga-series-chips">
+          <Chip kind="filter" selected={selectedSeries === '__all__'} onClick={() => setSelectedSeries('__all__')}>
+            {`全部 (${list.length})`}
+          </Chip>
+          {multiVolumeSeries.map(([seriesTitle, arr]) => (
+            <Chip
+              key={seriesTitle}
+              kind="filter"
+              selected={selectedSeries === seriesTitle}
+              onClick={() => setSelectedSeries(selectedSeries === seriesTitle ? '__all__' : seriesTitle)}
+            >
+              {`📚 ${seriesTitle} (${arr.length} 卷)`}
+            </Chip>
+          ))}
+        </div>
+      )}
       {volumes.loading && !volumes.data && (
         <div className="k-empty">
           <CircularProgress label={t('common.loading')} />
@@ -58,8 +108,11 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
       {volumes.error && <p className="k-error-text">{t('common.error', { message: volumes.error.message })}</p>}
       {volumes.data && list.length === 0 && <p className="k-empty">{t('manga.library.empty')}</p>}
       <div className="k-grid-cards">
-        {list.map((v) => {
+        {displayedList.map((v) => {
           const progress = v.progress && v.pageCount > 1 ? (v.progress.pageIndex + 1) / v.pageCount : undefined;
+          const sTitle = inferMangaSeriesTitle(v);
+          const siblings = seriesGroups.get(sTitle) ?? [v];
+          const volIndex = siblings.findIndex((x) => x.id === v.id);
           return (
             <ElevatedCard key={v.id} className="k-volume-card" onClick={() => onOpen(v.id)} aria-label={v.title} data-testid={`volume-${v.id}`}>
               <div className="k-volume-card__cover">
@@ -72,6 +125,11 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
                 <div className="k-volume-card__title" lang="ja" title={v.title}>
                   {v.title}
                 </div>
+                {siblings.length > 1 && (
+                  <div className="k-volume-card__series k-label-small" data-testid={`volume-series-${v.id}`}>
+                    {`${sTitle} · 第 ${v.volumeNumber ?? volIndex + 1} 卷 / 共 ${siblings.length} 卷`}
+                  </div>
+                )}
                 <div className="k-volume-card__meta k-muted">
                   {t('manga.library.pages', { count: v.pageCount })}
                   {v.progress && ` · ${t('manga.reader.page', { current: v.progress.pageIndex + 1, total: v.pageCount })}`}

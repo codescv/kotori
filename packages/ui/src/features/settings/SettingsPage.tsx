@@ -12,6 +12,7 @@ import { DownloadsSection } from './DownloadsSection';
 import { SettingsSection } from './fields';
 import { LibrarySection } from './LibrarySection';
 import { MangaSection } from './MangaSection';
+import { UpdateSection } from '../updater/UpdateBanner';
 import './settings.css';
 
 export function SettingsPage() {
@@ -54,6 +55,7 @@ export function SettingsPage() {
               {t('settings.about.platform', { platform: info.platform, os: info.os, version: info.version })}
             </p>
             <p className="k-body-small k-muted">{t('settings.about.dataDir', { dir: info.dataDir })}</p>
+            <UpdateSection />
           </SettingsSection>
         </div>
       </div>

@@ -1,6 +1,7 @@
 /* Manga library & reader styles (feature-local; tokens from theme/styles.css). */
 
 /* ---- library ---------------------------------------------------------------- */
+.k-manga-library__series-bar { flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .k-volume-card { display: flex; flex-direction: column; }
 .k-volume-card__cover { position: relative; aspect-ratio: 5 / 7; background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
 .k-volume-card__cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard); }
@@ -9,6 +10,7 @@
 .k-volume-card__badge { position: absolute; left: 8px; top: 8px; }
 .k-volume-card__body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; }
 .k-volume-card__title { font: var(--md-sys-typescale-title-small); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.k-volume-card__series { color: var(--md-sys-color-primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .k-volume-card__meta { font: var(--md-sys-typescale-body-small); }
 .k-volume-card__remove {
   position: absolute; right: 6px; top: 6px; z-index: 1; opacity: 0;
@@ -50,8 +52,30 @@
 .k-reader__edge--right { right: 0; --k-edge-dir: left; }
 @media (pointer: coarse), (hover: none) { .k-reader__edge { pointer-events: none; } }
 .k-reader__edge-icon { font-size: 48px; line-height: 1; text-shadow: 0 1px 4px rgb(0 0 0 / 0.5); }
-.k-reader__scrubber { flex: none; margin: 8px 16px 12px; accent-color: var(--md-sys-color-primary); }
+.k-reader__scrubber-wrap { position: relative; flex: none; display: flex; flex-direction: column; padding: 8px 16px 12px; }
+.k-reader__scrubber { width: 100%; margin: 0; accent-color: var(--md-sys-color-primary); }
 .k-reader__scrubber.is-rtl { direction: rtl; }
+.k-reader__scrubber-preview {
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 6;
+  display: flex; align-items: center; gap: 10px; max-width: min(320px, 88vw); padding: 8px 12px;
+  border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface); box-shadow: var(--md-sys-elevation-3); pointer-events: none;
+}
+.k-reader__scrubber-thumb { width: 42px; height: 60px; object-fit: cover; border-radius: 4px; flex: none; background: #000; }
+.k-reader__scrubber-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; font: var(--md-sys-typescale-body-small); }
+.k-reader__scrubber-meta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
+.k-reader__jump-back {
+  position: absolute; left: 16px; bottom: 52px; z-index: 5;
+  padding: 6px 14px; border-radius: 999px; border: 0; cursor: pointer;
+  background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+  font: var(--md-sys-typescale-label-large); box-shadow: var(--md-sys-elevation-2);
+}
+.k-reader__next-volume {
+  position: absolute; right: 16px; bottom: 52px; z-index: 5;
+  padding: 8px 16px; border-radius: 999px; border: 0; cursor: pointer;
+  background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+  font: var(--md-sys-typescale-label-large); box-shadow: var(--md-sys-elevation-3);
+}
 
 /* ---- zoom / spread / page ----------------------------------------------------------- */
 .k-zoompan { position: absolute; inset: 0; overflow: hidden; touch-action: none; display: flex; }

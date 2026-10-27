@@ -276,5 +276,24 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     fireEvent.click(screen.getByTestId('toc-page-4'));
     expect(spread().dataset['pageIndexes']).toBe('4');
     expect(screen.queryByTestId('manga-toc-sheet')).toBeNull();
+
+    // Jumping >= 3 pages shows the floating "↩ 跳回第 2 页" pill button, which returns on click
+    const jumpBackBtn = screen.getByTestId('jump-return-btn');
+    expect(jumpBackBtn).toHaveTextContent('↩ 跳回第 2 页');
+    fireEvent.click(jumpBackBtn);
+    expect(spread().dataset['pageIndexes']).toBe('1');
+  });
+
+  it('toggles silent manga bubble pre-explain from the reader toolbar', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
+    const toggle = screen.getByTestId('manga-pre-explain-toggle');
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(toggle);
+    await waitFor(async () => {
+      const s = await host.settings.get();
+      expect(s.manga.autoPreExplain).toBe(true);
+    });
   });
 });

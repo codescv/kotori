@@ -116,6 +116,7 @@ describe('MokuroCatalogBrowser', () => {
 
     fireEvent.click(byChars[0] as HTMLElement);
     await screen.findAllByRole('button', { name: '下载并导入' });
+    expect(screen.getByTestId('mokuro-download-all')).toHaveTextContent('一键下载全部未拥有分卷（4 卷）');
     fireEvent.click(screen.getByRole('button', { name: '倒序 (N→1)' }));
     const volCards = document.querySelectorAll('.k-dl-volume-card');
     expect(volCards[0]).toHaveTextContent('第04巻');

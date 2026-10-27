@@ -86,4 +86,34 @@ describe('AiBreakdownPanel – bidirectional chunk highlight', () => {
     expect(deriveSelection(EXPL, 0).activeChunk?.id).toBe('c0');
     expect([...deriveSelection(EXPL, 2).linkedVocabIds]).toEqual(['v1']);
   });
+
+  it('renders manga bubble crop preview, cultural note card, audio slice replay, and TTS buttons', () => {
+    let replayed = false;
+    const withCultural: SentenceExplanation = {
+      ...EXPL,
+      culturalNote: '下北沢（しもきたざわ）是东京著名的独立摇滚与 Livehouse 圣地。',
+    };
+    render(
+      <AiBreakdownPanel
+        explanation={withCultural}
+        focusCharIndex={0}
+        onFocusChange={() => {}}
+        onReplayAudio={() => {
+          replayed = true;
+        }}
+        bubblePreview={{
+          imageUrl: '/page-1.jpg',
+          pageWidth: 800,
+          pageHeight: 1200,
+          rect: { left: 100, top: 200, right: 260, bottom: 420 },
+        }}
+        t={t}
+      />,
+    );
+    expect(screen.getByTestId('breakdown-bubble-crop')).toBeInTheDocument();
+    expect(screen.getByTestId('breakdown-cultural-note')).toHaveTextContent('下北沢');
+    expect(screen.getByTestId('breakdown-tts-sentence')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('breakdown-replay-audio'));
+    expect(replayed).toBe(true);
+  });
 });

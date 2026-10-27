@@ -47,6 +47,11 @@ export function MangaSection() {
         />
       </div>
       <Switch label={t('settings.manga.outlines')} checked={manga.showBlockOutlines} onChange={(showBlockOutlines) => void patch({ manga: { showBlockOutlines } })} />
+      <Switch
+        label="本页气泡后台静默预解析（翻页停留 500ms 自动批量预解析最多 5 个气泡）"
+        checked={Boolean(manga.autoPreExplain)}
+        onChange={(autoPreExplain) => void patch({ manga: { autoPreExplain } })}
+      />
       <Slider label={t('settings.manga.preload')} value={manga.preloadPages} min={0} max={8} step={1} onChange={(preloadPages) => void patch({ manga: { preloadPages } })} />
     </div>
   );
