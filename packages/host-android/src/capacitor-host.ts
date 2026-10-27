@@ -126,6 +126,7 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
 
   const ai: AiApi = {
     explain: (request, options) => engine.explain(request, options),
+    explainBatch: (requests, options) => engine.explainBatch(requests, options),
     getCachedExplanation: (request) => engine.getCachedExplanation(request),
     followUp: (request, options) => engine.followUp(request, options),
     followUpStream: (request, onDelta, options) => engine.followUpStream(request, onDelta, options),

@@ -217,7 +217,7 @@ describe('SettingsStore', () => {
 
     const vertex = store.update({ ai: { provider: { provider: 'vertex-ai', project: 'p', location: 'us-central1', auth: { kind: 'adc' } } } });
     expect(vertex.ai.provider).toEqual({ provider: 'vertex-ai', project: 'p', location: 'us-central1', auth: { kind: 'adc' } });
-    expect(vertex.ai.explainModel).toBe('gemini-3.8-flash');
+    expect(vertex.ai.explainModel).toBe('gemini-3.5-flash-lite');
 
     // Same provider, partial patch → merged (project/auth kept).
     const moved = store.update({ ai: { provider: { location: 'global' } } });
@@ -297,7 +297,7 @@ describe('SettingsStore', () => {
     expect(s.downloads.downloadDir).toBe(join('/other/data', 'anime'));
     // Stored vertex variant replaces the gemini default entirely (no empty apiKey leak).
     expect(s.ai.provider).toEqual({ provider: 'vertex-ai', location: 'asia-northeast1', auth: { kind: 'adc' } });
-    expect(s.ai.explainModel).toBe('gemini-3.8-flash');
+    expect(s.ai.explainModel).toBe('gemini-3.5-flash-lite');
   });
 
   it('falls back to defaults (and warns) on a corrupt row, then overwrites it on update', () => {

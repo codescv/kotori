@@ -12,8 +12,8 @@ export function defaultSettings(dataDir: string): AppSettings {
     schemaVersion: 1,
     ai: {
       provider: { provider: 'gemini-api', apiKey: '' },
-      explainModel: 'gemini-3.8-flash',
-      visionModel: 'gemini-3.8-flash',
+      explainModel: 'gemini-3.5-flash-lite',
+      visionModel: 'gemini-3.5-flash-lite',
       temperature: 0.2,
       targetLanguage: 'zh-CN',
       cacheEnabled: true,
@@ -29,6 +29,7 @@ export function defaultSettings(dataDir: string): AppSettings {
       autoDownloadJimaku: true,
       jimakuApiKey: '',
       preferredSubtitleLanguages: ['ja'],
+      autoPreExplain: false,
     },
     manga: { defaultReadingMode: 'spread-rtl', showBlockOutlines: false, fit: 'contain', background: 'black', preloadPages: 2 },
     downloads: {
@@ -158,6 +159,7 @@ export function validateSettings(s: AppSettings): void {
   bool('anime.autoDownloadJimaku', s.anime.autoDownloadJimaku);
   str('anime.jimakuApiKey', s.anime.jimakuApiKey);
   strings('anime.preferredSubtitleLanguages', s.anime.preferredSubtitleLanguages);
+  if (s.anime.autoPreExplain !== undefined) bool('anime.autoPreExplain', s.anime.autoPreExplain);
   // manga
   oneOf('manga.defaultReadingMode', s.manga.defaultReadingMode, READING_MODES);
   bool('manga.showBlockOutlines', s.manga.showBlockOutlines);
@@ -240,6 +242,9 @@ export class SettingsStore {
     const out: Record<string, unknown> = { ...raw, schemaVersion: 1 };
     if (isPlainObject(out['downloads']) && out['downloads']['downloadDir'] === join(this.dataDir, 'downloads')) {
       out['downloads'] = { ...out['downloads'], downloadDir: join(this.dataDir, 'anime') };
+    }
+    if (isPlainObject(out['ai']) && out['ai']['explainModel'] === 'gemini-3.8-flash') {
+      out['ai'] = { ...out['ai'], explainModel: 'gemini-3.5-flash-lite' };
     }
     return out;
   }

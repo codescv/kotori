@@ -85,7 +85,7 @@ export type HostArgs<K extends HostMethodKey> = HostMethod<K> extends AnyFn ? Pa
 export type HostResult<K extends HostMethodKey> = HostMethod<K> extends AnyFn ? Awaited<ReturnType<HostMethod<K>>> : never;
 
 /** Methods taking a trailing `AiCallOptions` (not serialisable; mapped to fetch `signal`). */
-type AiOptionMethods = 'ai.explain' | 'ai.followUp' | 'ai.ocrBubble' | 'ai.pageGuide';
+type AiOptionMethods = 'ai.explain' | 'ai.explainBatch' | 'ai.followUp' | 'ai.ocrBubble' | 'ai.pageGuide';
 
 /** Arguments that actually travel over the wire (callbacks / AbortSignals stripped). */
 export type WireArgs<K extends HostMethodKey> = K extends 'ai.followUpStream'
@@ -332,6 +332,12 @@ export const ROUTES: RouteTable = {
     path: '/api/ai/explain',
     encode: (request: ExplainRequest) => req({}, {}, request),
     decode: (w) => [body<ExplainRequest>(w)],
+  },
+  'ai.explainBatch': {
+    method: 'POST',
+    path: '/api/ai/explain-batch',
+    encode: (requests: readonly ExplainRequest[]) => req({}, {}, { requests }),
+    decode: (w) => [field<readonly ExplainRequest[]>(w, 'requests') ?? []],
   },
   'ai.getCachedExplanation': {
     method: 'POST',

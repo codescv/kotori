@@ -42,6 +42,7 @@ export function explainSystemInstruction(lang: TargetLanguage): string {
     '8. Context lines are for understanding only. Explain ONLY the TARGET sentence.',
     '9. `grammar.chunkSurfaces` lists the chunk surfaces (verbatim) that instantiate each pattern; write `pattern` in textbook notation such as 〜ばかりに.',
     '10. Add `literalTranslation` only when it differs meaningfully from `translation`.',
+    '11. Keep explanations concise and crisp. Only include content-bearing words or special expressions in `vocab` (skip trivial single-character case particles like の/を/に/が/は unless used in a special idiom).',
   ].join('\n');
 }
 
@@ -60,6 +61,41 @@ export function buildExplainPrompt(req: ExplainRequest): PromptParts {
   }
   lines.push('TARGET sentence (between the markers, verbatim):', '<<<', req.sentence, '>>>');
   return { systemInstruction: explainSystemInstruction(req.targetLanguage), contents: [{ role: 'user', parts: [{ text: lines.join('\n') }] }] };
+}
+
+/**
+ * Build a single batch prompt that breaks down N target sentences in order in
+ * one LLM call. Surrounding sentences in the batch naturally act as dialogue
+ * context for each other.
+ */
+export function buildBatchExplainPrompt(requests: readonly ExplainRequest[]): PromptParts {
+  const first = requests[0];
+  const lang = first?.targetLanguage ?? 'zh-CN';
+  const systemInstruction = [
+    explainSystemInstruction(lang),
+    '',
+    'BATCH MODE:',
+    'You are given N numbered TARGET sentences in order (#1 .. #N).',
+    'Return `items` with exactly N breakdown objects in the exact same order (#1 .. #N).',
+    'Each item i must break down ONLY TARGET sentence #(i+1) verbatim (its `ruby` and `chunks` surfaces must match sentence #(i+1) character-for-character).',
+    'Use the surrounding sentences in the batch and any provided context lines as natural dialogue context.',
+  ].join('\n');
+
+  const lines: string[] = [];
+  if (first?.sceneHint) lines.push(`Scene: ${first.sceneHint}`);
+  if (first?.contextBefore && first.contextBefore.length > 0) {
+    lines.push('Context before #1 (do not explain):', ...first.contextBefore.map((l) => `- ${l}`));
+  }
+  const last = requests[requests.length - 1];
+  if (last?.contextAfter && last.contextAfter.length > 0) {
+    lines.push(`Context after #${requests.length} (do not explain):`, ...last.contextAfter.map((l) => `- ${l}`));
+  }
+  lines.push(`Break down each of the following ${requests.length} TARGET sentences in order:`);
+  requests.forEach((req, idx) => {
+    lines.push(`#${idx + 1}: <<<${req.sentence}>>>`);
+  });
+
+  return { systemInstruction, contents: [{ role: 'user', parts: [{ text: lines.join('\n') }] }] };
 }
 
 /** Nudge appended after an invalid JSON answer (one retry). */

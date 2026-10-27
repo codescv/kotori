@@ -36,8 +36,8 @@ describe('route table', () => {
     const routed = new Set<string>(ROUTE_KEYS);
     const clientOnly = new Set<string>(CLIENT_ONLY_METHODS);
     for (const key of hostMethodKeys()) expect(routed.has(key) || clientOnly.has(key), key).toBe(true);
-    // 50 routed methods = 3 settings + 15 anime + 10 manga + 8 ai + 12 downloads + 2 files.
-    expect(ROUTE_KEYS).toHaveLength(50);
+    // 51 routed methods = 3 settings + 15 anime + 10 manga + 9 ai + 12 downloads + 2 files.
+    expect(ROUTE_KEYS).toHaveLength(51);
     for (const key of ROUTE_KEYS) expect(hostMethodKeys()).toContain(key);
   });
 

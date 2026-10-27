@@ -50,6 +50,7 @@ export const SAMPLE_ARGS: { readonly [K in RoutedMethodKey]: WireArgs<K> } = {
     [{ rect: { left: 1, top: 2, right: 30, bottom: 40 }, vertical: true, fontSize: 20, zIndex: 0, lines: ['あ', 'い'], text: 'あい', source: 'vlm' }],
   ],
   'ai.explain': [sampleExplain],
+  'ai.explainBatch': [[sampleExplain]],
   'ai.getCachedExplanation': [sampleExplain],
   'ai.followUp': [sampleFollowUp],
   'ai.followUpStream': [sampleFollowUp],

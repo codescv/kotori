@@ -28,6 +28,8 @@ export interface TranscriptPanelProps {
   readonly onCharClick: (cue: SubtitleCue, localCharIndex: number) => void;
   readonly onExplainSelection: (rows: readonly TranscriptRow[]) => void;
   readonly highlightFor: (cue: SubtitleCue) => CueHighlight;
+  readonly cachedCueIndexes?: ReadonlySet<number> | undefined;
+  readonly prefetchingCueIndexes?: ReadonlySet<number> | undefined;
   readonly t: Translate;
 }
 
@@ -49,13 +51,17 @@ interface RowProps {
   readonly selected: boolean;
   readonly selectMode: boolean;
   readonly highlight: CueHighlight;
+  readonly cached: boolean;
+  readonly prefetching: boolean;
+  readonly cachedTitle: string;
+  readonly prefetchingTitle: string;
   readonly onRowClick: (row: TranscriptRow, shift: boolean) => void;
   readonly onSeek: (row: TranscriptRow) => void;
   readonly onCharClick: (cue: SubtitleCue, i: number) => void;
   readonly onLongPress: (row: TranscriptRow) => void;
 }
 
-const Row = memo(function Row({ row, active, selected, selectMode, highlight, onRowClick, onSeek, onCharClick, onLongPress }: RowProps) {
+const Row = memo(function Row({ row, active, selected, selectMode, highlight, cached, prefetching, cachedTitle, prefetchingTitle, onRowClick, onSeek, onCharClick, onLongPress }: RowProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const longPressed = useRef(false);
   const onPointerDown = (e: PointerEvent): void => {
@@ -108,12 +114,22 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, on
           onCharClick={selectMode ? undefined : (i) => onCharClick(row.cue, i)}
         />
       </div>
+      {!selectMode && cached && (
+        <span className="k-transcript__badge k-transcript__badge--cached" title={cachedTitle} data-testid="cue-cached">
+          ✦
+        </span>
+      )}
+      {!selectMode && !cached && prefetching && (
+        <span className="k-transcript__badge k-transcript__badge--prefetching" title={prefetchingTitle} data-testid="cue-prefetching">
+          ◌
+        </span>
+      )}
       {selectMode && <span className={cx('k-transcript__check', selected && 'is-on')} aria-hidden />}
     </li>
   );
 });
 
-export function TranscriptPanel({ rows, activeRawIndexes, currentMs, selected, onSelectedChange, onSeek, onCharClick, onExplainSelection, highlightFor, t }: TranscriptPanelProps) {
+export function TranscriptPanel({ rows, activeRawIndexes, currentMs, selected, onSelectedChange, onSeek, onCharClick, onExplainSelection, highlightFor, cachedCueIndexes, prefetchingCueIndexes, t }: TranscriptPanelProps) {
   const [query, setQuery] = useState('');
   const [follow, setFollow] = useState(true);
   const [selectMode, setSelectMode] = useState(false);
@@ -192,6 +208,10 @@ export function TranscriptPanel({ rows, activeRawIndexes, currentMs, selected, o
             selected={selected.has(row.rep)}
             selectMode={selectMode}
             highlight={highlightFor(row.cue)}
+            cached={Boolean(cachedCueIndexes?.has(row.rep))}
+            prefetching={Boolean(prefetchingCueIndexes?.has(row.rep))}
+            cachedTitle={t('transcript.preExplained')}
+            prefetchingTitle={t('transcript.prefetching')}
             onRowClick={onRowClick}
             onSeek={onSeek}
             onCharClick={onCharClick}

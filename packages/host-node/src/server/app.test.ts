@@ -215,7 +215,7 @@ describe('local-only guard (CSRF / DNS rebinding)', () => {
 describe('settings', () => {
   it('persists patches and emits settings-changed', async () => {
     const before = await h.host.settings.get();
-    expect(before.ai.explainModel).toBe('gemini-3.8-flash');
+    expect(before.ai.explainModel).toBe('gemini-3.5-flash-lite');
     const after = await h.host.settings.update({ ui: { theme: 'dark' }, ai: { provider: { provider: 'vertex-ai', location: 'global', project: 'p', auth: { kind: 'adc' } } } });
     expect(after.ui.theme).toBe('dark');
     expect(after.ai.provider).toEqual({ provider: 'vertex-ai', location: 'global', project: 'p', auth: { kind: 'adc' } });

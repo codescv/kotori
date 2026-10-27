@@ -1056,6 +1056,8 @@ export interface AnimeSettings {
   /** Pad in ms before/after when seeking to a cue. */
   readonly seekPaddingMs: number;
   readonly autoDownloadJimaku: boolean;
+  /** Automatically pre-explain the next 5 upcoming subtitle sentences in 1 batch request while watching. */
+  readonly autoPreExplain?: boolean;
   /** jimaku.cc API key (required for its API). */
   readonly jimakuApiKey: string;
   readonly preferredSubtitleLanguages: readonly LanguageTag[];
@@ -1259,6 +1261,8 @@ export interface AiCallOptions {
 
 export interface AiApi {
   explain(request: ExplainRequest, options?: AiCallOptions): Promise<SentenceExplanation>;
+  /** Batch-explain up to N sentences in a single model request and populate the explanation cache. */
+  explainBatch?(requests: readonly ExplainRequest[], options?: AiCallOptions): Promise<readonly SentenceExplanation[]>;
   /** Cached explanation lookup without a model call (`undefined` on miss). */
   getCachedExplanation(request: ExplainRequest): Promise<SentenceExplanation | undefined>;
   followUp(request: FollowUpRequest, options?: AiCallOptions): Promise<FollowUpMessage>;
