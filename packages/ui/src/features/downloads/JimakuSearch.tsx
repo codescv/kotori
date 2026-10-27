@@ -11,7 +11,7 @@ import { Icon } from '../../components/m3/Icon';
 import { List, ListItem } from '../../components/m3/List';
 import { LinearProgress } from '../../components/m3/Progress';
 import { TextField } from '../../components/m3/TextField';
-import { useRouteStore } from '../../app/routes';
+import { useBackInterceptor, useRouteStore } from '../../app/routes';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
@@ -41,6 +41,17 @@ export function JimakuSearch() {
   const [fileExtFilter, setFileExtFilter] = useState<FileExtFilter>('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<{ message: string; auth: boolean } | undefined>();
+
+  useBackInterceptor(
+    () => {
+      if (entry) {
+        setEntry(undefined);
+        return true;
+      }
+      return false;
+    },
+    Boolean(entry),
+  );
 
   const sortedEntries = useMemo(() => {
     if (!entries) return undefined;

@@ -66,6 +66,8 @@ export interface ZoomPanProps {
   readonly onSwipeRight?: (() => void) | undefined;
   /** Called when the user taps the left or right edge zone of the stage outside OCR blocks. */
   readonly onEdgeTap?: ((side: 'left' | 'right') => void) | undefined;
+  /** Called when the user single-taps the blank / center area of the stage outside OCR blocks. */
+  readonly onBlankTap?: (() => void) | undefined;
   /** Temporary vertical offset (in CSS px) to pan the active speech bubble above the mobile BottomSheet. */
   readonly avoidOffsetY?: number | undefined;
 }
@@ -123,6 +125,7 @@ export function ZoomPan({
   onSwipeLeft,
   onSwipeRight,
   onEdgeTap,
+  onBlankTap,
   avoidOffsetY = 0,
 }: ZoomPanProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -389,14 +392,17 @@ export function ZoomPan({
         return;
       }
 
-      // Center tap (or tap anywhere while zoomed in): detect double-tap to toggle 2× zoom.
+      // Center tap (or tap anywhere while zoomed in): detect double-tap to toggle 2× zoom,
+      // or toggle top/bottom reader UI (`onBlankTap`) on a single tap.
       if (prevTap && now - prevTap.time < 320 && Math.hypot(tapX - prevTap.x, tapY - prevTap.y) < 36) {
         lastTapRef.current = null;
         lastDoubleTapTime.current = now;
+        onBlankTap?.();
         if (viewRef.current.scale > 1.01) updateView({ scale: 1, x: 0, y: initialY() });
         else zoomAt(2, tapX, tapY, rect);
       } else {
         lastTapRef.current = { time: now, x: tapX, y: tapY };
+        onBlankTap?.();
       }
     }
   };

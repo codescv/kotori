@@ -125,4 +125,86 @@ describe('App shell', () => {
       await host.dispose();
     });
   });
+
+  it('unwinds navigation stack on Android system back (__kotoriHandleBack) and prompts before exiting at root', async () => {
+    setViewport(360);
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    render(<App host={host} />);
+    await screen.findByTestId('series-series-kotori');
+
+    // Navigate: Anime Library -> Series Detail -> Episode Player
+    fireEvent.click(screen.getByTestId('series-series-kotori'));
+    fireEvent.click(await screen.findByText('放課後の本屋'));
+    expect(await screen.findByTestId('player')).toBeInTheDocument();
+
+    // 1st Back: Player -> Series Detail
+    act(() => {
+      expect(window.__kotoriHandleBack?.()).toBe(true);
+    });
+    expect(screen.queryByTestId('player')).toBeNull();
+    expect(await screen.findByText('放課後の本屋')).toBeInTheDocument();
+
+    // 2nd Back: Series Detail -> Anime Library
+    act(() => {
+      expect(window.__kotoriHandleBack?.()).toBe(true);
+    });
+    expect(await screen.findByTestId('series-series-kotori')).toBeInTheDocument();
+
+    // 3rd Back at root: shows double-back exit confirmation snackbar and returns true
+    act(() => {
+      expect(window.__kotoriHandleBack?.()).toBe(true);
+    });
+    expect(await screen.findByText('再按一次返回退出应用')).toBeInTheDocument();
+
+    // 4th Back within 2s at root: returns false so native Android activity minimizes
+    let finalResult = true;
+    act(() => {
+      finalResult = Boolean(window.__kotoriHandleBack?.());
+    });
+    expect(finalResult).toBe(false);
+
+    await act(async () => {
+      await host.dispose();
+    });
+  });
+
+  it('switches Downloads top tabs on horizontal swipe and ignores outer 24px Android edge-back swipes', async () => {
+    setViewport(360);
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const { container } = render(<App host={host} />);
+    await screen.findByTestId('series-series-kotori');
+
+    fireEvent.click(screen.getByRole('button', { name: '下载' }));
+    const dlPage = container.querySelector('.k-downloads') as HTMLElement;
+    expect(dlPage).not.toBeNull();
+    expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('tasks');
+
+    // Swipe left (dx = -160) -> advances from 'tasks' to 'anime'
+    fireEvent.touchStart(dlPage, { touches: [{ clientX: 240, clientY: 300 }] });
+    fireEvent.touchMove(dlPage, { touches: [{ clientX: 80, clientY: 305 }] });
+    fireEvent.touchEnd(dlPage, { touches: [], changedTouches: [{ clientX: 80, clientY: 305 }] });
+    expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('anime');
+
+    // Swipe left again -> advances from 'anime' to 'subtitles'
+    fireEvent.touchStart(dlPage, { touches: [{ clientX: 240, clientY: 300 }] });
+    fireEvent.touchMove(dlPage, { touches: [{ clientX: 80, clientY: 300 }] });
+    fireEvent.touchEnd(dlPage, { touches: [], changedTouches: [{ clientX: 80, clientY: 300 }] });
+    expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('subtitles');
+
+    // Swipe right (dx = +160) -> returns from 'subtitles' to 'anime'
+    fireEvent.touchStart(dlPage, { touches: [{ clientX: 80, clientY: 300 }] });
+    fireEvent.touchMove(dlPage, { touches: [{ clientX: 240, clientY: 302 }] });
+    fireEvent.touchEnd(dlPage, { touches: [], changedTouches: [{ clientX: 240, clientY: 302 }] });
+    expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('anime');
+
+    // Touch starting inside outermost 24px edge (clientX = 12) is ignored (reserved for Android edge-back gesture)
+    fireEvent.touchStart(dlPage, { touches: [{ clientX: 12, clientY: 300 }] });
+    fireEvent.touchMove(dlPage, { touches: [{ clientX: 220, clientY: 300 }] });
+    fireEvent.touchEnd(dlPage, { touches: [], changedTouches: [{ clientX: 220, clientY: 300 }] });
+    expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('anime');
+
+    await act(async () => {
+      await host.dispose();
+    });
+  });
 });

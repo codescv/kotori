@@ -30,6 +30,7 @@ export const ja: Messages = {
   'common.select': '選択',
   'common.selectThisFolder': 'このフォルダを選択',
   'common.path': 'パス',
+  'common.pressBackAgainToExit': 'もう一度戻るを押すと終了します',
 
   'anime.library.title': 'アニメライブラリ',
   'anime.library.import': 'アニメをインポート',

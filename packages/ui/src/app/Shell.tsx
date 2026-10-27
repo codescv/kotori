@@ -58,10 +58,13 @@ export function Shell() {
   const t = useT();
   const tab = useRouteStore((s) => s.tab);
   const setTab = useRouteStore((s) => s.setTab);
+  const mangaView = useRouteStore((s) => s.manga);
+  const readerImmersive = useRouteStore((s) => s.readerImmersive);
   const personaOpen = useRouteStore((s) => s.personaOpen);
   const setPersonaOpen = useRouteStore((s) => s.setPersonaOpen);
   const expanded = useIsExpanded();
   const activeDownloads = useActiveDownloads();
+  const hideCompactChrome = !expanded && tab === 'manga' && mangaView.kind === 'reader' && readerImmersive;
   const nav = (
     <nav className={expanded ? 'k-nav-rail' : 'k-nav-bar'} aria-label={t('app.name')}>
       {expanded && (
@@ -99,13 +102,13 @@ export function Shell() {
     <div className={cx('k-shell', expanded ? 'k-shell--expanded' : 'k-shell--compact')} data-kotori-shell>
       {expanded && nav}
       <main className="k-shell__content" data-tab={tab}>
-        <UpdateBanner />
+        {!hideCompactChrome && <UpdateBanner />}
         {tab === 'anime' && <AnimePage />}
         {tab === 'manga' && <MangaPage />}
         {tab === 'downloads' && <DownloadsPage />}
         {tab === 'settings' && <SettingsPage />}
       </main>
-      {!expanded && nav}
+      {!expanded && !hideCompactChrome && nav}
       <PersonaDialog open={personaOpen} onClose={() => setPersonaOpen(false)} />
     </div>
   );

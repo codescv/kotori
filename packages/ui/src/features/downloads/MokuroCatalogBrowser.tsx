@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { compareNatural, parseVolumeName, type MangaVolume, type MokuroCatalogEntry, type MokuroCatalogListing, type MokuroCatalogVolume } from '@kotori/core';
-import { useRouteStore } from '../../app/routes';
+import { useBackInterceptor, useRouteStore } from '../../app/routes';
 import { Button } from '../../components/m3/Button';
 import { Chip } from '../../components/m3/Chip';
 import { Icon } from '../../components/m3/Icon';
@@ -118,6 +118,18 @@ export function MokuroCatalogBrowser() {
     const base = root.endsWith('/') ? root : `${root}/`;
     return base + listing.path.slice(0, depth).map((p) => `${encodeURIComponent(p)}/`).join('');
   };
+
+  useBackInterceptor(
+    () => {
+      if (url !== undefined) {
+        const depth = listing ? Math.max(0, listing.path.length - 1) : 0;
+        setUrl(crumbUrl(depth));
+        return true;
+      }
+      return false;
+    },
+    url !== undefined,
+  );
 
   const download = async (v: MokuroCatalogVolume): Promise<void> => {
     try {

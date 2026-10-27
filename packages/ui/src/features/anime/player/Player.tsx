@@ -14,13 +14,13 @@ import { IconButton } from '../../../components/m3/IconButton';
 import { Menu } from '../../../components/m3/Menu';
 import { CircularProgress } from '../../../components/m3/Progress';
 import { BottomSheet, SideSheet } from '../../../components/m3/Sheet';
-import { Tabs } from '../../../components/m3/Tabs';
+import { Tabs, useTabSwipe } from '../../../components/m3/Tabs';
 import { useHost } from '../../../host/HostContext';
 import { useAsync } from '../../../host/useAsync';
 import { useIsExpanded } from '../../../hooks/useMediaQuery';
 import { useT } from '../../../i18n';
 import { buildTranscriptRows, formatAnimeEpisodeTitle, formatAnimeSeriesTitle, formatClock } from '../../../lib/cues';
-import { useRouteStore } from '../../../app/routes';
+import { useBackInterceptor, useRouteStore } from '../../../app/routes';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
@@ -100,6 +100,16 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const repeat = useRepeat(clock.currentMs, clock.seek, animeSettings.seekPaddingMs);
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
   const closeBreakdown = useBreakdownStore((s) => s.close);
+  const sideSheetSwipe = useTabSwipe<PanelTab>(['transcript', 'breakdown'], panelTab, setPanelTab);
+
+  useBackInterceptor(() => {
+    if (useBreakdownStore.getState().isOpen) {
+      closeBreakdown();
+      setPanelTab('transcript');
+      return true;
+    }
+    return false;
+  });
 
   const toggleSubtitles = useCallback(
     (explicit?: boolean) => {
@@ -352,7 +362,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     <div className={cx('k-player', expanded ? 'k-player--expanded' : 'k-player--compact')} data-testid="player">
       <div className="k-player__main">
         <header className="k-player__header">
-          <IconButton icon="back" label={t('common.back')} onClick={() => openAnime({ kind: 'series', seriesId })} />
+          <IconButton icon="back" label={t('common.back')} onClick={() => useRouteStore.getState().goBack()} />
           <div className="k-player__title">
             <span className="k-title-medium" lang="ja" title={seriesQ.data?.title}>
               {formatAnimeSeriesTitle(seriesQ.data) || episode.parsedName.title || episode.title}
@@ -482,7 +492,9 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             />
           }
         >
-          {panelTab === 'transcript' ? transcript : <BreakdownPanel />}
+          <div {...sideSheetSwipe} style={{ height: '100%' }}>
+            {panelTab === 'transcript' ? transcript : <BreakdownPanel />}
+          </div>
         </SideSheet>
       ) : (
         <BottomSheet open={breakdownOpen} onClose={closeBreakdown} title={t('breakdown.title')} closeLabel={t('common.close')}>

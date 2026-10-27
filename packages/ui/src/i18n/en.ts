@@ -30,6 +30,7 @@ export const en: Messages = {
   'common.select': 'Select',
   'common.selectThisFolder': 'Select this folder',
   'common.path': 'Path',
+  'common.pressBackAgainToExit': 'Press back again to exit',
 
   'anime.library.title': 'Anime library',
   'anime.library.import': 'Import anime',

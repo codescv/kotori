@@ -296,4 +296,34 @@ describe('Reader — Android default width-fit & touch gestures', () => {
       expect(s.manga.autoPreExplain).toBe(true);
     });
   });
+
+  it('toggles immersive mode (hiding top & bottom UI) when single-tapping a blank center area, while keeping UI state on double-tap zoom', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    const reader = screen.getByTestId('manga-reader');
+    const zp = screen.getByTestId('zoompan');
+    expect(reader.dataset['immersive']).toBe('false');
+    expect(reader).not.toHaveClass('is-immersive');
+
+    // Single tap in center blank area (x = 500 / 1000 = 0.50) hides top and bottom UI
+    fireEvent.touchStart(zp, { touches: [{ clientX: 500, clientY: 400 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(reader.dataset['immersive']).toBe('true');
+    expect(reader).toHaveClass('is-immersive');
+
+    // Wait > 320ms (or tap at a different spot > 36px away) to single-tap again and restore UI
+    fireEvent.touchStart(zp, { touches: [{ clientX: 560, clientY: 460 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(reader.dataset['immersive']).toBe('false');
+    expect(reader).not.toHaveClass('is-immersive');
+
+    // Double-tap in center blank area zooms to 2.00x and keeps immersive mode false
+    fireEvent.touchStart(zp, { touches: [{ clientX: 500, clientY: 400 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    fireEvent.touchStart(zp, { touches: [{ clientX: 504, clientY: 402 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(zp.dataset['scale']).toBe('2.00');
+    expect(reader.dataset['immersive']).toBe('false');
+  });
 });

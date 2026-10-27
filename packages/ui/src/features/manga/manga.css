@@ -22,6 +22,13 @@
 
 /* ---- reader shell -------------------------------------------------------------- */
 .k-reader { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--md-sys-color-surface); }
+.k-reader.is-immersive .k-reader__bar,
+.k-reader.is-immersive .k-reader__scrubber-wrap,
+.k-reader.is-immersive .k-reader__jump-back,
+.k-reader.is-immersive .k-reader__next-volume,
+.k-reader.is-immersive .k-reader__edge {
+  display: none !important;
+}
 .k-reader--bg-black .k-reader__stage-wrap { background: #000; }
 .k-reader--bg-white .k-reader__stage-wrap { background: #fff; }
 .k-reader--bg-surface .k-reader__stage-wrap { background: var(--md-sys-color-surface-container-lowest); }

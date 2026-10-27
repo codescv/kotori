@@ -12,7 +12,11 @@ export function MangaPage() {
       <Reader
         key={view.volumeId}
         volumeId={view.volumeId}
-        onExit={() => openManga({ kind: 'library' })}
+        onExit={() => {
+          if (!useRouteStore.getState().goBack()) {
+            openManga({ kind: 'library' });
+          }
+        }}
         onOpenVolume={(volumeId) => openManga({ kind: 'reader', volumeId })}
       />
     );

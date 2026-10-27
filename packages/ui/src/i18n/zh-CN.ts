@@ -31,6 +31,7 @@ export const zhCN = {
   'common.select': '选择',
   'common.selectThisFolder': '选择此文件夹',
   'common.path': '路径',
+  'common.pressBackAgainToExit': '再按一次返回退出应用',
 
   'anime.library.title': '动画库',
   'anime.library.import': '导入动画',

@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -26,6 +27,13 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(KotoriTorrentPlugin.class);
         super.onCreate(savedInstanceState);
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                dispatchBackToWebView();
+            }
+        });
 
         Window window = getWindow();
         if (window != null) {
@@ -139,5 +147,21 @@ public class MainActivity extends BridgeActivity {
             safeTopDp, safeRightDp, safeBottomDp, safeLeftDp
         );
         webView.post(() -> webView.evaluateJavascript(js, null));
+    }
+
+    private void dispatchBackToWebView() {
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            WebView webView = getBridge().getWebView();
+            webView.post(() -> webView.evaluateJavascript(
+                "(function(){try{return window.__kotoriHandleBack?Boolean(window.__kotoriHandleBack()):false;}catch(e){return false;}})()",
+                result -> {
+                    if (!"true".equals(result)) {
+                        moveTaskToBack(true);
+                    }
+                }
+            ));
+        } else {
+            moveTaskToBack(true);
+        }
     }
 }

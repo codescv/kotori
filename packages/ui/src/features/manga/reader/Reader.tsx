@@ -25,6 +25,7 @@ import type { IconName } from '../../../components/m3/Icon';
 import { useHost } from '../../../host/HostContext';
 import { useT } from '../../../i18n';
 import { buildSpreads, findNextSeriesVolume, formatMangaVolumeTitle, spreadIndexForPage } from '../../../lib/manga';
+import { useBackInterceptor, useRouteStore } from '../../../app/routes';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
@@ -82,6 +83,28 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
   const breakdownRequest = useBreakdownStore((s) => s.request);
   const closeBreakdown = useBreakdownStore((s) => s.close);
+  const immersive = useRouteStore((s) => s.readerImmersive);
+  const toggleImmersive = useRouteStore((s) => s.toggleReaderImmersive);
+
+  useBackInterceptor(() => {
+    if (useBreakdownStore.getState().isOpen) {
+      closeBreakdown();
+      return true;
+    }
+    if (tocOpen) {
+      setTocOpen(false);
+      return true;
+    }
+    if (guideOpen) {
+      setGuideOpen(false);
+      return true;
+    }
+    if (selectTool) {
+      setSelectTool(false);
+      return true;
+    }
+    return false;
+  });
 
   // ---- load -----------------------------------------------------------------
   useEffect(() => {
@@ -104,8 +127,14 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
     };
   }, [host, volumeId]);
 
-  // Close the breakdown when leaving the reader.
-  useEffect(() => () => useBreakdownStore.getState().close(), []);
+  // Close the breakdown and reset immersive mode when leaving the reader.
+  useEffect(
+    () => () => {
+      useBreakdownStore.getState().close();
+      useRouteStore.getState().setReaderImmersive(false);
+    },
+    [],
+  );
 
   const isPortraitStage = stage.width > 0 && stage.height > 0 && stage.width < stage.height;
   const isMobileDefault = isPortraitStage || host.info.platform === 'android';
@@ -192,7 +221,12 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
         if (useBreakdownStore.getState().isOpen) useBreakdownStore.getState().close();
         else if (tocOpen) setTocOpen(false);
         else if (selectTool) setSelectTool(false);
+        else if (immersive) useRouteStore.getState().setReaderImmersive(false);
         else handled = false;
+        break;
+      case 'f':
+      case 'F':
+        toggleImmersive();
         break;
       default:
         handled = false;
@@ -335,8 +369,13 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const progressPct = total > 0 ? Math.round(((anchor + 1) / total) * 100) : 0;
 
   return (
-    <div className={cx('k-reader', `k-reader--bg-${mangaSettings.background}`)} data-testid="manga-reader" data-mode={mode}>
-      <header className="k-reader__bar">
+    <div
+      className={cx('k-reader', `k-reader--bg-${mangaSettings.background}`, immersive && 'is-immersive')}
+      data-testid="manga-reader"
+      data-mode={mode}
+      data-immersive={immersive ? 'true' : 'false'}
+    >
+      <header className="k-reader__bar" aria-hidden={immersive}>
         <IconButton icon="back" label={t('common.back')} onClick={onExit} />
         <h1 className="k-reader__title k-title-medium" lang="ja" title={volume?.title}>
           {volume ? formatMangaVolumeTitle(volume) : t('common.loading')}
@@ -412,7 +451,14 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
             </div>
           )}
           {pages && mode === 'webtoon' && (
-            <Webtoon pages={pages} initialPage={anchor} onPageChange={setAnchor} renderOverlay={renderOverlay} preload={Math.max(1, mangaSettings.preloadPages)} />
+            <Webtoon
+              pages={pages}
+              initialPage={anchor}
+              onPageChange={setAnchor}
+              renderOverlay={renderOverlay}
+              onBlankTap={toggleImmersive}
+              preload={Math.max(1, mangaSettings.preloadPages)}
+            />
           )}
           {pages && mode !== 'webtoon' && spread && (
             <>
@@ -425,6 +471,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                   onSwipeLeft={rtl ? goPrev : goNext}
                   onSwipeRight={rtl ? goNext : goPrev}
                   onEdgeTap={handleEdgeTap}
+                  onBlankTap={toggleImmersive}
                   avoidOffsetY={avoidOffsetY}
                 >
                   <SpreadLayout

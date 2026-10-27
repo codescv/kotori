@@ -1,11 +1,12 @@
 /**
  * Downloads: Tasks · Anime (Nyaa) · Subtitles (Jimaku) · Manga (mokuro.moe).
- * Owns the live subscription that keeps `useDownloadsStore` in sync.
+ * Owns the live subscription that keeps `useDownloadsStore` in sync and
+ * supports horizontal swipe gestures across the four top tabs.
  */
 import { useEffect } from 'react';
 import { useRouteStore, type DownloadsTab } from '../../app/routes';
 import { CompactBrandButton } from '../../components/AssistantAvatar';
-import { Tabs } from '../../components/m3/Tabs';
+import { Tabs, useTabSwipe } from '../../components/m3/Tabs';
 import { useHost } from '../../host/HostContext';
 import { useHostEvents } from '../../host/useHostEvents';
 import { useT } from '../../i18n';
@@ -17,6 +18,7 @@ import { useDownloadsStore } from './useDownloadsStore';
 import './downloads.css';
 
 const ACTIVE = new Set(['queued', 'resolving', 'downloading', 'importing']);
+const DOWNLOAD_TAB_ORDER: readonly DownloadsTab[] = ['tasks', 'anime', 'subtitles', 'manga'];
 
 export function DownloadsPage() {
   const host = useHost();
@@ -26,6 +28,7 @@ export function DownloadsPage() {
   const load = useDownloadsStore((s) => s.load);
   const receive = useDownloadsStore((s) => s.receive);
   const activeCount = useDownloadsStore((s) => [...s.tasks.values()].filter((x) => ACTIVE.has(x.status)).length);
+  const swipeHandlers = useTabSwipe<DownloadsTab>(DOWNLOAD_TAB_ORDER, tab, setTab);
 
   useEffect(() => {
     void load(host);
@@ -33,7 +36,7 @@ export function DownloadsPage() {
   useHostEvents(receive);
 
   return (
-    <div className="k-page k-downloads">
+    <div className="k-page k-downloads" {...swipeHandlers}>
       <header className="k-page__header">
         <CompactBrandButton />
         <h1 className="k-headline-small">{t('downloads.title')}</h1>
@@ -49,7 +52,7 @@ export function DownloadsPage() {
           { value: 'manga', label: t('downloads.tab.manga'), icon: 'book' },
         ]}
       />
-      <div className="k-downloads__body" role="tabpanel">
+      <div className="k-downloads__body" role="tabpanel" data-testid="downloads-tabpanel" data-active-tab={tab}>
         {tab === 'tasks' && <DownloadList />}
         {tab === 'anime' && <NyaaSearch />}
         {tab === 'subtitles' && <JimakuSearch />}

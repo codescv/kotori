@@ -67,7 +67,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   return (
     <div className="k-page">
       <header className="k-page__header">
-        <IconButton icon="back" label={t('common.back')} onClick={() => openAnime({ kind: 'library' })} />
+        <IconButton icon="back" label={t('common.back')} onClick={() => useRouteStore.getState().goBack()} />
       </header>
       {series && (
         <section className="k-series-hero">

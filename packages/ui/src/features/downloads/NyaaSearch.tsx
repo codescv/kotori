@@ -26,6 +26,7 @@ import { Icon } from '../../components/m3/Icon';
 import { IconButton } from '../../components/m3/IconButton';
 import { LinearProgress } from '../../components/m3/Progress';
 import { TextField } from '../../components/m3/TextField';
+import { useBackInterceptor } from '../../app/routes';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { showSnackbar } from '../../stores/snackbar';
@@ -108,6 +109,17 @@ export function NyaaSearch() {
   const [detailTab, setDetailTab] = useState<DetailTab>('torrents');
   const [activeAlias, setActiveAlias] = useState<string>('__auto__');
   const [keywordFilter, setKeywordFilter] = useState('');
+
+  useBackInterceptor(
+    () => {
+      if (selectedSeries) {
+        setSelectedSeries(undefined);
+        return true;
+      }
+      return false;
+    },
+    Boolean(selectedSeries),
+  );
 
   // Nyaa Torrent search & filter state
   const [category, setCategory] = useState<Category>('1_0');

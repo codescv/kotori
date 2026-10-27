@@ -13,6 +13,8 @@ export interface WebtoonProps {
   readonly initialPage: number;
   readonly onPageChange: (pageIndex: number) => void;
   readonly renderOverlay: (page: MangaPage) => ReactNode;
+  /** Called when the user single-taps a blank area outside OCR speech bubbles. */
+  readonly onBlankTap?: (() => void) | undefined;
   /** Extra screens rendered above/below the viewport. */
   readonly preload?: number;
   readonly maxWidth?: number;
@@ -34,8 +36,9 @@ export function webtoonLayout(pages: readonly Pick<MangaPage, 'width' | 'height'
   return { tops, heights, total: Math.max(0, y - GAP) };
 }
 
-export function Webtoon({ pages, initialPage, onPageChange, renderOverlay, preload = 1, maxWidth = 900 }: WebtoonProps) {
+export function Webtoon({ pages, initialPage, onPageChange, renderOverlay, onBlankTap, preload = 1, maxWidth = 900 }: WebtoonProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const tapStartRef = useRef<{ x: number; y: number; target: EventTarget | null } | null>(null);
   const size = useElementSize(ref);
   const width = Math.min(size.width, maxWidth);
   const layout = useMemo(() => webtoonLayout(pages, width), [pages, width]);
@@ -67,7 +70,28 @@ export function Webtoon({ pages, initialPage, onPageChange, renderOverlay, prelo
   }, [cur, pages, onPageChange]);
 
   return (
-    <div className="k-webtoon" ref={ref} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)} data-testid="webtoon">
+    <div
+      className="k-webtoon"
+      ref={ref}
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      onPointerDown={(e) => {
+        tapStartRef.current = { x: e.clientX, y: e.clientY, target: e.target };
+      }}
+      onPointerUp={(e) => {
+        const s = tapStartRef.current;
+        tapStartRef.current = null;
+        if (!s || !onBlankTap) return;
+        if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 8) return;
+        if (
+          s.target instanceof Element &&
+          s.target.closest('.k-block, .k-guide-marker, button, a, input, select, textarea')
+        ) {
+          return;
+        }
+        onBlankTap();
+      }}
+      data-testid="webtoon"
+    >
       <div className="k-webtoon__column" style={{ height: layout.total, width }}>
         {pages.map((p, i) => {
           const top = layout.tops[i] ?? 0;
