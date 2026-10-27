@@ -144,16 +144,19 @@ export function NyaaSearch() {
     }
   };
 
-  /** Load matching Jimaku Japanese subtitles for the selected series. */
+  /** Load matching Jimaku / AJATT Japanese subtitles for the selected series. */
   const loadSeriesJimaku = async (series: AniListMediaInfo): Promise<void> => {
     setJimakuLoading(true);
     setJimakuError(undefined);
     setJimakuEntry(undefined);
     setJimakuFiles([]);
     try {
+      const combinedQuery = [series.romajiTitle, series.nativeTitle, series.englishTitle]
+        .filter((x): x is string => Boolean(x && x.trim()))
+        .join('|');
       let entries = await host.downloads.searchJimaku({
         anilistId: series.id,
-        query: series.romajiTitle ?? series.nativeTitle ?? '',
+        query: combinedQuery || (series.romajiTitle ?? series.nativeTitle ?? ''),
       });
       if (entries.length === 0 && series.romajiTitle) {
         entries = await host.downloads.searchJimaku({ query: series.romajiTitle });
@@ -301,8 +304,26 @@ export function NyaaSearch() {
 
   const downloadTorrent = async (item: NyaaTorrentItem): Promise<void> => {
     try {
+      const metaSource = selectedSeries ?? directAniInfo;
+      const seriesMeta = metaSource
+        ? {
+            anilistId: metaSource.id,
+            title: metaSource.nativeTitle ?? metaSource.romajiTitle ?? item.parsedName.title,
+            ...(metaSource.romajiTitle ? { romajiTitle: metaSource.romajiTitle } : {}),
+            ...(metaSource.nativeTitle ? { nativeTitle: metaSource.nativeTitle } : {}),
+            ...(metaSource.englishTitle ? { englishTitle: metaSource.englishTitle } : {}),
+            ...(metaSource.coverUrl ? { coverUrl: metaSource.coverUrl } : {}),
+          }
+        : undefined;
       const task = await host.downloads.start({
-        source: { kind: 'torrent', infoHash: item.infoHash, magnet: item.magnet, torrentUrl: item.torrentUrl, nyaa: item },
+        source: {
+          kind: 'torrent',
+          infoHash: item.infoHash,
+          magnet: item.magnet,
+          torrentUrl: item.torrentUrl,
+          nyaa: item,
+          ...(seriesMeta ? { series: seriesMeta } : {}),
+        },
         title: item.title,
         autoImport: true,
       });
@@ -584,7 +605,7 @@ export function NyaaSearch() {
               {jimakuLoading && <LinearProgress label={t('common.loading')} />}
               {jimakuError && <p className="k-error-text">{jimakuError}</p>}
               {!jimakuLoading && jimakuFiles.length === 0 && (
-                <p className="k-empty">暂无匹配的 Jimaku 日语字幕（请确认已在设置中配置 Jimaku API Key）</p>
+                <p className="k-empty">暂无匹配的日语字幕</p>
               )}
               {jimakuFiles.map((file) => {
                 const done = startedSubs.has(file.url);

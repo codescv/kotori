@@ -24,7 +24,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     repeatCount: 3,
     pauseAfterJump: false,
     seekPaddingMs: 200,
-    autoDownloadJimaku: false,
+    autoDownloadJimaku: true,
     jimakuApiKey: '',
     preferredSubtitleLanguages: ['ja'],
   },

@@ -4,8 +4,9 @@
  * an LRU(32) cache keyed by `(trackId, mtime)`, progress, Jimaku auto-fetch.
  */
 import { existsSync } from 'node:fs';
-import { readFile, rm, stat } from 'node:fs/promises';
-import { basename, extname, isAbsolute, resolve } from 'node:path';
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import { KotoriError } from '@kotori/core';
 import type {
   AnimeApi,
@@ -19,7 +20,7 @@ import type {
   SubtitleFormat,
   SubtitleTrack,
 } from '@kotori/core';
-import { createJimakuClient, detectSubtitleFormat, detectSubtitleLanguageFromName, matchJimakuFilesToEpisodes, parseSubtitle } from '@kotori/core';
+import { createSubtitleSearchClient, detectSubtitleFormat, detectSubtitleLanguageFromName, matchJimakuFilesToEpisodes, parseSubtitle } from '@kotori/core';
 import type { Repositories } from '../../db/repositories';
 import { transaction, type Database } from '../../db/sqlite';
 import { scanAnimeFolder, type ScannedSeries } from '../../library/anime-scanner';
@@ -48,6 +49,12 @@ export interface NodeAnimeService extends AnimeApi {
   coverPath(seriesId: Id): string | undefined;
   /** Wait for background probes (tests / shutdown). */
   idle(): Promise<void>;
+  /** Scan configured anime library roots (plus ~/download/anime & ~/Downloads/anime) for unimported series. */
+  scanRoots(roots?: readonly string[]): Promise<void>;
+  autoFetchJimaku(
+    seriesId: Id,
+    options?: { readonly entryId?: number; readonly aliases?: readonly string[]; readonly anilistId?: number },
+  ): Promise<readonly DownloadTask[]>;
 }
 
 const EXT_BY_FORMAT: Readonly<Record<SubtitleFormat, string>> = { ass: '.ass', srt: '.srt', vtt: '.vtt' };
@@ -57,6 +64,10 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
   const now = deps.now ?? Date.now;
   const cueCache = new LruCache<string, ParsedSubtitleTrack>(32);
   const probes = new Set<Promise<void>>();
+  const subtitleClient = createSubtitleSearchClient({
+    fetch: deps.fetch,
+    jimakuApiKey: () => deps.settings.get().anime.jimakuApiKey,
+  });
 
   function requireSeries(id: Id): AnimeSeries {
     const s = repos.series.get(id);
@@ -77,14 +88,21 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
   }
 
   /** Persist a scan result; prunes vanished episodes and sidecars. */
-  function sync(seriesId: Id, scan: ScannedSeries, titleOverride: string | undefined, addedAt: number): void {
+  function sync(
+    seriesId: Id,
+    scan: ScannedSeries,
+    titleOverride: string | undefined,
+    addedAt: number,
+    coverPathOverride?: string,
+  ): void {
+    const resolvedCover = scan.coverPath ?? coverPathOverride;
     transaction(deps.db, () => {
       repos.series.upsert({
         id: seriesId,
         title: titleOverride ?? repos.series.get(seriesId)?.title ?? scan.title,
         sourcePath: scan.sourcePath,
         addedAt,
-        ...(scan.coverPath ? { coverPath: scan.coverPath } : {}),
+        ...(resolvedCover ? { coverPath: resolvedCover } : {}),
       });
       const keep = new Set<Id>();
       scan.episodes.forEach((ep, sortIndex) => {
@@ -129,11 +147,89 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     if (best) repos.tracks.setDefault(episodeId, best.id);
   }
 
-  /** Background ffprobe: durations, embedded text tracks, codec warnings. */
+  /** Background AniList cover & metadata enrichment (saves poster.jpg like Fushi when possible). */
+  async function enrichSeriesCover(seriesId: Id): Promise<void> {
+    if (process.env['VITEST']) return;
+    const series = repos.series.get(seriesId);
+    if (!series) return;
+    const currentCoverPath = repos.series.coverPath(seriesId);
+    if (currentCoverPath && !/^https?:\/\//i.test(currentCoverPath) && existsSync(currentCoverPath)) return;
+
+    let remoteCoverUrl = currentCoverPath && /^https?:\/\//i.test(currentCoverPath) ? currentCoverPath : undefined;
+    let resolvedAnilistId = series.anilistId;
+
+    if (!remoteCoverUrl) {
+      const cleanedTitle = series.title
+        .replace(/\s*\((?:19|20)\d{2}\)\s*$/g, ' ')
+        .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
+        .replace(/\b(?:1080p|720p|2160p|4K|HEVC|x265|x264|10bit|BD|BDRip|WEB-?DL|WEBRip|FLAC|AAC|RAW|Batch|S\d+E?\d*)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleanedTitle.length >= 2 || resolvedAnilistId !== undefined) {
+        try {
+          const query =
+            resolvedAnilistId !== undefined
+              ? `query ($id: Int) { Media(id: $id, type: ANIME) { id coverImage { extraLarge large } } }`
+              : `query ($search: String) { Media(search: $search, type: ANIME, sort: [POPULARITY_DESC, SCORE_DESC], isAdult: false) { id coverImage { extraLarge large } } }`;
+          const variables = resolvedAnilistId !== undefined ? { id: resolvedAnilistId } : { search: cleanedTitle };
+          const res = await deps.fetch('https://graphql.anilist.co', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ query, variables }),
+          });
+          if (res.ok) {
+            const json = (await res.json()) as {
+              data?: { Media?: { id?: number; coverImage?: { extraLarge?: string; large?: string } } };
+            };
+            const media = json.data?.Media;
+            if (media?.id && resolvedAnilistId === undefined) resolvedAnilistId = media.id;
+            remoteCoverUrl = media?.coverImage?.extraLarge ?? media?.coverImage?.large;
+          }
+        } catch {
+          // Best-effort metadata enrichment
+        }
+      }
+    }
+
+    if (!remoteCoverUrl && resolvedAnilistId === undefined) return;
+
+    let finalCoverPath = remoteCoverUrl;
+    if (remoteCoverUrl) {
+      try {
+        const st = await stat(series.sourcePath).catch(() => undefined);
+        if (st?.isDirectory()) {
+          const posterPath = join(series.sourcePath, 'poster.jpg');
+          if (!existsSync(posterPath)) {
+            const imgRes = await deps.fetch(remoteCoverUrl);
+            if (imgRes.ok) {
+              const bytes = new Uint8Array(await imgRes.arrayBuffer());
+              if (bytes.byteLength > 256) {
+                await writeFile(posterPath, bytes);
+                finalCoverPath = posterPath;
+              }
+            }
+          } else {
+            finalCoverPath = posterPath;
+          }
+        }
+      } catch {
+        // Keep remoteCoverUrl if saving poster.jpg fails
+      }
+    }
+
+    repos.series.setMetadata(seriesId, {
+      ...(finalCoverPath ? { coverPath: finalCoverPath } : {}),
+      ...(resolvedAnilistId !== undefined ? { anilistId: resolvedAnilistId } : {}),
+    });
+    deps.emit({ type: 'library-changed', scope: 'anime' });
+  }
+
+  /** Background ffprobe: durations, embedded text tracks, codec warnings + AniList cover enrichment. */
   function probeSeries(seriesId: Id): void {
     const paths = deps.ffmpeg();
-    if (!paths) return;
     const job = (async () => {
+      await enrichSeriesCover(seriesId);
+      if (!paths) return;
       const warned = new Set<string>();
       for (const ep of repos.episodes.listBySeries(seriesId)) {
         try {
@@ -174,7 +270,12 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     void job.finally(() => probes.delete(job));
   }
 
-  async function importOrRescan(path: string, titleOverride: string | undefined): Promise<AnimeSeries> {
+  async function importOrRescan(
+    path: string,
+    titleOverride: string | undefined,
+    anilistId?: number,
+    coverUrl?: string,
+  ): Promise<AnimeSeries> {
     if (!isAbsolute(path)) throw new KotoriError('invalid-argument', 'Import path must be absolute');
     const abs = resolve(path);
     if (!existsSync(abs)) throw new KotoriError('not-found', `Path not found: ${abs}`);
@@ -182,7 +283,10 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     if (scan.episodes.length === 0) throw new KotoriError('invalid-argument', `No video files (.mkv/.mp4/.webm) found in ${abs}`);
     const seriesId = stableId('sr', abs);
     const existing = repos.series.get(seriesId);
-    sync(seriesId, scan, titleOverride, existing?.addedAt ?? now());
+    sync(seriesId, scan, titleOverride, existing?.addedAt ?? now(), coverUrl);
+    if (anilistId !== undefined) {
+      repos.series.setJimaku(seriesId, existing?.jimakuEntryId, anilistId);
+    }
     probeSeries(seriesId);
     deps.emit({ type: 'library-changed', scope: 'anime' });
     return requireSeries(seriesId);
@@ -226,6 +330,9 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
 
   const service: NodeAnimeService = {
     async listSeries() {
+      if (!process.env['VITEST']) {
+        await service.scanRoots().catch(() => undefined);
+      }
       return repos.series.list();
     },
     async getSeries(id) {
@@ -238,7 +345,49 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     async getEpisode(id) {
       return requireEpisode(id);
     },
-    importSeries: (request) => importOrRescan(request.path, request.titleOverride),
+    importSeries: (request) => importOrRescan(request.path, request.titleOverride, request.anilistId, request.coverUrl),
+    async scanRoots(roots) {
+      const configured = roots ?? deps.settings.get().library.animeRoots;
+      const defaultDirs = process.env['VITEST']
+        ? []
+        : [
+            join(deps.settings.get().downloads.downloadDir, 'anime'),
+            deps.settings.get().downloads.downloadDir,
+            join(homedir(), 'download', 'anime'),
+            join(homedir(), 'Downloads', 'anime'),
+          ];
+      const allRoots = [...configured, ...defaultDirs].filter((p, i, a) => Boolean(p) && a.indexOf(p) === i);
+      for (const rawRoot of allRoots) {
+        const rootPath = rawRoot.startsWith('~/') ? join(homedir(), rawRoot.slice(2)) : resolve(rawRoot);
+        if (!existsSync(rootPath)) continue;
+        try {
+          const entries = await readdir(rootPath, { withFileTypes: true });
+          let importedChild = false;
+          for (const entry of entries) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('@')) continue;
+            const childPath = join(rootPath, entry.name);
+            if (entry.isDirectory()) {
+              if (!repos.series.getByPath(childPath)) {
+                const s = await importOrRescan(childPath, undefined).catch(() => undefined);
+                if (s) importedChild = true;
+              } else {
+                importedChild = true;
+              }
+            } else if (entry.isFile() && /\.(mkv|mp4|webm|m4v)$/i.test(entry.name)) {
+              if (!repos.series.getByPath(childPath) && !repos.episodes.get(stableId('ep', childPath))) {
+                const s = await importOrRescan(childPath, undefined).catch(() => undefined);
+                if (s) importedChild = true;
+              }
+            }
+          }
+          if (!importedChild && configured.includes(rawRoot) && !repos.series.getByPath(rootPath)) {
+            await importOrRescan(rootPath, undefined).catch(() => undefined);
+          }
+        } catch {
+          // Ignore unreadable directories
+        }
+      }
+    },
     async removeSeries(seriesId, deleteFiles = false) {
       const series = requireSeries(seriesId);
       const episodes = repos.episodes.listBySeries(series.id);
@@ -335,18 +484,23 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     },
     async autoFetchJimaku(seriesId, options) {
       const series = requireSeries(seriesId);
-      const apiKey = deps.settings.get().anime.jimakuApiKey;
-      const client = createJimakuClient({ fetch: deps.fetch, apiKey });
       let entryId = options?.entryId ?? series.jimakuEntryId;
+      const anilistId = options?.anilistId ?? series.anilistId;
       let entry: JimakuEntry | undefined;
       if (entryId === undefined) {
-        const results = await client.searchEntries({ query: series.title, ...(series.anilistId !== undefined ? { anilistId: series.anilistId } : {}) });
+        const queryCandidates = [series.title, ...(options?.aliases ?? [])]
+          .map((s) => s.trim())
+          .filter((s, i, a) => s.length > 0 && a.indexOf(s) === i);
+        const results = await subtitleClient.searchEntries({
+          query: queryCandidates.join('|'),
+          ...(anilistId !== undefined ? { anilistId } : {}),
+        });
         entry = results[0];
         if (!entry) throw new KotoriError('not-found', `No Jimaku entry found for "${series.title}"`);
         entryId = entry.id;
       }
-      repos.series.setJimaku(seriesId, entryId, entry?.anilistId);
-      const files = await client.listFiles(entryId);
+      repos.series.setJimaku(seriesId, entryId, entry?.anilistId ?? anilistId);
+      const files = await subtitleClient.listFiles(entryId);
       const resolvedEntry: JimakuEntry = entry ?? { id: entryId, name: series.title, flags: { anime: true, unverified: false, external: false, movie: false, adult: false } };
       const episodes = repos.episodes.listBySeries(seriesId);
       const matches = matchJimakuFilesToEpisodes(files, episodes);

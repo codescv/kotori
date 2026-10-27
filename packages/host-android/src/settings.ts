@@ -29,7 +29,7 @@ export function defaultSettings(downloadDir: string): AppSettings {
       repeatCount: 3,
       pauseAfterJump: false,
       seekPaddingMs: 250,
-      autoDownloadJimaku: false,
+      autoDownloadJimaku: true,
       jimakuApiKey: '',
       preferredSubtitleLanguages: ['ja'],
     },

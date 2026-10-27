@@ -931,6 +931,15 @@ export type DownloadStatus =
   | 'failed'
   | 'cancelled';
 
+export interface TorrentSeriesMetadata {
+  readonly anilistId?: number;
+  readonly title?: string;
+  readonly romajiTitle?: string;
+  readonly nativeTitle?: string;
+  readonly englishTitle?: string;
+  readonly coverUrl?: string;
+}
+
 export type DownloadSource =
   | {
       readonly kind: 'torrent';
@@ -940,6 +949,8 @@ export type DownloadSource =
       /** Optional: only download files matching these indexes once metadata is known. */
       readonly fileIndexes?: readonly number[];
       readonly nyaa?: NyaaTorrentItem;
+      /** Optional series identity from Stage-1 discovery for clean library import & automatic subtitle matching. */
+      readonly series?: TorrentSeriesMetadata;
     }
   | {
       readonly kind: 'jimaku';
@@ -1188,6 +1199,8 @@ export interface AnimeImportRequest {
   /** Directory (desktop path / Android tree URI) or single video file. */
   readonly path: string;
   readonly titleOverride?: string;
+  readonly anilistId?: number;
+  readonly coverUrl?: string;
 }
 
 export interface AnimeApi {

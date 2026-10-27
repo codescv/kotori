@@ -57,13 +57,13 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
   const touchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
   const lastTouchPickRef = useRef(0);
 
-  const pickAtPoint = (target: Element, clientX: number, clientY: number): void => {
-    const direct = attrInt(target.closest('[data-char-start]'), 'data-char-start');
+  const pickAtPoint = (target: Element | null, clientX: number, clientY: number, ownerSvg?: SVGSVGElement | null): void => {
+    const direct = attrInt(target?.closest('[data-char-start]') ?? null, 'data-char-start');
     if (direct !== undefined) {
       onPick(block, direct);
       return;
     }
-    const svg = target.closest('svg');
+    const svg = ownerSvg ?? target?.closest('svg') ?? null;
     const box = svg?.getBoundingClientRect();
     const vb = (svg?.getAttribute('viewBox') ?? '').split(/\s+/).map(Number);
     const vbW = vb[2];
@@ -78,8 +78,8 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
 
   const onClick = (e: MouseEvent<SVGGElement>): void => {
     e.stopPropagation();
-    if (Date.now() - lastTouchPickRef.current < 450) return;
-    pickAtPoint(e.target as Element, e.clientX, e.clientY);
+    if (Date.now() - lastTouchPickRef.current < 500) return;
+    pickAtPoint(e.target as Element, e.clientX, e.clientY, e.currentTarget.ownerSVGElement);
   };
   const onTouchStart = (e: TouchEvent<SVGGElement>): void => {
     if (e.touches.length === 1) {
@@ -96,7 +96,7 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
       return;
     }
     const t = e.touches[0]!;
-    if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) {
+    if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 16) {
       touchStartRef.current = null;
     }
   };
@@ -105,13 +105,15 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
     touchStartRef.current = null;
     if (!start || e.changedTouches.length !== 1 || e.touches.length > 0) return;
     const t = e.changedTouches[0]!;
-    if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) return;
+    if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 16) return;
+    e.stopPropagation();
+    if (e.cancelable) e.preventDefault();
     lastTouchPickRef.current = Date.now();
     const hitEl =
       (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function'
         ? document.elementFromPoint(t.clientX, t.clientY)
         : null) ?? (e.target as Element);
-    pickAtPoint(hitEl, t.clientX, t.clientY);
+    pickAtPoint(hitEl, t.clientX, t.clientY, e.currentTarget.ownerSVGElement);
   };
   const onKey = (e: KeyboardEvent<SVGGElement>): void => {
     if (e.key === 'Enter' || e.key === ' ') {

@@ -138,19 +138,44 @@ export async function createServerContext(options: ServerOptions, overrides: Con
     torrentEngine,
     ...(now ? { now } : {}),
     hooks: {
-      importAnime: async (path) => ({ seriesId: (await anime.importSeries({ path })).id }),
+      importAnime: async (path, importOpts) => ({
+        seriesId: (
+          await anime.importSeries({
+            path,
+            ...(importOpts?.titleOverride ? { titleOverride: importOpts.titleOverride } : {}),
+            ...(importOpts?.anilistId !== undefined ? { anilistId: importOpts.anilistId } : {}),
+            ...(importOpts?.coverUrl ? { coverUrl: importOpts.coverUrl } : {}),
+          })
+        ).id,
+      }),
       importManga: async (path) => ({ volumeId: (await manga.importVolume({ path })).id }),
       attachSubtitle: async (episodeId, filePath, fileName) => ({ trackId: (await attachJimakuSubtitle({ repos, subtitles, ...(now ? { now } : {}) }, episodeId, filePath, fileName)).id }),
       listEpisodes: (seriesId) => anime.listEpisodes(seriesId),
+      listSeries: () => anime.listSeries(),
+      autoFetchSubtitles: async (seriesId, seriesMeta) => {
+        const aliases = [seriesMeta?.romajiTitle, seriesMeta?.nativeTitle, seriesMeta?.englishTitle, seriesMeta?.title].filter(
+          (s): s is string => Boolean(s && s.trim()),
+        );
+        await anime.autoFetchJimaku(seriesId, {
+          ...(aliases.length > 0 ? { aliases } : {}),
+          ...(seriesMeta?.anilistId !== undefined ? { anilistId: seriesMeta.anilistId } : {}),
+        });
+      },
     },
   });
   manager.init();
+  if (!process.env['VITEST'] && !overrides.home) {
+    void anime.scanRoots().catch(() => undefined);
+  }
 
   const settingsApi: SettingsApi = {
     get: async () => settings.get(),
     update: async (patch) => {
       const next = settings.update(patch);
       emit({ type: 'settings-changed', settings: next });
+      if (patch.library?.animeRoots !== undefined || patch.downloads?.downloadDir !== undefined) {
+        void anime.scanRoots(next.library.animeRoots).catch(() => undefined);
+      }
       return next;
     },
     testAi: (override) => ai.testConnection(override ?? settings.get().ai),

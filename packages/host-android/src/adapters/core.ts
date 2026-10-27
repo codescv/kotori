@@ -27,6 +27,9 @@ export {
   readImageSize,
   // acquire
   createJimakuClient,
+  createSubtitleSearchClient,
+  isAjattEntryId,
+  normalizeSubtitleSearchText,
   matchJimakuFilesToEpisodes,
   parseMokuroMoeListing,
   resolveMokuroCatalogUrl,

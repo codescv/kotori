@@ -20,13 +20,19 @@ export class SeriesRepository {
 
   private map(r: Row): AnimeSeries {
     const coverPath = optStr(r['cover_path']);
+    const coverUrl =
+      coverPath === undefined
+        ? undefined
+        : /^https?:\/\//i.test(coverPath)
+          ? coverPath
+          : `/api/anime/series/${encodeURIComponent(String(r['id']))}/cover`;
     return {
       id: String(r['id']),
       title: String(r['title']),
       sourcePath: String(r['source_path']),
       episodeCount: num(r['episode_count'] ?? 0),
       addedAt: num(r['added_at']),
-      ...opt('coverUrl', coverPath === undefined ? undefined : `/api/anime/series/${encodeURIComponent(String(r['id']))}/cover`),
+      ...opt('coverUrl', coverUrl),
       ...opt('lastWatchedEpisodeId', optStr(r['last_watched_episode_id'])),
       ...opt('lastWatchedAt', optNum(r['last_watched_at'])),
       ...opt('jimakuEntryId', optNum(r['jimaku_entry_id'])),
@@ -71,6 +77,21 @@ export class SeriesRepository {
 
   setJimaku(id: Id, jimakuEntryId: number | undefined, anilistId?: number): void {
     run(this.db, 'UPDATE anime_series SET jimaku_entry_id = ?, anilist_id = COALESCE(?, anilist_id) WHERE id = ?', nullable(jimakuEntryId), nullable(anilistId), id);
+  }
+
+  setMetadata(id: Id, fields: { readonly title?: string; readonly coverPath?: string; readonly anilistId?: number }): void {
+    run(
+      this.db,
+      `UPDATE anime_series
+       SET title = COALESCE(?, title),
+           cover_path = COALESCE(?, cover_path),
+           anilist_id = COALESCE(?, anilist_id)
+       WHERE id = ?`,
+      nullable(fields.title),
+      nullable(fields.coverPath),
+      nullable(fields.anilistId),
+      id,
+    );
   }
 
   touchWatched(id: Id, episodeId: Id, at: EpochMs): void {

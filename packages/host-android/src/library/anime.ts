@@ -27,7 +27,7 @@ import {
   KotoriError,
   applyDelay,
   compareNatural,
-  createJimakuClient,
+  createSubtitleSearchClient,
   detectSubtitleLanguageFromName,
   matchJimakuFilesToEpisodes,
   parseEpisodeName,
@@ -64,6 +64,10 @@ export interface AnimeLibrary extends AnimeApi {
   addTrackFromFile(episodeId: string, options: AddTrackFileOptions): Promise<SubtitleTrack>;
   /** Persist pending (debounced) progress. */
   flush(): Promise<void>;
+  autoFetchJimaku(
+    seriesId: string,
+    options?: { readonly entryId?: number; readonly aliases?: readonly string[]; readonly anilistId?: number },
+  ): Promise<readonly DownloadTask[]>;
 }
 
 export interface AnimeLibraryHooks {
@@ -122,6 +126,10 @@ function sortEpisodes(a: StoredEpisode, b: StoredEpisode): number {
 export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): AnimeLibrary {
   const { db, deps, dirs } = ctx;
   const cueCache = new Map<string, { stamp: string; parsed: ParsedSubtitleTrack }>();
+  const subtitleClient = createSubtitleSearchClient({
+    fetch: deps.fetch,
+    jimakuApiKey: () => ctx.settings.current().anime.jimakuApiKey,
+  });
 
   const progress = new KeyedDebouncer<PlaybackProgress>(deps.progressDebounceMs, async (episodeId, value) => {
     const tx = db.transaction(['episodes', 'series'], 'readwrite');
@@ -166,7 +174,7 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
     };
   };
 
-  /** List videos + subtitles of a directory (one level of sub-folders) or a single video. */
+  /** List videos + subtitles of a directory (up to 4 nested folder levels) or a single video. */
   const scanMedia = async (path: string): Promise<MediaScan> => {
     const entry = await deps.fs.stat(path);
     if (!entry) throw new KotoriError('not-found', `path not found: ${path}`);
@@ -178,26 +186,30 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
     }
     const videos: FsEntry[] = [];
     const subs: FsEntry[] = [];
-    const top = await deps.fs.readdir(path);
-    for (const child of top) {
-      if (child.name.startsWith('.')) continue;
-      if (child.kind === 'file') {
-        if (isVideo(child.name)) videos.push(child);
-        else if (isSubtitle(child.name)) subs.push(child);
-      } else {
-        const nested = await deps.fs.readdir(child.path).catch(() => [] as readonly FsEntry[]);
-        for (const n of nested) {
-          if (n.kind !== 'file' || n.name.startsWith('.')) continue;
-          if (isVideo(n.name)) videos.push(n);
-          else if (isSubtitle(n.name)) subs.push(n);
+    const walkDir = async (dirPath: string, depth: number): Promise<void> => {
+      const children = await deps.fs.readdir(dirPath).catch(() => [] as readonly FsEntry[]);
+      for (const child of children) {
+        if (child.name.startsWith('.') || child.name.startsWith('@')) continue;
+        if (child.kind === 'file') {
+          if (isVideo(child.name)) videos.push(child);
+          else if (isSubtitle(child.name)) subs.push(child);
+        } else if (depth > 0) {
+          await walkDir(child.path, depth - 1);
         }
       }
-    }
+    };
+    await walkDir(path, 4);
     return { root: path, videos, subs };
   };
 
   /** Scan `sourcePath` and reconcile series/episodes/external tracks in one transaction. */
-  const scanSeries = async (sourcePath: string, titleOverride: string | undefined, existing: StoredSeries | undefined): Promise<AnimeSeries> => {
+  const scanSeries = async (
+    sourcePath: string,
+    titleOverride: string | undefined,
+    existing: StoredSeries | undefined,
+    anilistId?: number,
+    coverUrl?: string,
+  ): Promise<AnimeSeries> => {
     const scan = await scanMedia(sourcePath);
     if (scan.videos.length === 0) throw new KotoriError('invalid-argument', `no video files found in ${sourcePath}`);
     const seriesId = existing?.id ?? stableId('ser', sourcePath);
@@ -261,6 +273,8 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
     const titles = new Map<string, number>();
     for (const e of episodes) if (e.parsedName.title !== '') titles.set(e.parsedName.title, (titles.get(e.parsedName.title) ?? 0) + 1);
     const commonTitle = [...titles.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const resolvedAnilistId = anilistId ?? existing?.anilistId;
+    const resolvedCoverUrl = coverUrl ?? existing?.coverUrl;
     const series: StoredSeries = {
       ...(existing ?? {}),
       id: seriesId,
@@ -268,6 +282,8 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
       sourcePath,
       episodeCount: episodes.length,
       addedAt: existing?.addedAt ?? now,
+      ...(resolvedAnilistId !== undefined ? { anilistId: resolvedAnilistId } : {}),
+      ...(resolvedCoverUrl !== undefined ? { coverUrl: resolvedCoverUrl } : {}),
     };
 
     const keepEpisode = new Set(episodes.map((e) => e.id));
@@ -351,7 +367,7 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
     async importSeries(request) {
       if (request.path === '') throw new KotoriError('invalid-argument', 'path is required');
       const existing = await db.get('series', stableId('ser', request.path));
-      return scanSeries(request.path, request.titleOverride, existing);
+      return scanSeries(request.path, request.titleOverride, existing, request.anilistId, request.coverUrl);
     },
     async removeSeries(seriesId, deleteFiles = false) {
       await requireSeries(seriesId);
@@ -444,20 +460,24 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
       return progress.schedule(episodeId, value);
     },
     async autoFetchJimaku(seriesId, options) {
-      const apiKey = ctx.settings.current().anime.jimakuApiKey;
-      if (apiKey === '') throw new KotoriError('invalid-argument', 'Jimaku API key is not configured');
       const series = await requireSeries(seriesId);
-      const client = createJimakuClient({ fetch: deps.fetch, apiKey });
+      const anilistId = options?.anilistId ?? series.anilistId;
       let entry: JimakuEntry | undefined;
       const entryId = options?.entryId ?? series.jimakuEntryId;
       if (entryId === undefined) {
-        const found = await client.searchEntries(series.anilistId === undefined ? { query: series.title } : { anilistId: series.anilistId });
+        const queryCandidates = [series.title, ...(options?.aliases ?? [])]
+          .map((s) => s.trim())
+          .filter((s, i, a) => s.length > 0 && a.indexOf(s) === i);
+        const found = await subtitleClient.searchEntries({
+          query: queryCandidates.join('|'),
+          ...(anilistId !== undefined ? { anilistId } : {}),
+        });
         entry = found[0];
       } else {
         entry = { id: entryId, name: series.title, flags: { anime: true, unverified: false, external: false, movie: false, adult: false } };
       }
       if (entry === undefined) throw new KotoriError('not-found', `no Jimaku entry for "${series.title}"`);
-      const files = await client.listFiles(entry.id);
+      const files = await subtitleClient.listFiles(entry.id);
       const episodes = await Promise.all((await db.getAllFromIndex('episodes', 'bySeries', seriesId)).map(hydrate));
       const matches = matchJimakuFilesToEpisodes(files, episodes);
       const tasks: DownloadTask[] = [];
@@ -473,7 +493,21 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
           }),
         );
       }
-      if (series.jimakuEntryId !== entry.id) await db.put('series', { ...series, jimakuEntryId: entry.id });
+      if (tasks.length === 0) {
+        const pack = files.find((f) => f.archiveFormat === 'zip');
+        if (pack) {
+          tasks.push(
+            await hooks.startDownload({
+              source: { kind: 'jimaku', entry, file: pack, seriesId },
+              title: pack.name,
+              autoImport: true,
+            }),
+          );
+        }
+      }
+      if (series.jimakuEntryId !== entry.id || (anilistId !== undefined && series.anilistId !== anilistId)) {
+        await db.put('series', { ...series, jimakuEntryId: entry.id, ...(anilistId !== undefined ? { anilistId } : {}) });
+      }
       return tasks;
     },
     addTrackFromFile,

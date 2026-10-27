@@ -1,5 +1,5 @@
-/** Series detail: hero, actions (rescan · auto Jimaku · remove) and the episode list. */
-import { useEffect } from 'react';
+/** Series detail: Fushi-style hero with cover, synopsis & metadata, actions (rescan · auto Jimaku · remove) and the episode list. */
+import { useEffect, useState } from 'react';
 import { useRouteStore } from '../../app/routes';
 import { Button } from '../../components/m3/Button';
 import { Icon } from '../../components/m3/Icon';
@@ -10,10 +10,17 @@ import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { formatClock } from '../../lib/cues';
 import { showSnackbar } from '../../stores/snackbar';
+import { fetchAniListByIds, fetchAniListBySearch, type AniListMediaInfo } from '../downloads/anilist';
 import { useAnimeStore } from './useAnimeStore';
 import './player/player.css';
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+const STATUS_LABELS: Readonly<Record<string, string>> = {
+  FINISHED: '已完结',
+  RELEASING: '连载中',
+  NOT_YET_RELEASED: '未开播',
+};
 
 export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   const host = useHost();
@@ -22,9 +29,39 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   const series = useAnimeStore((s) => s.series?.find((x) => x.id === seriesId));
   const episodes = useAnimeStore((s) => s.episodes[seriesId]);
   const loadEpisodes = useAnimeStore((s) => s.loadEpisodes);
+  const [aniMeta, setAniMeta] = useState<AniListMediaInfo | undefined>();
+  const [descExpanded, setDescExpanded] = useState(false);
+
   useEffect(() => {
     void loadEpisodes(host, seriesId);
   }, [host, seriesId, loadEpisodes]);
+
+  useEffect(() => {
+    if (!series) return;
+    let cancelled = false;
+    void (async () => {
+      if (series.anilistId !== undefined) {
+        const byId = await fetchAniListByIds([series.anilistId]);
+        const hit = byId.get(series.anilistId);
+        if (hit && !cancelled) {
+          setAniMeta(hit);
+          return;
+        }
+      }
+      const hit = await fetchAniListBySearch(series.title);
+      if (hit && hit.id < 900000 && !cancelled) setAniMeta(hit);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [series]);
+
+  const coverUrl = series?.coverUrl ?? aniMeta?.coverUrl;
+  const subTitles = series
+    ? [aniMeta?.chineseTitle, aniMeta?.nativeTitle, aniMeta?.romajiTitle, aniMeta?.englishTitle]
+        .filter((x, i, a): x is string => Boolean(x) && x !== series.title && a.indexOf(x) === i)
+        .join(' · ')
+    : '';
 
   return (
     <div className="k-page">
@@ -33,11 +70,51 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
       </header>
       {series && (
         <section className="k-series-hero">
-          {series.coverUrl && <img className="k-series-hero__cover" src={series.coverUrl} alt="" />}
+          {coverUrl ? (
+            <img className="k-series-hero__cover" src={coverUrl} alt="" />
+          ) : (
+            <div className="k-series-hero__cover k-series-card__cover--placeholder">🎬</div>
+          )}
           <div className="k-series-hero__text">
             <h1 className="k-headline-small" lang="ja">
               {series.title}
             </h1>
+            {subTitles && <div className="k-body-medium k-muted">{subTitles}</div>}
+            <div className="k-series-card__badges">
+              {aniMeta?.score !== undefined && <span className="k-tag k-tag--tone">★ {aniMeta.score}%</span>}
+              {aniMeta?.format && <span className="k-tag">{aniMeta.format}</span>}
+              {aniMeta?.seasonYear && <span className="k-tag k-tag--muted">{aniMeta.seasonYear}</span>}
+              <span className="k-tag">{t('anime.library.episodes', { count: series.episodeCount })}</span>
+              {aniMeta?.studios?.[0] && <span className="k-tag k-tag--muted">{aniMeta.studios.join(' / ')}</span>}
+              {aniMeta?.status && (
+                <span className="k-tag k-tag--muted">{STATUS_LABELS[aniMeta.status] ?? aniMeta.status}</span>
+              )}
+            </div>
+            {aniMeta?.genres && aniMeta.genres.length > 0 && (
+              <div className="k-series-card__badges">
+                {aniMeta.genres.map((g) => (
+                  <span key={g} className="k-tag k-tag--muted">
+                    {g}
+                  </span>
+                ))}
+              </div>
+            )}
+            {aniMeta?.description && (
+              <div>
+                <p className={`k-series-hero__desc ${descExpanded ? '' : 'k-series-hero__desc--clamped'}`}>
+                  {aniMeta.description}
+                </p>
+                {aniMeta.description.length > 100 && (
+                  <button
+                    type="button"
+                    className="k-series-hero__expand"
+                    onClick={() => setDescExpanded((v) => !v)}
+                  >
+                    {descExpanded ? '收起简介' : '展开完整简介'}
+                  </button>
+                )}
+              </div>
+            )}
             <span className="k-body-small k-muted">{series.sourcePath}</span>
             <div className="k-row">
               <Button variant="tonal" icon="refresh" onClick={() => void host.anime.rescanSeries(seriesId).catch((e: unknown) => showSnackbar(errMsg(e), { tone: 'error' }))}>

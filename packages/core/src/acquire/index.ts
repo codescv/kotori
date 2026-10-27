@@ -13,4 +13,5 @@
 export * from './magnet';
 export * from './nyaa';
 export * from './jimaku';
+export * from './ajatt';
 export * from './mokuro-moe';

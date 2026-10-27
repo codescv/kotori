@@ -33,7 +33,9 @@ import {
   KotoriError,
   buildNyaaRssUrl,
   buildNyaaSearchUrl,
-  createJimakuClient,
+  createSubtitleSearchClient,
+  isAjattEntryId,
+  normalizeSubtitleSearchText,
   parseEpisodeName,
   parseMagnet,
   parseMokuroMoeListing,
@@ -322,16 +324,37 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
       const track = await libs.anime.addTrackFromFile(episodeId, { path, fileName: basename(path), origin: 'jimaku', copy: false });
       firstTrack ??= track.id;
     };
+    const attachSeriesEpisodes = async (seriesId: string): Promise<void> => {
+      const episodes = await libs.anime.listEpisodes(seriesId);
+      for (const episode of episodes) {
+        const n = episode.parsedName.episode;
+        const match =
+          episodes.length === 1 && paths.length === 1
+            ? paths[0]
+            : paths.find((p) => n !== undefined && parseEpisodeName(basename(p)).episode === n);
+        if (match !== undefined) await attach(episode.id, match);
+      }
+    };
     if (source.episodeId !== undefined) {
       const episode = await libs.anime.getEpisode(source.episodeId);
       const n = episode.parsedName.episode;
       const match = paths.length === 1 ? paths[0] : paths.find((p) => n !== undefined && parseEpisodeName(basename(p)).episode === n);
       if (match !== undefined) await attach(episode.id, match);
     } else if (source.seriesId !== undefined) {
-      for (const episode of await libs.anime.listEpisodes(source.seriesId)) {
-        const n = episode.parsedName.episode;
-        const match = paths.find((p) => n !== undefined && parseEpisodeName(basename(p)).episode === n);
-        if (match !== undefined) await attach(episode.id, match);
+      await attachSeriesEpisodes(source.seriesId);
+    } else {
+      const allSeries = await libs.anime.listSeries();
+      const entryNames = [source.entry.name, source.entry.japaneseName, source.entry.englishName]
+        .filter((s): s is string => Boolean(s && s.trim()))
+        .map((s) => normalizeSubtitleSearchText(s));
+      const matched = allSeries.find((s) => {
+        if (s.jimakuEntryId === source.entry.id) return true;
+        if (source.entry.anilistId !== undefined && s.anilistId === source.entry.anilistId) return true;
+        const normTitle = normalizeSubtitleSearchText(s.title);
+        return Boolean(normTitle && entryNames.some((en) => en && (en.includes(normTitle) || normTitle.includes(en))));
+      });
+      if (matched) {
+        await attachSeriesEpisodes(matched.id);
       }
     }
     return firstTrack === undefined ? {} : { importedTrackId: firstTrack };
@@ -341,7 +364,9 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     const file: JimakuFile = source.file;
     const dest = joinPath(task.targetDir, safeFileName(file.name));
     const track = tracker(task.id);
-    await fetchToFile(file.url, dest, signal, track, resuming.has(task.id));
+    const apiKey = ctx.settings.current().anime.jimakuApiKey;
+    const needsJimakuAuth = Boolean(apiKey && !isAjattEntryId(source.entry.id) && !file.url.includes('githubusercontent.com') && !file.url.includes('ajatt.top'));
+    await fetchToFile(file.url, dest, signal, track, resuming.has(task.id), needsJimakuAuth ? { authorization: apiKey } : undefined);
     if (!autoImport) return {};
     update(task.id, { status: 'importing' });
     if (file.isTextSubtitle || SUBTITLE_EXT.has(extname(file.name))) return importSubtitles(source, [dest]);
@@ -518,7 +543,25 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     if (!autoImport) return {};
     update(task.id, { status: 'importing' });
     try {
-      const series = await libs.anime.importSeries({ path: task.targetDir, titleOverride: task.title });
+      const seriesMeta = source.series;
+      const cleanTitle = seriesMeta?.title ?? source.nyaa?.parsedName.title ?? task.title;
+      const series = await libs.anime.importSeries({
+        path: task.targetDir,
+        ...(cleanTitle ? { titleOverride: cleanTitle } : {}),
+        ...(seriesMeta?.anilistId !== undefined ? { anilistId: seriesMeta.anilistId } : {}),
+        ...(seriesMeta?.coverUrl ? { coverUrl: seriesMeta.coverUrl } : {}),
+      });
+      if (ctx.settings.current().anime.autoDownloadJimaku !== false) {
+        const aliases = [seriesMeta?.romajiTitle, seriesMeta?.nativeTitle, seriesMeta?.englishTitle, seriesMeta?.title, source.nyaa?.parsedName.title].filter(
+          (s): s is string => Boolean(s && s.trim()),
+        );
+        void libs.anime
+          .autoFetchJimaku(series.id, {
+            ...(aliases.length > 0 ? { aliases } : {}),
+            ...(seriesMeta?.anilistId !== undefined ? { anilistId: seriesMeta.anilistId } : {}),
+          })
+          .catch(() => undefined);
+      }
       return { importedSeriesId: series.id };
     } catch {
       return {};
@@ -599,11 +642,10 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
   };
 
   const settings = () => ctx.settings.current();
-  const jimaku = () => {
-    const apiKey = settings().anime.jimakuApiKey;
-    if (apiKey === '') throw new KotoriError('invalid-argument', 'Jimaku API key is not configured');
-    return createJimakuClient({ fetch: deps.fetch, apiKey });
-  };
+  const jimaku = createSubtitleSearchClient({
+    fetch: deps.fetch,
+    jimakuApiKey: () => settings().anime.jimakuApiKey,
+  });
 
   return {
     async init() {
@@ -632,8 +674,8 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
       return sortNyaaItems(parseNyaaRss(await response.text(), base), query.sort);
     },
     // async so a missing API key rejects instead of throwing synchronously.
-    searchJimaku: async (query) => jimaku().searchEntries(query),
-    listJimakuFiles: async (entryId, episode) => jimaku().listFiles(entryId, episode),
+    searchJimaku: async (query) => jimaku.searchEntries(query),
+    listJimakuFiles: async (entryId, episode) => jimaku.listFiles(entryId, episode),
     async browseMokuroCatalog(url) {
       const target = resolveMokuroCatalogUrl(url ?? settings().downloads.mokuroCatalogUrl);
       const response = await httpGet(target);

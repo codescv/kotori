@@ -16,7 +16,7 @@ export function AnimePage() {
     if (e.scope === 'anime') void invalidate(host);
   });
   useEffect(() => {
-    if (useAnimeStore.getState().series === undefined) void useAnimeStore.getState().loadSeries(host);
+    void useAnimeStore.getState().loadSeries(host);
   }, [host]);
   if (view.kind === 'player') return <Player key={view.episodeId} seriesId={view.seriesId} episodeId={view.episodeId} />;
   if (view.kind === 'series') return <SeriesDetail seriesId={view.seriesId} />;

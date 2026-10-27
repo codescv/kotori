@@ -942,7 +942,8 @@ public class KotoriTorrentPlugin extends Plugin {
             Bencode.Result res = Bencode.decode(rawInfo, 0);
             Map<String, Object> info = Bencode.asMap(res.value);
             if (info == null) throw new IOException("Invalid info dictionary");
-            String name = Bencode.asString(info.get("name"));
+            String name = Bencode.asString(info.get("name.utf-8"));
+            if (name == null || name.isEmpty()) name = Bencode.asString(info.get("name"));
             if (name == null || name.isEmpty()) name = "download";
             name = sanitizeSegment(name);
             int pieceLen = info.get("piece length") instanceof Number ? ((Number) info.get("piece length")).intValue() : 0;
@@ -959,7 +960,8 @@ public class KotoriTorrentPlugin extends Plugin {
                     Map<String, Object> fm = Bencode.asMap(item);
                     if (fm == null) continue;
                     long len = fm.get("length") instanceof Number ? ((Number) fm.get("length")).longValue() : 0L;
-                    List<?> pathList = fm.get("path") instanceof List ? (List<?>) fm.get("path") : Collections.emptyList();
+                    Object rawPath = fm.get("path.utf-8") instanceof List ? fm.get("path.utf-8") : fm.get("path");
+                    List<?> pathList = rawPath instanceof List ? (List<?>) rawPath : Collections.emptyList();
                     StringBuilder sb = new StringBuilder(name);
                     for (Object seg : pathList) {
                         String s = Bencode.asString(seg);

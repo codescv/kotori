@@ -8,7 +8,7 @@ import type { DirectoryEntry, DownloadsApi, FilesApi } from '@kotori/core';
 import {
   buildNyaaRssUrl,
   buildNyaaSearchUrl,
-  createJimakuClient,
+  createSubtitleSearchClient,
   parseMokuroMoeListing,
   parseNyaaRss,
   parseNyaaSearchHtml,
@@ -36,7 +36,7 @@ async function fetchText(fetchFn: typeof fetch, url: string): Promise<string> {
 }
 
 export function createDownloadsService(deps: DownloadsServiceDeps): DownloadsApi {
-  const jimaku = () => createJimakuClient({ fetch: deps.fetch, apiKey: deps.settings.get().anime.jimakuApiKey });
+  const jimaku = createSubtitleSearchClient({ fetch: deps.fetch, jimakuApiKey: () => deps.settings.get().anime.jimakuApiKey });
   return {
     async searchNyaa(query) {
       if (!query.query?.trim()) throw new KotoriError('invalid-argument', 'Search query is empty');
@@ -53,8 +53,8 @@ export function createDownloadsService(deps: DownloadsServiceDeps): DownloadsApi
       const xml = await fetchText(deps.fetch, buildNyaaRssUrl(query, base));
       return sortNyaaItems(parseNyaaRss(xml, base), query.sort);
     },
-    searchJimaku: (query) => jimaku().searchEntries(query),
-    listJimakuFiles: (entryId, episode) => jimaku().listFiles(entryId, episode),
+    searchJimaku: (query) => jimaku.searchEntries(query),
+    listJimakuFiles: (entryId, episode) => jimaku.listFiles(entryId, episode),
     async browseMokuroCatalog(url) {
       const root = deps.settings.get().downloads.mokuroCatalogUrl;
       const rawTarget = url ?? root;
