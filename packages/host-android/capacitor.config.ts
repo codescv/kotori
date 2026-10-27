@@ -17,6 +17,10 @@ const config: CapacitorConfig = {
     // Patch window.fetch/XHR to go through the native HTTP stack so Gemini,
     // Jimaku, mokuro.moe and Nyaa are reachable from the WebView without CORS.
     CapacitorHttp: { enabled: true },
+    // Disable Capacitor's default SystemBars DecorView padding on WebView < 140
+    // so MainActivity can keep the WebView 100% edge-to-edge full-screen and
+    // expose safe-area insets via --k-safe-* CSS variables.
+    SystemBars: { insetsHandling: 'disable' },
   },
 };
 

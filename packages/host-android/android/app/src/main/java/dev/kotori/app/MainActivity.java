@@ -13,6 +13,7 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 import java.util.Locale;
 
 public class MainActivity extends BridgeActivity {
@@ -43,48 +44,79 @@ public class MainActivity extends BridgeActivity {
                         : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
                 window.setAttributes(lp);
             }
+
+            View decorView = window.getDecorView();
             WindowInsetsControllerCompat controller =
-                WindowCompat.getInsetsController(window, window.getDecorView());
+                WindowCompat.getInsetsController(window, decorView);
             if (controller != null) {
                 controller.setAppearanceLightStatusBars(false);
                 controller.setAppearanceLightNavigationBars(false);
             }
-        }
 
-        View content = findViewById(android.R.id.content);
-        if (content != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(content, (v, windowInsets) -> {
+            View content = findViewById(android.R.id.content);
+            if (content != null) {
+                content.setPadding(0, 0, 0, 0);
+            }
+
+            ViewCompat.setOnApplyWindowInsetsListener(decorView, (v, windowInsets) -> {
                 Insets bars = windowInsets.getInsets(
                     WindowInsetsCompat.Type.systemBars()
                         | WindowInsetsCompat.Type.displayCutout()
                 );
                 Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+                boolean kbVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime());
                 float density = getResources().getDisplayMetrics().density;
                 if (density <= 0f) density = 1f;
                 safeTopDp = bars.top / density;
                 safeRightDp = bars.right / density;
-                safeBottomDp = bars.bottom / density;
+                safeBottomDp = (kbVisible ? 0 : bars.bottom) / density;
                 safeLeftDp = bars.left / density;
 
-                // Keep WebView 100% edge-to-edge full screen; only pad bottom when keyboard (IME) is visible.
-                int imePadBottom = ime.bottom > bars.bottom ? ime.bottom : 0;
+                // Keep DecorView & WebView 100% edge-to-edge full screen; only pad bottom when IME is visible.
+                int imePadBottom = kbVisible && ime.bottom > bars.bottom ? ime.bottom : 0;
                 v.setPadding(0, 0, 0, imePadBottom);
+                if (content != null) {
+                    content.setPadding(0, 0, 0, 0);
+                }
                 syncSafeAreaCssVars();
-                return WindowInsetsCompat.CONSUMED;
+
+                return new WindowInsetsCompat.Builder(windowInsets)
+                    .setInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                            | WindowInsetsCompat.Type.displayCutout(),
+                        Insets.of(0, 0, 0, 0)
+                    )
+                    .build();
             });
-            ViewCompat.requestApplyInsets(content);
+            ViewCompat.requestApplyInsets(decorView);
         }
 
-        if (getBridge() != null && getBridge().getWebView() != null) {
-            WebView webView = getBridge().getWebView();
-            webView.postDelayed(this::syncSafeAreaCssVars, 150);
-            webView.postDelayed(this::syncSafeAreaCssVars, 600);
+        if (getBridge() != null) {
+            getBridge().addWebViewListener(new WebViewListener() {
+                @Override
+                public void onPageCommitVisible(WebView view, String url) {
+                    syncSafeAreaCssVars();
+                }
+
+                @Override
+                public void onPageLoaded(WebView view) {
+                    syncSafeAreaCssVars();
+                }
+            });
+            if (getBridge().getWebView() != null) {
+                WebView webView = getBridge().getWebView();
+                webView.postDelayed(this::syncSafeAreaCssVars, 150);
+                webView.postDelayed(this::syncSafeAreaCssVars, 600);
+            }
         }
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        if (getWindow() != null) {
+            ViewCompat.requestApplyInsets(getWindow().getDecorView());
+        }
         syncSafeAreaCssVars();
     }
 
@@ -98,7 +130,12 @@ public class MainActivity extends BridgeActivity {
                 + "r.setProperty('--k-safe-right','%.2fpx');"
                 + "r.setProperty('--k-safe-bottom','%.2fpx');"
                 + "r.setProperty('--k-safe-left','%.2fpx');"
+                + "r.setProperty('--safe-area-inset-top','%.2fpx');"
+                + "r.setProperty('--safe-area-inset-right','%.2fpx');"
+                + "r.setProperty('--safe-area-inset-bottom','%.2fpx');"
+                + "r.setProperty('--safe-area-inset-left','%.2fpx');"
                 + "})();",
+            safeTopDp, safeRightDp, safeBottomDp, safeLeftDp,
             safeTopDp, safeRightDp, safeBottomDp, safeLeftDp
         );
         webView.post(() -> webView.evaluateJavascript(js, null));

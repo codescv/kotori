@@ -148,11 +148,9 @@ export function ZoomPan({
   }
 
   const updateView = useCallback((next: View | ((prev: View) => View)) => {
-    setView((prev) => {
-      const resolved = typeof next === 'function' ? next(prev) : next;
-      viewRef.current = resolved;
-      return resolved;
-    });
+    const resolved = typeof next === 'function' ? next(viewRef.current) : next;
+    viewRef.current = resolved;
+    setView(resolved);
   }, []);
 
   const resolveRect = useCallback(
@@ -231,9 +229,7 @@ export function ZoomPan({
       if (e.touches.length >= 2 && e.cancelable) e.preventDefault();
     };
     const onNativeTouchMove = (e: TouchEvent): void => {
-      if ((e.touches.length >= 2 || movedRef.current || viewRef.current.scale > 1.01) && e.cancelable) {
-        e.preventDefault();
-      }
+      if (e.cancelable) e.preventDefault();
     };
     el.addEventListener('touchstart', onNativeTouchStart, { passive: false });
     el.addEventListener('touchmove', onNativeTouchMove, { passive: false });
