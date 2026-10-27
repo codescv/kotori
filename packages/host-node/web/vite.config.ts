@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
+const publicDir = fileURLToPath(new URL('../../ui/public', import.meta.url));
 
 /**
  * Builds the desktop web bundle into `packages/host-node/dist/web`, served by the
@@ -11,6 +12,7 @@ const here = fileURLToPath(new URL('.', import.meta.url));
  */
 export default defineConfig({
   root: here,
+  publicDir,
   plugins: [react()],
   build: {
     outDir: '../dist/web',

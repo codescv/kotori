@@ -81,6 +81,7 @@ function stripNulls(value: Record<string, unknown>): Record<string, unknown> {
 
 const THEMES = ['system', 'light', 'dark'];
 const LOCALES = ['zh-CN', 'en', 'ja'];
+const APP_ICONS = ['s4-01', 's4-02', 's4-03', 's4-04', 's3-01', 's3-02', 's3-03', 's3-04'];
 const TARGET_LANGUAGES = ['zh-CN', 'zh-TW', 'en'];
 const READING_MODES = ['single-rtl', 'single-ltr', 'spread-rtl', 'spread-ltr', 'webtoon'];
 const FITS = ['contain', 'width', 'height'];
@@ -147,6 +148,7 @@ export function validateSettings(s: AppSettings): void {
   if (typeof s.ui.seedColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(s.ui.seedColor)) fail('ui.seedColor', 'must be #RRGGBB');
   oneOf('ui.locale', s.ui.locale, LOCALES);
   number('ui.fontScale', s.ui.fontScale, 0.5, 3);
+  if (s.ui.appIcon !== undefined) oneOf('ui.appIcon', s.ui.appIcon, APP_ICONS);
   // anime
   bool('anime.mergeKaraokeCues', s.anime.mergeKaraokeCues);
   bool('anime.hideSigns', s.anime.hideSigns);

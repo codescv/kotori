@@ -28,17 +28,25 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('settings-about-platform')).toHaveTextContent('mock · linux · v0.1.0-mock');
   });
 
-  it('appearance changes apply immediately (theme, seed preset, locale)', async () => {
+  it('appearance changes apply immediately (theme, app icon, seed preset, locale)', async () => {
     const host = await setup();
     const appearance = within(screen.getByTestId('settings-appearance'));
+    for (const id of ['s4-01', 's4-02', 's4-03', 's4-04', 's3-01', 's3-02', 's3-03', 's3-04']) {
+      expect(appearance.getByTestId(`app-icon-${id}`)).toBeInTheDocument();
+    }
+    expect(appearance.getByTestId('app-icon-s4-01')).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(appearance.getByTestId('app-icon-s3-02'));
     fireEvent.click(appearance.getByRole('radio', { name: '深色' }));
     fireEvent.click(appearance.getByRole('radio', { name: '#7d8fc9' }));
     await waitFor(async () => {
       const ui = (await host.settings.get()).ui;
       expect(ui.theme).toBe('dark');
       expect(ui.seedColor).toBe('#7d8fc9');
+      expect(ui.appIcon).toBe('s3-02');
     });
+    expect(appearance.getByTestId('app-icon-s3-02')).toHaveAttribute('aria-checked', 'true');
     expect(useSettingsStore.getState().settings.ui.seedColor).toBe('#7d8fc9');
+    expect(useSettingsStore.getState().settings.ui.appIcon).toBe('s3-02');
     fireEvent.change(appearance.getByLabelText('自定义 HEX 颜色'), { target: { value: 'zzz' } });
     expect(appearance.getByText('请输入 #RRGGBB 格式')).toBeInTheDocument();
   });

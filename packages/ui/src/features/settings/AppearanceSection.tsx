@@ -1,4 +1,4 @@
-/** Theme mode, M3 seed colour (presets + hex), UI locale and text scale — all applied live. */
+/** Theme mode, M3 seed colour (presets + hex), app icon, UI locale and text scale — all applied live. */
 import { useEffect, useState } from 'react';
 import type { ThemeMode, UiSettings } from '@kotori/core';
 import { SegmentedButton } from '../../components/m3/SegmentedButton';
@@ -7,6 +7,7 @@ import { TextField } from '../../components/m3/TextField';
 import { cx } from '../../components/m3/cx';
 import { useT } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
+import { APP_ICON_PRESETS, resolveAppIcon } from '../../theme/app-icons';
 import { DEFAULT_SEED_COLOR, normaliseSeed } from '../../theme/m3-theme';
 import { usePatchSettings } from './fields';
 
@@ -19,9 +20,12 @@ export function AppearanceSection() {
   const ui = useSettingsStore((s) => s.settings.ui);
   const patch = usePatchSettings();
   const seed = normaliseSeed(ui.seedColor);
+  const activeIcon = resolveAppIcon(ui.appIcon);
   const [hex, setHex] = useState(seed);
   useEffect(() => setHex(seed), [seed]);
   const hexValid = HEX6.test(hex.trim());
+  const s4Icons = APP_ICON_PRESETS.filter((p) => p.group === 's4');
+  const s3Icons = APP_ICON_PRESETS.filter((p) => p.group === 's3');
 
   return (
     <div className="k-stack">
@@ -37,6 +41,62 @@ export function AppearanceSection() {
             { value: 'dark', label: t('settings.appearance.dark') },
           ]}
         />
+      </div>
+      <div className="k-settings-field" data-testid="settings-app-icon">
+        <span className="k-label-large">{t('settings.appearance.appIcon')}</span>
+        <span className="k-body-small k-muted">{t('settings.appearance.appIconHint')}</span>
+        <div className="k-app-icon-groups" role="radiogroup" aria-label={t('settings.appearance.appIcon')}>
+          <div className="k-app-icon-group">
+            <span className="k-label-medium k-muted">{t('settings.appearance.appIconGroupS4')}</span>
+            <div className="k-app-icon-grid">
+              {s4Icons.map((preset) => {
+                const selected = preset.id === activeIcon;
+                const label = t(preset.labelKey);
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={label}
+                    title={label}
+                    data-testid={`app-icon-${preset.id}`}
+                    className={cx('k-app-icon-option', selected && 'is-selected')}
+                    onClick={() => void patch({ ui: { appIcon: preset.id } })}
+                  >
+                    <img src={preset.src} alt={label} className="k-app-icon-option__img" />
+                    <span className="k-app-icon-option__code">{preset.code}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="k-app-icon-group">
+            <span className="k-label-medium k-muted">{t('settings.appearance.appIconGroupS3')}</span>
+            <div className="k-app-icon-grid">
+              {s3Icons.map((preset) => {
+                const selected = preset.id === activeIcon;
+                const label = t(preset.labelKey);
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={label}
+                    title={label}
+                    data-testid={`app-icon-${preset.id}`}
+                    className={cx('k-app-icon-option', selected && 'is-selected')}
+                    onClick={() => void patch({ ui: { appIcon: preset.id } })}
+                  >
+                    <img src={preset.src} alt={label} className="k-app-icon-option__img" />
+                    <span className="k-app-icon-option__code">{preset.code}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
       <div className="k-settings-field">
         <span className="k-label-large">{t('settings.appearance.seed')}</span>

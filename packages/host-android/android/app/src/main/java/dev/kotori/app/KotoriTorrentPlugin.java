@@ -1,7 +1,9 @@
 package dev.kotori.app;
 
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -70,6 +72,21 @@ public class KotoriTorrentPlugin extends Plugin {
         "udp://tracker.torrent.eu.org:451/announce"
     };
 
+    private static final String DEFAULT_ICON_ID = "s4-01";
+    private static final Map<String, String> ICON_ALIASES;
+    static {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("s4-01", "dev.kotori.app.IconS401");
+        m.put("s4-02", "dev.kotori.app.IconS402");
+        m.put("s4-03", "dev.kotori.app.IconS403");
+        m.put("s4-04", "dev.kotori.app.IconS404");
+        m.put("s3-01", "dev.kotori.app.IconS301");
+        m.put("s3-02", "dev.kotori.app.IconS302");
+        m.put("s3-03", "dev.kotori.app.IconS303");
+        m.put("s3-04", "dev.kotori.app.IconS304");
+        ICON_ALIASES = Collections.unmodifiableMap(m);
+    }
+
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, TorrentSession> sessions = new ConcurrentHashMap<>();
     private final byte[] peerId = generatePeerId();
@@ -84,6 +101,65 @@ public class KotoriTorrentPlugin extends Plugin {
             id[i] = (byte) chars.charAt(rng.nextInt(chars.length()));
         }
         return id;
+    }
+
+    private static boolean isAliasEnabled(PackageManager pm, String pkg, String aliasClass, boolean isDefault) {
+        int state = pm.getComponentEnabledSetting(new ComponentName(pkg, aliasClass));
+        if (state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) return true;
+        if (state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) return isDefault;
+        return false;
+    }
+
+    @PluginMethod
+    public void setAppIcon(PluginCall call) {
+        String iconId = call.getString("iconId", DEFAULT_ICON_ID);
+        String targetAlias = ICON_ALIASES.get(iconId);
+        if (targetAlias == null) {
+            call.reject("Unsupported app icon id: " + iconId);
+            return;
+        }
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            String pkg = getContext().getPackageName();
+
+            boolean targetAlreadyEnabled = isAliasEnabled(
+                pm,
+                pkg,
+                targetAlias,
+                DEFAULT_ICON_ID.equals(iconId)
+            );
+            boolean othersDisabled = true;
+            for (Map.Entry<String, String> entry : ICON_ALIASES.entrySet()) {
+                if (entry.getKey().equals(iconId)) continue;
+                if (isAliasEnabled(pm, pkg, entry.getValue(), DEFAULT_ICON_ID.equals(entry.getKey()))) {
+                    othersDisabled = false;
+                    break;
+                }
+            }
+
+            if (!targetAlreadyEnabled || !othersDisabled) {
+                pm.setComponentEnabledSetting(
+                    new ComponentName(pkg, targetAlias),
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP
+                );
+                for (Map.Entry<String, String> entry : ICON_ALIASES.entrySet()) {
+                    if (entry.getKey().equals(iconId)) continue;
+                    pm.setComponentEnabledSetting(
+                        new ComponentName(pkg, entry.getValue()),
+                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        PackageManager.DONT_KILL_APP
+                    );
+                }
+            }
+
+            JSObject out = new JSObject();
+            out.put("iconId", iconId);
+            out.put("changed", !targetAlreadyEnabled || !othersDisabled);
+            call.resolve(out);
+        } catch (Exception e) {
+            call.reject("Failed to switch app icon: " + e.getMessage(), e);
+        }
     }
 
     @PluginMethod

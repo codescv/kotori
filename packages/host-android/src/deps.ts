@@ -4,6 +4,8 @@
  * (`fake-indexeddb`, in-memory `FsOps`, fake `fetch`, controllable clock).
  */
 
+import type { AppIconId } from '@kotori/core';
+
 /** One directory entry / stat result. `path` is absolute (path or URI). */
 export interface FsEntry {
   readonly name: string;
@@ -117,6 +119,8 @@ export interface CapacitorHostDeps {
   readonly torrent?: AndroidTorrentEngine;
   /** Open URL / magnet in an external app (Android intent). */
   readonly openExternal: (url: string) => Promise<void>;
+  /** Switch Android launcher icon alias (`KotoriTorrentPlugin.setAppIcon`). */
+  readonly setAppIcon?: (iconId: AppIconId) => Promise<void>;
   /** Native directory picker; `undefined` when cancelled. */
   readonly pickDirectory: () => Promise<string | undefined>;
   /** Native file picker; `[]` when cancelled. Returned paths must be readable by `fs`. */
