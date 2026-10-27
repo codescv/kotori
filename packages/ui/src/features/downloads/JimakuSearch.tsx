@@ -3,9 +3,10 @@
  * → files → download. A missing API key surfaces a call-to-action that jumps
  * to the settings page.
  */
-import { useEffect, useState } from 'react';
-import type { JimakuEntry, JimakuFile } from '@kotori/core';
+import { useEffect, useMemo, useState } from 'react';
+import { compareNatural, type JimakuEntry, type JimakuFile } from '@kotori/core';
 import { Button } from '../../components/m3/Button';
+import { Chip } from '../../components/m3/Chip';
 import { Icon } from '../../components/m3/Icon';
 import { List, ListItem } from '../../components/m3/List';
 import { LinearProgress } from '../../components/m3/Progress';
@@ -20,6 +21,10 @@ import { CoverThumb } from './CoverThumb';
 import { formatBytes, formatDate } from './format';
 import { useDownloadsStore } from './useDownloadsStore';
 
+type EntrySort = 'default' | 'score' | 'latest' | 'name';
+type FileSort = 'episode' | 'latest' | 'size' | 'name';
+type FileExtFilter = 'all' | 'ass' | 'srt';
+
 export function JimakuSearch() {
   const host = useHost();
   const t = useT();
@@ -28,11 +33,52 @@ export function JimakuSearch() {
   const hasKey = useSettingsStore((s) => s.settings.anime.jimakuApiKey.trim().length > 0);
   const [query, setQuery] = useState('');
   const [entries, setEntries] = useState<readonly JimakuEntry[] | undefined>();
+  const [entrySort, setEntrySort] = useState<EntrySort>('default');
   const [aniMap, setAniMap] = useState<ReadonlyMap<number, AniListMediaInfo>>(new Map());
   const [entry, setEntry] = useState<JimakuEntry | undefined>();
   const [files, setFiles] = useState<readonly JimakuFile[] | undefined>();
+  const [fileSort, setFileSort] = useState<FileSort>('episode');
+  const [fileExtFilter, setFileExtFilter] = useState<FileExtFilter>('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<{ message: string; auth: boolean } | undefined>();
+
+  const sortedEntries = useMemo(() => {
+    if (!entries) return undefined;
+    if (entrySort === 'default') return entries;
+    return [...entries].sort((a, b) => {
+      if (entrySort === 'score') {
+        const sa = (a.anilistId ? aniMap.get(a.anilistId)?.score : undefined) ?? -1;
+        const sb = (b.anilistId ? aniMap.get(b.anilistId)?.score : undefined) ?? -1;
+        return sb - sa || (b.lastModifiedAt ?? 0) - (a.lastModifiedAt ?? 0) || compareNatural(a.japaneseName ?? a.name, b.japaneseName ?? b.name);
+      }
+      if (entrySort === 'latest') {
+        return (b.lastModifiedAt ?? 0) - (a.lastModifiedAt ?? 0) || compareNatural(a.japaneseName ?? a.name, b.japaneseName ?? b.name);
+      }
+      return compareNatural(a.japaneseName ?? a.name, b.japaneseName ?? b.name);
+    });
+  }, [entries, entrySort, aniMap]);
+
+  const sortedFiles = useMemo(() => {
+    if (!files) return undefined;
+    const filtered =
+      fileExtFilter === 'all'
+        ? files
+        : files.filter((f) => (f.extension ?? '').toLowerCase() === fileExtFilter);
+    return [...filtered].sort((a, b) => {
+      if (fileSort === 'latest') {
+        return (b.lastModifiedAt ?? 0) - (a.lastModifiedAt ?? 0) || compareNatural(a.name, b.name);
+      }
+      if (fileSort === 'size') {
+        return (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) || compareNatural(a.name, b.name);
+      }
+      if (fileSort === 'name') {
+        return compareNatural(a.name, b.name);
+      }
+      const ea = a.episode ?? Number.POSITIVE_INFINITY;
+      const eb = b.episode ?? Number.POSITIVE_INFINITY;
+      return ea - eb || compareNatural(a.name, b.name);
+    });
+  }, [files, fileSort, fileExtFilter]);
 
   useEffect(() => {
     if (!entries || entries.length === 0) return;
@@ -144,9 +190,32 @@ export function JimakuSearch() {
               </div>
             </div>
           </div>
-          {files && files.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
+          {files && files.length > 1 && (
+            <div className="k-row k-dl-sort-bar">
+              <Chip kind="filter" selected={fileExtFilter === 'ass'} onClick={() => setFileExtFilter((f) => (f === 'ass' ? 'all' : 'ass'))}>
+                仅 ASS
+              </Chip>
+              <Chip kind="filter" selected={fileExtFilter === 'srt'} onClick={() => setFileExtFilter((f) => (f === 'srt' ? 'all' : 'srt'))}>
+                仅 SRT
+              </Chip>
+              <span className="k-dl-sort-divider" aria-hidden="true" />
+              <Chip kind="filter" selected={fileSort === 'episode'} onClick={() => setFileSort('episode')}>
+                按集数
+              </Chip>
+              <Chip kind="filter" selected={fileSort === 'latest'} onClick={() => setFileSort('latest')}>
+                最新上传
+              </Chip>
+              <Chip kind="filter" selected={fileSort === 'size'} onClick={() => setFileSort('size')}>
+                按大小
+              </Chip>
+              <Chip kind="filter" selected={fileSort === 'name'} onClick={() => setFileSort('name')}>
+                按名称
+              </Chip>
+            </div>
+          )}
+          {sortedFiles && sortedFiles.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
           <List>
-            {(files ?? []).map((f) => (
+            {(sortedFiles ?? []).map((f) => (
               <ListItem
                 key={f.url}
                 leading={<Icon name={f.isTextSubtitle ? 'subtitles' : 'folder'} />}
@@ -170,10 +239,27 @@ export function JimakuSearch() {
         </div>
       ) : (
         <>
-          {entries && entries.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
-          {entries && entries.length > 0 && (
+          {sortedEntries && sortedEntries.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}
+          {sortedEntries && sortedEntries.length > 1 && (
+            <div className="k-row k-dl-sort-bar">
+              <Chip kind="filter" selected={entrySort === 'default'} onClick={() => setEntrySort('default')}>
+                默认排序
+              </Chip>
+              <Chip kind="filter" selected={entrySort === 'score'} onClick={() => setEntrySort('score')}>
+                评分最高
+              </Chip>
+              <Chip kind="filter" selected={entrySort === 'latest'} onClick={() => setEntrySort('latest')}>
+                最近更新
+              </Chip>
+              <Chip kind="filter" selected={entrySort === 'name'} onClick={() => setEntrySort('name')}>
+                名称 A-Z
+              </Chip>
+              <span className="k-dl-count-badge">{sortedEntries.length} 个条目</span>
+            </div>
+          )}
+          {sortedEntries && sortedEntries.length > 0 && (
             <div className="k-dl-media-list">
-              {entries.map((e) => {
+              {sortedEntries.map((e) => {
                 const ani = e.anilistId ? aniMap.get(e.anilistId) : undefined;
                 const primary = e.japaneseName ?? e.name;
                 const secondary = [

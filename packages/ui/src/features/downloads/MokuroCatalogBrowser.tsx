@@ -3,7 +3,7 @@
  * series cards with 5:7 cover art & community metadata, and importable volumes.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { MokuroCatalogEntry, MokuroCatalogListing, MokuroCatalogVolume } from '@kotori/core';
+import { compareNatural, type MokuroCatalogEntry, type MokuroCatalogListing, type MokuroCatalogVolume } from '@kotori/core';
 import { Button } from '../../components/m3/Button';
 import { Chip } from '../../components/m3/Chip';
 import { Icon } from '../../components/m3/Icon';
@@ -14,10 +14,13 @@ import { useT } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
 import { showSnackbar } from '../../stores/snackbar';
 import { CoverThumb } from './CoverThumb';
-import { formatBytes, formatCharCount } from './format';
+import { formatBytes, formatCharCount, formatDate } from './format';
 import { useDownloadsStore } from './useDownloadsStore';
 
-type SeriesSort = 'default' | 'score' | 'volumes' | 'chars';
+type SeriesSort = 'default' | 'score' | 'latest' | 'volumes' | 'chars';
+type VolumeSort = 'asc' | 'desc' | 'pages';
+
+const PAGE_SIZE = 60;
 
 function matchesSeriesQuery(d: MokuroCatalogEntry, q: string): boolean {
   if (d.name.toLowerCase().includes(q)) return true;
@@ -38,10 +41,16 @@ export function MokuroCatalogBrowser() {
   const [url, setUrl] = useState<string | undefined>(undefined);
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<SeriesSort>('default');
+  const [volSort, setVolSort] = useState<VolumeSort>('asc');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [listing, setListing] = useState<MokuroCatalogListing | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [started, setStarted] = useState<ReadonlySet<string>>(new Set());
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filter, sort, url]);
 
   useEffect(() => {
     let alive = true;
@@ -81,20 +90,34 @@ export function MokuroCatalogBrowser() {
   const dirs = useMemo(() => {
     const all = listing?.entries.filter((e) => e.kind === 'dir') ?? [];
     const filtered = q ? all.filter((d) => matchesSeriesQuery(d, q)) : all;
-    if (sort === 'default') return filtered;
     return [...filtered].sort((a, b) => {
-      if (sort === 'score') return (b.score ?? -1) - (a.score ?? -1);
-      if (sort === 'volumes') return (b.volumeCount ?? 0) - (a.volumeCount ?? 0);
-      if (sort === 'chars') return (b.totalChars ?? 0) - (a.totalChars ?? 0);
-      return 0;
+      if (sort === 'score') {
+        return (b.score ?? -1) - (a.score ?? -1) || (b.volumeCount ?? 0) - (a.volumeCount ?? 0) || compareNatural(a.name, b.name);
+      }
+      if (sort === 'latest') {
+        return (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0) || (b.score ?? -1) - (a.score ?? -1) || compareNatural(a.name, b.name);
+      }
+      if (sort === 'volumes') {
+        return (b.volumeCount ?? 0) - (a.volumeCount ?? 0) || (b.score ?? -1) - (a.score ?? -1) || compareNatural(a.name, b.name);
+      }
+      if (sort === 'chars') {
+        return (b.totalChars ?? 0) - (a.totalChars ?? 0) || (b.totalPages ?? 0) - (a.totalPages ?? 0) || compareNatural(a.name, b.name);
+      }
+      return compareNatural(a.name, b.name);
     });
   }, [listing, q, sort]);
 
+  const visibleDirs = useMemo(() => dirs.slice(0, visibleCount), [dirs, visibleCount]);
+
   const volumes = useMemo(() => {
     const all = listing?.volumes ?? [];
-    if (!q) return all;
-    return all.filter((v) => v.name.toLowerCase().includes(q));
-  }, [listing, q]);
+    const filtered = q ? all.filter((v) => v.name.toLowerCase().includes(q)) : all;
+    return [...filtered].sort((a, b) => {
+      if (volSort === 'desc') return compareNatural(b.name, a.name);
+      if (volSort === 'pages') return (b.pageCount ?? 0) - (a.pageCount ?? 0) || compareNatural(a.name, b.name);
+      return compareNatural(a.name, b.name);
+    });
+  }, [listing, q, volSort]);
 
   const seriesName = listing?.path[listing.path.length - 1];
   const seriesCover = listing?.coverUrl ?? volumes[0]?.coverUrl;
@@ -126,6 +149,9 @@ export function MokuroCatalogBrowser() {
           <Chip kind="filter" selected={sort === 'score'} onClick={() => setSort('score')}>
             评分最高
           </Chip>
+          <Chip kind="filter" selected={sort === 'latest'} onClick={() => setSort('latest')}>
+            最近更新
+          </Chip>
           <Chip kind="filter" selected={sort === 'volumes'} onClick={() => setSort('volumes')}>
             卷数最多
           </Chip>
@@ -150,6 +176,19 @@ export function MokuroCatalogBrowser() {
                   <span className="k-tag k-tag--tone">内置 OCR (.mokuro + CBZ)</span>
                 </div>
               </div>
+            </div>
+          )}
+          {volumes.length > 1 && (
+            <div className="k-row k-dl-sort-bar">
+              <Chip kind="filter" selected={volSort === 'asc'} onClick={() => setVolSort('asc')}>
+                正序 (1→N)
+              </Chip>
+              <Chip kind="filter" selected={volSort === 'desc'} onClick={() => setVolSort('desc')}>
+                倒序 (N→1)
+              </Chip>
+              <Chip kind="filter" selected={volSort === 'pages'} onClick={() => setVolSort('pages')}>
+                页数最多
+              </Chip>
             </div>
           )}
           <h3 className="k-title-small k-muted">{t('downloads.mokuro.volumes')}</h3>
@@ -180,9 +219,9 @@ export function MokuroCatalogBrowser() {
           </div>
         </>
       )}
-      {dirs.length > 0 && (
+      {visibleDirs.length > 0 && (
         <div className="k-dl-media-list">
-          {dirs.map((d) => {
+          {visibleDirs.map((d) => {
             const primaryTitle = d.nativeTitle && d.nativeTitle !== d.name ? `${d.nativeTitle} · ${d.name}` : d.name;
             const subTitles = [
               d.romajiTitle && d.romajiTitle !== d.name ? d.romajiTitle : undefined,
@@ -203,6 +242,7 @@ export function MokuroCatalogBrowser() {
                     {d.volumeCount !== undefined && <span className="k-tag">{d.volumeCount} 卷</span>}
                     {d.totalPages !== undefined && <span className="k-tag k-tag--muted">{d.totalPages.toLocaleString()} 页</span>}
                     {charLabel && <span className="k-tag k-tag--muted">{charLabel}</span>}
+                    {d.modifiedAt !== undefined && <span className="k-dl-media-card__sub">更新于 {formatDate(d.modifiedAt)}</span>}
                     {!hasRichMeta && d.sizeText && <span className="k-dl-media-card__sub">{d.sizeText}</span>}
                   </div>
                   {chips.length > 0 && (
@@ -221,6 +261,11 @@ export function MokuroCatalogBrowser() {
               </button>
             );
           })}
+          {dirs.length > visibleDirs.length && (
+            <Button variant="tonal" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
+              加载更多（已显示 {visibleDirs.length} / {dirs.length} 部）
+            </Button>
+          )}
         </div>
       )}
       {listing && !loading && dirs.length === 0 && volumes.length === 0 && <p className="k-empty">{t('downloads.noResults')}</p>}

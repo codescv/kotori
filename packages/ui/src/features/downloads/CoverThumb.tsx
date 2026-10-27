@@ -2,7 +2,7 @@
  * 5:7 cover thumbnail with automatic placeholder icon when `src` is absent or
  * fails to load.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon, type IconName } from '../../components/m3/Icon';
 
 export interface CoverThumbProps {
@@ -14,6 +14,10 @@ export interface CoverThumbProps {
 
 export function CoverThumb({ src, alt, fallbackIcon = 'book', size = 'md' }: CoverThumbProps) {
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
 
   if (!src || failed) {
     return (

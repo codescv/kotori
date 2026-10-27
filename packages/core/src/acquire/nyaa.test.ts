@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildNyaaMagnet, buildNyaaRssUrl, NYAA_TRACKERS, parseNyaaRss, parseNyaaSize } from './nyaa';
+import { buildNyaaMagnet, buildNyaaRssUrl, NYAA_TRACKERS, parseNyaaRss, parseNyaaSize, sortNyaaItems } from './nyaa';
 import { decodeXmlEntities } from './xml';
 import { parseMagnet } from './magnet';
 
@@ -116,5 +116,17 @@ describe('parseNyaaRss', () => {
   it('returns [] for garbage', () => {
     expect(parseNyaaRss('not xml at all')).toEqual([]);
     expect(parseNyaaRss('')).toEqual([]);
+  });
+});
+
+describe('sortNyaaItems', () => {
+  it('sorts items by seeders, date, size and downloads', async () => {
+    const items = parseNyaaRss(await fixture('nyaa-rss.xml'));
+    expect(sortNyaaItems(items, 'seeders').map((x) => x.seeders)).toEqual([412, 87, 14]);
+    expect(sortNyaaItems(items, 'size').map((x) => x.sizeText)).toEqual(['41.2 GiB', '1.4 GiB', '742.5 MiB']);
+    expect(sortNyaaItems(items, 'downloads').map((x) => x.downloads)).toEqual([18234, 4910, 612]);
+    const byDate = sortNyaaItems(items, 'date');
+    expect(byDate[0]?.publishedAt).toBeGreaterThanOrEqual(byDate[1]?.publishedAt ?? 0);
+    expect(byDate[1]?.publishedAt).toBeGreaterThanOrEqual(byDate[2]?.publishedAt ?? 0);
   });
 });
