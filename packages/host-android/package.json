@@ -1,6 +1,6 @@
 {
   "name": "@kotori/host-android",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Kotori Android standalone host: Capacitor shell around @kotori/ui with an in-process PlatformHost (Filesystem + IndexedDB storage, direct Gemini calls, SAF pickers).",
   "license": "MIT",
   "type": "module",

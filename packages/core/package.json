@@ -1,6 +1,6 @@
 {
   "name": "@kotori/core",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Kotori platform-neutral core: shared types, Gemini Flash explain engine, subtitle/manga/acquisition parsers. Runs unchanged in Node 22+ and browsers (no Node-only imports).",
   "license": "MIT",
   "type": "module",
