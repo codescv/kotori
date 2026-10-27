@@ -47,13 +47,20 @@ describe('JimakuSearch', () => {
 });
 
 describe('MokuroCatalogBrowser', () => {
-  it('navigates directories via breadcrumbs and starts a volume download', async () => {
+  it('navigates directories via breadcrumbs, renders rich metadata badges, and starts a volume download', async () => {
     const host = createMockPlatformHost({ latencyMs: 0 });
     const start = vi.spyOn(host.downloads, 'start');
     mount(host, <MokuroCatalogBrowser />);
-    fireEvent.click(await screen.findByRole('button', { name: /放課後ノート/ }));
+    const houkago = await screen.findByRole('button', { name: /放課後ノート/ });
+    expect(houkago).toHaveTextContent('★ 84%');
+    expect(houkago).toHaveTextContent('4 卷');
+    expect(houkago).toHaveTextContent('720 页');
+    expect(houkago).toHaveTextContent('5.8万字');
+    expect(houkago).toHaveTextContent('Slice of Life');
+    fireEvent.click(houkago);
     const dl = await screen.findAllByRole('button', { name: '下载并导入' });
     expect(dl).toHaveLength(4);
+    expect(screen.getByText('180 页')).toBeInTheDocument();
     fireEvent.click(dl[0] as HTMLElement);
     await waitFor(() => expect(start).toHaveBeenCalled());
     const req = start.mock.calls[0]?.[0] as DownloadRequest;

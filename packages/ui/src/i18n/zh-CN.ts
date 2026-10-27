@@ -303,7 +303,7 @@ export const zhCN = {
   'settings.library.mangaRoots': '漫画文件夹',
   'settings.library.add': '添加文件夹',
   'settings.about.nameOrigin':
-    'Kotori（小鳥 / 言採り）：表面是可爱的「小鸟」，拆开则是「言（こと）+ 採り（とり）」——采撷词句之人（Sentence Miner 的绝佳和风雅称）。',
+    'Kotori（小鳥 / 言採り）：表面是可爱的「小鸟」，拆开则是「言（こと）+ 採り（とり）」——采撷词句之人。',
   'settings.about.platform': '平台：{platform} · {os} · v{version}',
   'settings.about.dataDir': '数据目录：{dir}',
   // settings (downloads-settings-ui)

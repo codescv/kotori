@@ -871,6 +871,26 @@ export interface MokuroCatalogEntry {
   readonly isMokuro: boolean;
   /** `.zip` / `.cbz` page-image archive. */
   readonly isImageArchive: boolean;
+  /** Optional cover thumbnail URL (resolved from Mokuro Bunko catalog API). */
+  readonly coverUrl?: string;
+  /** Japanese native title when reported by the catalog API. */
+  readonly nativeTitle?: string;
+  /** Romaji title when reported by the catalog API. */
+  readonly romajiTitle?: string;
+  /** English title when reported by the catalog API. */
+  readonly englishTitle?: string;
+  /** Number of volumes in the series. */
+  readonly volumeCount?: number;
+  /** Total pages across all volumes in the series. */
+  readonly totalPages?: number;
+  /** Total OCR character count across all volumes in the series. */
+  readonly totalChars?: number;
+  /** Community rating score (0–100, e.g. from AniList). */
+  readonly score?: number;
+  /** Genre labels (e.g. `["Comedy", "Music", "Slice of Life"]`). */
+  readonly genres?: readonly string[];
+  /** Characteristic tags (e.g. `["4-koma", "Band"]`). */
+  readonly tags?: readonly string[];
 }
 
 export interface MokuroCatalogListing {
@@ -880,6 +900,8 @@ export interface MokuroCatalogListing {
   readonly entries: readonly MokuroCatalogEntry[];
   /** Pairs of `<name>.mokuro` + `<name>.zip|cbz|dir/` ready to import as one volume. */
   readonly volumes: readonly MokuroCatalogVolume[];
+  /** Optional series cover URL when browsing a series. */
+  readonly coverUrl?: string;
 }
 
 export interface MokuroCatalogVolume {
@@ -889,6 +911,10 @@ export interface MokuroCatalogVolume {
   readonly imagesUrl: string;
   readonly imagesKind: 'archive' | 'dir';
   readonly sizeBytes?: number;
+  /** Optional volume cover thumbnail URL. */
+  readonly coverUrl?: string;
+  /** Optional page count reported by the catalog API. */
+  readonly pageCount?: number;
 }
 
 export type DownloadKind = 'torrent' | 'jimaku-subtitle' | 'mokuro-volume' | 'http-file';

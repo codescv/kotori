@@ -300,7 +300,7 @@ export const ja: Messages = {
   'settings.library.mangaRoots': 'マンガフォルダ',
   'settings.library.add': 'フォルダを追加',
   'settings.about.nameOrigin':
-    'Kotori（小鳥 / 言採り）：表向きは愛らしい「小鳥」、紐解けば「言（こと）＋採り（とり）」——言葉を採集する人（Sentence Miner の和風雅称）。',
+    'Kotori（小鳥 / 言採り）：表向きは愛らしい「小鳥」、紐解けば「言（こと）＋採り（とり）」——言葉を採集する人。',
   'settings.about.platform': 'プラットフォーム：{platform} · {os} · v{version}',
   'settings.about.dataDir': 'データフォルダ：{dir}',
   'settings.invalidNumber': '有効な数値を入力してください',

@@ -221,7 +221,8 @@ export function ZoomPan({
   const lastTapRef = useRef<{ readonly time: number; readonly x: number; readonly y: number } | null>(null);
   const lastDoubleTapTime = useRef(0);
 
-  // Native non-passive touch listeners so Android WebView never cancels or hijacks 2-finger pinch or 1-finger swipe.
+  // Native non-passive touch listeners so Android WebView never cancels or hijacks 2-finger pinch or 1-finger swipe,
+  // while leaving stationary single-finger taps (< 8px jitter) un-prevented so speech bubble taps fire immediately.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || disabled) return;
@@ -229,7 +230,16 @@ export function ZoomPan({
       if (e.touches.length >= 2 && e.cancelable) e.preventDefault();
     };
     const onNativeTouchMove = (e: TouchEvent): void => {
-      if (e.cancelable) e.preventDefault();
+      if (!e.cancelable) return;
+      if (e.touches.length >= 2 || movedRef.current || viewRef.current.scale > 1.01) {
+        e.preventDefault();
+        return;
+      }
+      const t = e.touches[0];
+      const s = singleRef.current;
+      if (t && s && Math.hypot(t.clientX - s.start.x, t.clientY - s.start.y) > 8) {
+        e.preventDefault();
+      }
     };
     el.addEventListener('touchstart', onNativeTouchStart, { passive: false });
     el.addEventListener('touchmove', onNativeTouchMove, { passive: false });
@@ -240,6 +250,7 @@ export function ZoomPan({
   }, [disabled]);
 
   const syncPointsStart = (pts: readonly Point[], target: EventTarget | null) => {
+    suppressClick.current = false;
     if (pts.length >= 2) {
       const a = pts[0]!;
       const b = pts[1]!;
@@ -345,6 +356,9 @@ export function ZoomPan({
 
     if (wasMoved || wasPinched) {
       suppressClick.current = true;
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 80);
       if (!wasPinched && single && viewRef.current.scale <= 1.01) {
         const dx = single.last.x - single.start.x;
         const dy = single.last.y - single.start.y;
@@ -355,6 +369,8 @@ export function ZoomPan({
       }
       return;
     }
+
+    suppressClick.current = false;
 
     if (single && !isInteractiveElement(single.target)) {
       const tapX = single.last.x;

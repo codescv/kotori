@@ -66,18 +66,46 @@ export function resolveMokuroCatalogUrl(url: string): string {
 
 interface MokuroApiSeriesItem {
   readonly name?: unknown;
+  readonly cover?: unknown;
   readonly volume_count?: unknown;
   readonly latest_volume_modified?: unknown;
+  readonly total_pages?: unknown;
+  readonly total_chars?: unknown;
   readonly titles?: {
     readonly native?: unknown;
     readonly romaji?: unknown;
     readonly english?: unknown;
   };
+  readonly community?: {
+    readonly score?: unknown;
+    readonly genres?: unknown;
+    readonly tags?: unknown;
+  };
 }
 
 interface MokuroApiVolumeItem {
   readonly name?: unknown;
+  readonly cover?: unknown;
+  readonly page_count?: unknown;
   readonly ocr_pending?: unknown;
+}
+
+function resolveMokuroCoverUrl(origin: string, raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const trimmed = raw.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const encodedPath = trimmed
+    .split('/')
+    .filter((s) => s !== '')
+    .map((s) => encodeURIComponent(s))
+    .join('/');
+  return encodedPath ? `${origin}/mokuro-reader/${encodedPath}` : undefined;
+}
+
+function stringList(raw: unknown): readonly string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((x) => x.trim());
+  return out.length > 0 ? out : undefined;
 }
 
 function tryParseMokuroBunkoJson(raw: string, url: string): MokuroCatalogListing | undefined {
@@ -100,9 +128,17 @@ function tryParseMokuroBunkoJson(raw: string, url: string): MokuroCatalogListing
       if (typeof item !== 'object' || item === null) continue;
       const name = typeof item.name === 'string' ? item.name.trim() : '';
       if (!name) continue;
-      const nativeTitle = typeof item.titles?.native === 'string' ? item.titles.native.trim() : '';
-      const englishTitle = typeof item.titles?.english === 'string' ? item.titles.english.trim() : '';
-      const volCount = typeof item.volume_count === 'number' && item.volume_count > 0 ? `${item.volume_count} vol` : undefined;
+      const nativeTitle = typeof item.titles?.native === 'string' && item.titles.native.trim() ? item.titles.native.trim() : undefined;
+      const romajiTitle = typeof item.titles?.romaji === 'string' && item.titles.romaji.trim() ? item.titles.romaji.trim() : undefined;
+      const englishTitle = typeof item.titles?.english === 'string' && item.titles.english.trim() ? item.titles.english.trim() : undefined;
+      const volumeCount = typeof item.volume_count === 'number' && item.volume_count > 0 ? item.volume_count : undefined;
+      const totalPages = typeof item.total_pages === 'number' && item.total_pages > 0 ? item.total_pages : undefined;
+      const totalChars = typeof item.total_chars === 'number' && item.total_chars > 0 ? item.total_chars : undefined;
+      const score = typeof item.community?.score === 'number' && item.community.score > 0 ? Math.round(item.community.score) : undefined;
+      const genres = stringList(item.community?.genres);
+      const tags = stringList(item.community?.tags);
+      const coverUrl = resolveMokuroCoverUrl(origin, item.cover);
+      const volCount = volumeCount !== undefined ? `${volumeCount} vol` : undefined;
       const subtitleParts: string[] = [];
       if (nativeTitle && nativeTitle !== name) subtitleParts.push(nativeTitle);
       if (englishTitle && englishTitle !== name && englishTitle !== nativeTitle) subtitleParts.push(englishTitle);
@@ -117,6 +153,16 @@ function tryParseMokuroBunkoJson(raw: string, url: string): MokuroCatalogListing
         url: `${origin}/catalog/api/series?name=${encodeURIComponent(name)}`,
         ...(subtitleParts.length > 0 ? { sizeText: subtitleParts.join(' · ') } : {}),
         ...(modifiedAt !== undefined ? { modifiedAt } : {}),
+        ...(coverUrl !== undefined ? { coverUrl } : {}),
+        ...(nativeTitle !== undefined ? { nativeTitle } : {}),
+        ...(romajiTitle !== undefined ? { romajiTitle } : {}),
+        ...(englishTitle !== undefined ? { englishTitle } : {}),
+        ...(volumeCount !== undefined ? { volumeCount } : {}),
+        ...(totalPages !== undefined ? { totalPages } : {}),
+        ...(totalChars !== undefined ? { totalChars } : {}),
+        ...(score !== undefined ? { score } : {}),
+        ...(genres !== undefined ? { genres } : {}),
+        ...(tags !== undefined ? { tags } : {}),
         isMokuro: false,
         isImageArchive: false,
       });
@@ -130,20 +176,31 @@ function tryParseMokuroBunkoJson(raw: string, url: string): MokuroCatalogListing
       typeof obj['name'] === 'string' && obj['name'].trim() !== ''
         ? obj['name'].trim()
         : (u.searchParams.get('name') ?? 'Series');
+    const seriesCoverUrl = resolveMokuroCoverUrl(origin, obj['cover']);
     const volumes: MokuroCatalogVolume[] = [];
     for (const v of obj['volumes'] as MokuroApiVolumeItem[]) {
       if (typeof v !== 'object' || v === null) continue;
       const volName = typeof v.name === 'string' ? v.name.trim() : '';
       if (!volName || v.ocr_pending === true) continue;
+      const coverUrl = resolveMokuroCoverUrl(origin, v.cover) ?? seriesCoverUrl;
+      const pageCount = typeof v.page_count === 'number' && v.page_count > 0 ? v.page_count : undefined;
       volumes.push({
         name: volName,
         mokuroUrl: `${origin}/mokuro-reader/${encodeURIComponent(seriesName)}/${encodeURIComponent(volName)}.mokuro`,
         imagesUrl: `${origin}/mokuro-reader/${encodeURIComponent(seriesName)}/${encodeURIComponent(volName)}.cbz`,
         imagesKind: 'archive',
+        ...(coverUrl !== undefined ? { coverUrl } : {}),
+        ...(pageCount !== undefined ? { pageCount } : {}),
       });
     }
     volumes.sort((a, b) => compareNatural(a.name, b.name));
-    return { url: u.href, path: [seriesName], entries: [], volumes };
+    return {
+      url: u.href,
+      path: [seriesName],
+      entries: [],
+      volumes,
+      ...(seriesCoverUrl !== undefined ? { coverUrl: seriesCoverUrl } : {}),
+    };
   }
 
   return undefined;
