@@ -41,6 +41,7 @@
 .k-reader__edge:disabled { cursor: default; }
 .k-reader__edge--left { left: 0; --k-edge-dir: right; }
 .k-reader__edge--right { right: 0; --k-edge-dir: left; }
+@media (pointer: coarse), (hover: none) { .k-reader__edge { pointer-events: none; } }
 .k-reader__edge-icon { font-size: 48px; line-height: 1; text-shadow: 0 1px 4px rgb(0 0 0 / 0.5); }
 .k-reader__scrubber { flex: none; margin: 8px 16px 12px; accent-color: var(--md-sys-color-primary); }
 .k-reader__scrubber.is-rtl { direction: rtl; }
@@ -52,7 +53,7 @@
   flex: 1; display: flex; align-items: center; justify-content: center; transform-origin: center center;
   transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
 }
-.k-zoompan.is-zoomed .k-zoompan__content { transition: none; }
+.k-zoompan.is-zoomed .k-zoompan__content, .k-zoompan.is-gesturing .k-zoompan__content { transition: none; }
 .k-spread { display: flex; align-items: center; justify-content: center; animation: k-page-in var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate); }
 .k-spread--width { align-items: flex-start; }
 .k-spread__slot { flex: none; position: relative; }

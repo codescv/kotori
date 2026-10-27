@@ -30,7 +30,7 @@ import { BlockOverlay, blockContext } from './BlockOverlay';
 import { BubbleSelectTool } from './BubbleSelectTool';
 import { GuideMarkers, PageGuideSheet } from './PageGuideSheet';
 import { ZoomPan } from './PageCanvas';
-import { SpreadLayout } from './SpreadLayout';
+import { computeSpreadLayout, SpreadLayout } from './SpreadLayout';
 import { useElementSize } from './useElementSize';
 import { Webtoon } from './Webtoon';
 import '../manga.css';
@@ -90,7 +90,18 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
   // Close the breakdown when leaving the reader.
   useEffect(() => () => useBreakdownStore.getState().close(), []);
 
-  const mode: MangaReadingMode = volume?.readingMode ?? mangaSettings.defaultReadingMode;
+  const isPortraitStage = stage.width > 0 && stage.height > 0 && stage.width < stage.height;
+  const isMobileDefault = isPortraitStage || host.info.platform === 'android';
+  const rawMode: MangaReadingMode = volume?.readingMode ?? mangaSettings.defaultReadingMode;
+  const mode: MangaReadingMode =
+    volume?.readingMode === undefined && isMobileDefault
+      ? rawMode === 'spread-rtl'
+        ? 'single-rtl'
+        : rawMode === 'spread-ltr'
+          ? 'single-ltr'
+          : rawMode
+      : rawMode;
+  const effectiveFit = isMobileDefault && !mode.startsWith('spread') && mangaSettings.fit === 'contain' ? 'width' : mangaSettings.fit;
   const coverIsSingle = volume?.coverIsSingle ?? true;
   const rtl = isRtl(mode);
   const spreads = useMemo(() => (pages ? buildSpreads(pages, { mode, coverIsSingle }) : []), [pages, mode, coverIsSingle]);
@@ -98,6 +109,10 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
   const spread = spreads[spreadIdx];
   const pageAt = useCallback((i: number) => pages?.[i], [pages]);
   const spreadPages = useMemo(() => (spread ? spread.pageIndexes.map((i) => pages?.[i]).filter((p): p is MangaPage => p !== undefined) : []), [spread, pages]);
+  const spreadBox = useMemo(
+    () => (spread ? computeSpreadLayout(spread, pageAt, mode, stage, effectiveFit) : undefined),
+    [spread, pageAt, mode, stage, effectiveFit],
+  );
 
   // ---- navigation -------------------------------------------------------------
   const go = useCallback(
@@ -109,6 +124,22 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
   );
   const goNext = useCallback(() => go(1), [go]);
   const goPrev = useCallback(() => go(-1), [go]);
+  const handleEdgeTap = useCallback(
+    (side: 'left' | 'right') => {
+      if (side === 'left') {
+        if (rtl) goNext();
+        else goPrev();
+      } else if (rtl) {
+        goPrev();
+      } else {
+        goNext();
+      }
+    },
+    [rtl, goNext, goPrev],
+  );
+  const onPageNaturalSize = useCallback((pageIndex: number, width: number, height: number) => {
+    setPages((ps) => ps?.map((p) => (p.index === pageIndex && (p.width <= 0 || p.height <= 0) ? { ...p, width, height } : p)));
+  }, []);
 
   // The listener is registered once and always calls the latest handler (kept
   // in a ref updated during render), so a key press right after a re-render
@@ -292,8 +323,24 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
           {pages && mode !== 'webtoon' && spread && (
             <>
               <div className="k-reader__stage" ref={stageRef}>
-                <ZoomPan disabled={selectTool} resetKey={spreadIdx}>
-                  <SpreadLayout spread={spread} page={pageAt} mode={mode} stage={stage} fit={mangaSettings.fit} renderOverlay={renderOverlay} />
+                <ZoomPan
+                  disabled={selectTool}
+                  resetKey={spreadIdx}
+                  stageSize={stage}
+                  contentSize={spreadBox ? { width: spreadBox.width, height: spreadBox.height } : undefined}
+                  onSwipeLeft={rtl ? goPrev : goNext}
+                  onSwipeRight={rtl ? goNext : goPrev}
+                  onEdgeTap={handleEdgeTap}
+                >
+                  <SpreadLayout
+                    spread={spread}
+                    page={pageAt}
+                    mode={mode}
+                    stage={stage}
+                    fit={effectiveFit}
+                    renderOverlay={renderOverlay}
+                    onPageNaturalSize={onPageNaturalSize}
+                  />
                 </ZoomPan>
               </div>
               <button

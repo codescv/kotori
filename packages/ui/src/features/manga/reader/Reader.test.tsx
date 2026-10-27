@@ -137,3 +137,84 @@ describe('Reader — other modes', () => {
     expect((await host.manga.getVolume(VOL)).readingMode).toBe('single-rtl');
   });
 });
+
+describe('Reader — Android default width-fit & touch gestures', () => {
+  it('defaults to single-rtl and fits 100% of stage width on Android', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    expect(screen.getByTestId('manga-reader').dataset['mode']).toBe('single-rtl');
+    expect(spread()).toHaveClass('k-spread--width');
+    const slot = spread().querySelector<HTMLElement>('[data-slot]');
+    expect(slot?.style.width).toBe('1000px');
+  });
+
+  it('supports single-finger horizontal swipe and edge-tap page turning in RTL', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    const zp = screen.getByTestId('zoompan');
+
+    // RTL swipe right (left -> right, dx > 0) advances to next page (page 2).
+    fireEvent.touchStart(zp, { touches: [{ clientX: 150, clientY: 400 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 280, clientY: 405 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(spread().dataset['pageIndexes']).toBe('2');
+
+    // RTL swipe left (right -> left, dx < 0) returns to previous page (page 1).
+    fireEvent.touchStart(zp, { touches: [{ clientX: 300, clientY: 400 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 160, clientY: 400 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(spread().dataset['pageIndexes']).toBe('1');
+
+    // RTL left-edge tap (x = 100 / 1000 = 0.10 <= 0.28) advances to page 2.
+    fireEvent.touchStart(zp, { touches: [{ clientX: 100, clientY: 400 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(spread().dataset['pageIndexes']).toBe('2');
+
+    // RTL right-edge tap (x = 900 / 1000 = 0.90 >= 0.72) returns to page 1.
+    fireEvent.touchStart(zp, { touches: [{ clientX: 900, clientY: 400 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(spread().dataset['pageIndexes']).toBe('1');
+  });
+
+  it('supports two-finger pinch-to-zoom, zoomed single-finger pan, and double-tap zoom toggle', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    const zp = screen.getByTestId('zoompan');
+    expect(zp.dataset['scale']).toBe('1.00');
+
+    // Two-finger pinch from distance 100px to 250px -> 2.50x zoom without turning the page.
+    fireEvent.touchStart(zp, {
+      touches: [
+        { clientX: 450, clientY: 400 },
+        { clientX: 550, clientY: 400 },
+      ],
+    });
+    fireEvent.touchMove(zp, {
+      touches: [
+        { clientX: 375, clientY: 400 },
+        { clientX: 625, clientY: 400 },
+      ],
+    });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(zp.dataset['scale']).toBe('2.50');
+    expect(zp).toHaveClass('is-zoomed');
+    expect(spread().dataset['pageIndexes']).toBe('1');
+
+    // While zoomed in, single-finger horizontal drag pans instead of turning the page.
+    fireEvent.touchStart(zp, { touches: [{ clientX: 500, clientY: 400 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 650, clientY: 420 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(spread().dataset['pageIndexes']).toBe('1');
+    expect(zp.dataset['scale']).toBe('2.50');
+
+    // Double-tap while zoomed in resets zoom to 1.00x.
+    fireEvent.touchStart(zp, { touches: [{ clientX: 500, clientY: 400 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    fireEvent.touchStart(zp, { touches: [{ clientX: 505, clientY: 402 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(zp.dataset['scale']).toBe('1.00');
+  });
+});
