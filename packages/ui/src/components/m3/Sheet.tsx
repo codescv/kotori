@@ -47,8 +47,10 @@ export function BottomSheet({ open, onClose, title, headerActions, children, cla
   const [dragY, setDragY] = useState(0);
   const start = useRef<{ y: number; t: number } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const openedAtRef = useRef(0);
   useEffect(() => {
     if (!open) return;
+    openedAtRef.current = performance.now();
     setDragY(0);
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -56,7 +58,12 @@ export function BottomSheet({ open, onClose, title, headerActions, children, cla
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="k-bottom-sheet-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="k-bottom-sheet-scrim"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && performance.now() - openedAtRef.current >= 350) onClose();
+      }}
+    >
       <div
         ref={sheetRef}
         className={cx('k-bottom-sheet', className)}

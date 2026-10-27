@@ -262,5 +262,14 @@ export function matchJimakuFilesToEpisodes(
     const best = candidates[0];
     if (best !== undefined) out.set(ep.id, best);
   }
+  if (out.size === 0 && episodes.length === 1 && episodes[0] !== undefined) {
+    const ep = episodes[0];
+    const singleCandidates = files
+      .filter((f) => f.isTextSubtitle && (f.episode === undefined || f.episode === ep.parsedName.episode))
+      .sort(compareCandidates);
+    if (singleCandidates[0] !== undefined && (ep.parsedName.episode === undefined || singleCandidates.length === 1)) {
+      out.set(ep.id, singleCandidates[0]);
+    }
+  }
   return out;
 }

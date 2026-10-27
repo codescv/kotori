@@ -18,6 +18,7 @@ import { unzipSync } from 'fflate';
 import { KotoriError } from '@kotori/core';
 import type {
   AnimeEpisode,
+  AnimeSeries,
   AppSettings,
   DownloadFile,
   DownloadKind,
@@ -27,8 +28,9 @@ import type {
   DownloadTask,
   HostEvent,
   Id,
+  TorrentSeriesMetadata,
 } from '@kotori/core';
-import { parseEpisodeName, parseMagnet, parseMokuroMoeListing } from '@kotori/core';
+import { isAjattEntryId, normalizeSubtitleSearchText, parseEpisodeName, parseMagnet, parseMokuroMoeListing } from '@kotori/core';
 import type { DownloadRepository } from '../db/repositories';
 import { sanitizeFileName } from '../library/subtitle-store';
 import type { TorrentEngine, TorrentHandle } from './torrent-engine';
@@ -37,10 +39,12 @@ export const PROGRESS_INTERVAL_MS = 500;
 
 /** Library hooks used for auto-import (implemented by the server services). */
 export interface DownloadImportHooks {
-  importAnime(path: string): Promise<{ seriesId: Id }>;
+  importAnime(path: string, options?: { titleOverride?: string; anilistId?: number; coverUrl?: string }): Promise<{ seriesId: Id }>;
   importManga(path: string): Promise<{ volumeId: Id }>;
   attachSubtitle(episodeId: Id, filePath: string, fileName: string): Promise<{ trackId: Id }>;
   listEpisodes(seriesId: Id): Promise<readonly AnimeEpisode[]>;
+  listSeries?(): Promise<readonly AnimeSeries[]>;
+  autoFetchSubtitles?(seriesId: Id, seriesMeta?: TorrentSeriesMetadata): Promise<void>;
 }
 
 export interface DownloadManagerDeps {
@@ -472,7 +476,13 @@ export class DownloadManager {
     const task = this.get(taskId);
     const apiKey = this.deps.settings().anime.jimakuApiKey;
     const dest = join(task.targetDir, sanitizeFileName(source.file.name));
-    const bytes = await this.download(taskId, source.file.url, dest, signal, apiKey ? { headers: { authorization: apiKey } } : {});
+    const useAuthHeader = Boolean(
+      apiKey &&
+        !isAjattEntryId(source.entry.id) &&
+        !source.file.url.includes('githubusercontent.com') &&
+        !source.file.url.includes('ajatt.top'),
+    );
+    const bytes = await this.download(taskId, source.file.url, dest, signal, useAuthHeader ? { headers: { authorization: apiKey } } : {});
     this.patch(taskId, { downloadedBytes: bytes, totalBytes: bytes });
     // Collect subtitle files (unzip packs).
     let subtitleFiles: string[] = [];
@@ -496,17 +506,35 @@ export class DownloadManager {
     if (!this.autoImport.get(taskId)) return;
     // Match to episodes.
     const targets: Array<{ episodeId: Id; file: string }> = [];
+    let resolvedSeriesId = source.seriesId;
+    if (!source.episodeId && !resolvedSeriesId && this.deps.hooks.listSeries) {
+      const allSeries = await this.deps.hooks.listSeries();
+      const entryTitles = [source.entry.name, source.entry.japaneseName, source.entry.englishName]
+        .filter((s): s is string => Boolean(s && s.trim()))
+        .map(normalizeSubtitleSearchText)
+        .filter((s) => s.length > 0);
+      const matched = allSeries.find((s) => {
+        if (source.entry.anilistId !== undefined && s.anilistId === source.entry.anilistId) return true;
+        if (s.jimakuEntryId === source.entry.id) return true;
+        const st = normalizeSubtitleSearchText(s.title);
+        return st.length > 0 && entryTitles.some((et) => st === et || st.includes(et) || (st.length > 2 && et.includes(st)));
+      });
+      if (matched) resolvedSeriesId = matched.id;
+    }
     if (source.episodeId) {
-      const want = source.seriesId ? (await this.deps.hooks.listEpisodes(source.seriesId)).find((e) => e.id === source.episodeId)?.parsedName.episode : undefined;
+      const want = resolvedSeriesId ? (await this.deps.hooks.listEpisodes(resolvedSeriesId)).find((e) => e.id === source.episodeId)?.parsedName.episode : undefined;
       const byEpisode = want === undefined ? [] : subtitleFiles.filter((f) => parseEpisodeName(basename(f)).episode === want);
       const pick = byEpisode[0] ?? (subtitleFiles.length === 1 ? subtitleFiles[0] : undefined);
       if (pick) targets.push({ episodeId: source.episodeId, file: pick });
-    } else if (source.seriesId) {
-      const episodes = await this.deps.hooks.listEpisodes(source.seriesId);
+    } else if (resolvedSeriesId) {
+      const episodes = await this.deps.hooks.listEpisodes(resolvedSeriesId);
       for (const ep of episodes) {
         const n = ep.parsedName.episode;
         const match = n === undefined ? undefined : subtitleFiles.find((f) => parseEpisodeName(basename(f)).episode === n);
         if (match) targets.push({ episodeId: ep.id, file: match });
+      }
+      if (targets.length === 0 && episodes.length === 1 && subtitleFiles.length === 1 && episodes[0] && subtitleFiles[0]) {
+        targets.push({ episodeId: episodes[0].id, file: subtitleFiles[0] });
       }
     }
     if (targets.length === 0) return;
@@ -521,7 +549,10 @@ export class DownloadManager {
     const task = this.get(taskId);
     const name = sanitizeFileName(source.volume.name);
     const mokuroPath = join(task.targetDir, `${name}.mokuro`);
-    let done = await this.download(taskId, source.volume.mokuroUrl, mokuroPath, signal, { base: 0, total: task.totalBytes ?? 0 });
+    let done = await this.download(taskId, source.volume.mokuroUrl, mokuroPath, signal, {
+      base: 0,
+      ...(task.totalBytes !== undefined ? { total: task.totalBytes } : {}),
+    });
     if (source.volume.imagesKind === 'archive') {
       const ext = /\.cbz$/i.test(source.volume.imagesUrl) ? '.cbz' : '.zip';
       done += await this.download(taskId, source.volume.imagesUrl, join(task.targetDir, name + ext), signal, { base: done });
@@ -628,11 +659,43 @@ export class DownloadManager {
       let importedSeriesId: Id | undefined;
       if (this.autoImport.get(taskId)) {
         this.patch(taskId, { status: 'importing' }, true);
-        const rootName = handle.files.length > 1 ? handle.files[0]?.path.split('/')[0] : handle.files[0]?.path;
-        const root = rootName ? join(task.targetDir, rootName) : task.targetDir;
-        if (existsSync(root)) {
-          importedSeriesId = (await this.deps.hooks.importAnime(root)).seriesId;
-          this.deps.emit({ type: 'library-changed', scope: 'anime' });
+        const selectedFiles = handle.files.filter((f) => f.selected);
+        const activeFiles = selectedFiles.length > 0 ? selectedFiles : handle.files;
+        const firstPath = activeFiles[0]?.path ?? handle.files[0]?.path;
+        const firstSeg = firstPath?.split('/')[0];
+        const candidateRoot = firstPath
+          ? handle.files.length > 1 || firstPath.includes('/')
+            ? join(task.targetDir, firstSeg ?? firstPath)
+            : join(task.targetDir, ...firstPath.split('/'))
+          : task.targetDir;
+        const importCandidates = [candidateRoot, task.targetDir].filter(
+          (p, i, a) => Boolean(p) && a.indexOf(p) === i && existsSync(p),
+        );
+        const seriesMeta = task.source.kind === 'torrent' ? task.source.series : undefined;
+        for (const candidate of importCandidates) {
+          try {
+            const importOpts =
+              seriesMeta && (seriesMeta.title || seriesMeta.anilistId !== undefined || seriesMeta.coverUrl)
+                ? {
+                    ...(seriesMeta.title ? { titleOverride: seriesMeta.title } : {}),
+                    ...(seriesMeta.anilistId !== undefined ? { anilistId: seriesMeta.anilistId } : {}),
+                    ...(seriesMeta.coverUrl ? { coverUrl: seriesMeta.coverUrl } : {}),
+                  }
+                : undefined;
+            const imported = importOpts
+              ? await this.deps.hooks.importAnime(candidate, importOpts)
+              : await this.deps.hooks.importAnime(candidate);
+            importedSeriesId = imported.seriesId;
+            this.deps.emit({ type: 'library-changed', scope: 'anime' });
+            break;
+          } catch (importErr) {
+            console.warn(`[kotori:downloads] auto-import failed for ${candidate}:`, importErr instanceof Error ? importErr.message : importErr);
+          }
+        }
+        if (importedSeriesId && this.deps.settings().anime.autoDownloadJimaku !== false && this.deps.hooks.autoFetchSubtitles) {
+          void this.deps.hooks.autoFetchSubtitles(importedSeriesId, seriesMeta).catch((subErr) => {
+            console.warn(`[kotori:downloads] auto subtitle fetch skipped for ${importedSeriesId}:`, subErr instanceof Error ? subErr.message : subErr);
+          });
         }
       }
       const run = this.running.get(taskId);

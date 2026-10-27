@@ -30,7 +30,12 @@
   background: var(--md-sys-color-surface-container); overflow-x: auto; scrollbar-width: none;
 }
 .k-reader__title { margin: 0 8px 0 4px; min-width: 0; max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.k-reader__page { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+.k-reader__page {
+  border: 0; background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+  color: var(--md-sys-color-on-surface); white-space: nowrap; cursor: pointer;
+  padding: 4px 10px; border-radius: var(--md-sys-shape-corner-full);
+}
+.k-reader__page:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent); }
 .k-reader__body { flex: 1; min-height: 0; display: flex; }
 .k-reader__stage-wrap { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; transition: background-color var(--md-sys-motion-duration-medium2); }
 .k-reader__stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
@@ -68,9 +73,10 @@
 .k-page-canvas__overlay { position: absolute; inset: 0; }
 
 /* ---- OCR blocks ------------------------------------------------------------------------ */
-.k-block-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.k-block { cursor: pointer; outline: none; }
+.k-block-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: auto; }
+.k-block { cursor: pointer; outline: none; pointer-events: all; }
 .k-block__hit {
+  pointer-events: all;
   fill: transparent; stroke: transparent; stroke-width: 3; vector-effect: non-scaling-stroke;
   transition: fill var(--md-sys-motion-duration-short4), stroke var(--md-sys-motion-duration-short4);
 }
@@ -82,7 +88,7 @@
 }
 .k-block.is-active .k-block__hit { fill: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent); stroke: var(--md-sys-color-primary); stroke-dasharray: none; }
 .k-block--vlm .k-block__hit { stroke: color-mix(in srgb, var(--md-sys-color-tertiary) 60%, transparent); }
-.k-block__cell { fill: transparent; transition: fill var(--md-sys-motion-duration-short2); }
+.k-block__cell { pointer-events: all; fill: transparent; transition: fill var(--md-sys-motion-duration-short2); }
 .k-block__cell.is-hl { fill: color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent); }
 .k-block__cell.is-focus { fill: color-mix(in srgb, var(--md-sys-color-primary) 50%, transparent); }
 
@@ -132,3 +138,39 @@
 .k-webtoon__column { position: relative; margin: 0 auto; }
 .k-webtoon__page { position: absolute; left: 0; }
 .k-webtoon .k-page-canvas { box-shadow: none; }
+
+/* ---- page overview / directory (TOC) ----------------------------------------------------- */
+.k-toc { display: flex; flex-direction: column; gap: 12px; }
+.k-toc__controls { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.k-toc__cover-btn {
+  margin-left: auto; padding: 6px 12px; border-radius: var(--md-sys-shape-corner-small);
+  border: 1px solid var(--md-sys-color-outline); background: transparent;
+  color: var(--md-sys-color-on-surface); font: var(--md-sys-typescale-label-large); cursor: pointer;
+}
+.k-toc__cover-btn.is-active {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: transparent;
+}
+.k-toc__cover-btn:disabled { opacity: 0.4; cursor: default; }
+.k-toc__list { display: flex; flex-direction: column; gap: 8px; }
+.k-toc__item {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px;
+  border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);
+  text-align: left; cursor: pointer; transition: background-color var(--md-sys-motion-duration-short4);
+}
+.k-toc__item:hover { background: var(--md-sys-color-surface-container-high); }
+.k-toc__item.is-current {
+  border-color: var(--md-sys-color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container));
+}
+.k-toc__thumb {
+  flex: none; width: 48px; height: 68px; object-fit: cover;
+  border-radius: var(--md-sys-shape-corner-extra-small); background: var(--md-sys-color-surface-container-highest);
+}
+.k-toc__item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.k-toc__preview {
+  font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}

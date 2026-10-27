@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MangaGuideBubble, MangaPage, MangaPageGuideResult, MangaReadingMode, MangaVolume } from '@kotori/core';
 import { BreakdownPanel } from '../../../components/breakdown/AiBreakdownPanel';
+import { Button } from '../../../components/m3/Button';
+import { Chip } from '../../../components/m3/Chip';
 import { CircularProgress } from '../../../components/m3/Progress';
 import { cx } from '../../../components/m3/cx';
 import { IconButton } from '../../../components/m3/IconButton';
@@ -64,6 +66,8 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
   const [outlines, setOutlines] = useState(mangaSettings.showBlockOutlines);
   const [selectTool, setSelectTool] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(false);
+  const [tocFilter, setTocFilter] = useState<'all' | 'dialogue'>('all');
   const [guides, setGuides] = useState<ReadonlyMap<number, MangaPageGuideResult>>(new Map());
   const stageRef = useRef<HTMLDivElement>(null);
   const stage = useElementSize(stageRef);
@@ -173,6 +177,7 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
         break;
       case 'Escape':
         if (useBreakdownStore.getState().isOpen) useBreakdownStore.getState().close();
+        else if (tocOpen) setTocOpen(false);
         else if (selectTool) setSelectTool(false);
         else handled = false;
         break;
@@ -263,6 +268,9 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
   const total = pages?.length ?? volume?.pageCount ?? 0;
   const pageLabel = spread ? spread.pageIndexes.map((i) => i + 1).join('–') : String(anchor + 1);
   const rawPage = spreadPages.some((p) => p.blocks.length === 0);
+  const dialoguePages = useMemo(() => (pages ?? []).filter((p) => p.blocks.length > 0), [pages]);
+  const tocPages = tocFilter === 'dialogue' ? dialoguePages : (pages ?? []);
+  const progressPct = total > 0 ? Math.round(((anchor + 1) / total) * 100) : 0;
 
   return (
     <div className={cx('k-reader', `k-reader--bg-${mangaSettings.background}`)} data-testid="manga-reader" data-mode={mode}>
@@ -271,9 +279,17 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
         <h1 className="k-reader__title k-title-medium" lang="ja" title={volume?.title}>
           {volume?.title ?? t('common.loading')}
         </h1>
-        <span className="k-reader__page k-label-large" data-testid="page-indicator">
+        <button
+          type="button"
+          className="k-reader__page k-label-large"
+          data-testid="page-indicator"
+          onClick={() => {
+            if (!tocOpen) closeBreakdown();
+            setTocOpen((v) => !v);
+          }}
+        >
           {t('manga.reader.page', { current: pageLabel, total })}
-        </span>
+        </button>
         <span className="k-spacer" />
         <Menu
           trigger={({ toggle }) => <IconButton icon={MODES.find((m) => m.mode === mode)?.icon ?? 'spread'} label={t('manga.reader.mode')} onClick={toggle} />}
@@ -282,11 +298,17 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
         />
         <IconButton
           icon="book"
-          label={t('manga.reader.cover')}
-          selected={coverIsSingle}
-          disabled={!mode.startsWith('spread')}
-          onClick={() => void toggleCover()}
-          data-testid="cover-toggle"
+          label="页码与目录"
+          selected={tocOpen}
+          disabled={total <= 0}
+          onClick={() => {
+            if (!tocOpen) {
+              closeBreakdown();
+              setGuideOpen(false);
+            }
+            setTocOpen((v) => !v);
+          }}
+          data-testid="toc-toggle"
         />
         <IconButton icon={outlines ? 'visibility' : 'visibilityOff'} label={t('manga.reader.outlines')} selected={outlines} onClick={() => setOutlines((o) => !o)} />
         <IconButton
@@ -302,7 +324,10 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
           label={t('manga.reader.guide')}
           selected={guideOpen}
           onClick={() => {
-            if (!guideOpen) closeBreakdown();
+            if (!guideOpen) {
+              closeBreakdown();
+              setTocOpen(false);
+            }
             setGuideOpen((g) => !g);
           }}
           data-testid="guide-toggle"
@@ -382,8 +407,100 @@ export function Reader({ volumeId, onExit }: ReaderProps) {
         <AdaptiveSheet open={breakdownOpen} onClose={closeBreakdown} title={t('breakdown.title')} closeLabel={t('common.close')}>
           <BreakdownPanel />
         </AdaptiveSheet>
+        <AdaptiveSheet
+          open={tocOpen && !breakdownOpen}
+          onClose={() => setTocOpen(false)}
+          title={`页码与目录 · 第 ${pageLabel} / ${total} 页 (${progressPct}%)`}
+          closeLabel={t('common.close')}
+        >
+          <div className="k-toc" data-testid="manga-toc-sheet">
+            <div className="k-toc__controls">
+              <div className="k-row">
+                <Button variant="tonal" onClick={() => setAnchor(0)} disabled={anchor <= 0}>
+                  首页
+                </Button>
+                <Button variant="tonal" onClick={() => setAnchor((a) => Math.max(0, a - 10))} disabled={anchor <= 0}>
+                  -10 页
+                </Button>
+                <Button
+                  variant="tonal"
+                  onClick={() => setAnchor((a) => Math.min(Math.max(0, total - 1), a + 10))}
+                  disabled={anchor >= total - 1}
+                >
+                  +10 页
+                </Button>
+                <Button
+                  variant="tonal"
+                  onClick={() => setAnchor(Math.max(0, total - 1))}
+                  disabled={anchor >= total - 1}
+                >
+                  末页
+                </Button>
+              </div>
+              {total > 1 && (
+                <input
+                  className={cx('k-reader__scrubber', rtl && 'is-rtl')}
+                  type="range"
+                  min={0}
+                  max={total - 1}
+                  value={anchor}
+                  aria-label="跳转页码"
+                  onChange={(e) => setAnchor(Number(e.currentTarget.value))}
+                />
+              )}
+              <div className="k-row">
+                <Chip kind="filter" selected={tocFilter === 'all'} onClick={() => setTocFilter('all')}>
+                  {`全部页面 (${pages?.length ?? 0})`}
+                </Chip>
+                <Chip kind="filter" selected={tocFilter === 'dialogue'} onClick={() => setTocFilter('dialogue')}>
+                  {`有台词页 (${dialoguePages.length})`}
+                </Chip>
+                <button
+                  type="button"
+                  className={cx('k-toc__cover-btn', coverIsSingle && 'is-active')}
+                  aria-pressed={coverIsSingle}
+                  disabled={!mode.startsWith('spread')}
+                  onClick={() => void toggleCover()}
+                  data-testid="cover-toggle"
+                >
+                  {t('manga.reader.cover')}
+                </button>
+              </div>
+            </div>
+            <div className="k-toc__list" role="list">
+              {tocPages.map((p) => {
+                const isCurrent = spread ? spread.pageIndexes.includes(p.index) : p.index === anchor;
+                const firstLine = p.blocks[0]?.text;
+                return (
+                  <button
+                    key={p.index}
+                    type="button"
+                    className={cx('k-toc__item', isCurrent && 'is-current')}
+                    data-testid={`toc-page-${p.index}`}
+                    onClick={() => {
+                      setAnchor(p.index);
+                      setTocOpen(false);
+                    }}
+                  >
+                    <img className="k-toc__thumb" src={p.imageUrl} alt="" loading="lazy" />
+                    <div className="k-toc__item-body">
+                      <div className="k-row">
+                        <span className="k-title-small">{`第 ${p.index + 1} 页`}</span>
+                        {p.blocks.length > 0 && <span className="k-tag">{`💬 ${p.blocks.length} 处台词`}</span>}
+                        {isCurrent && <span className="k-tag k-tag--tone">当前页</span>}
+                      </div>
+                      <span className="k-toc__preview" lang="ja">
+                        {firstLine ?? '（无台词 / 插画页）'}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </AdaptiveSheet>
         <PageGuideSheet
-          open={guideOpen && !breakdownOpen}
+          open={guideOpen && !breakdownOpen && !tocOpen}
           onClose={() => setGuideOpen(false)}
           volumeId={volumeId}
           pages={spreadPages}

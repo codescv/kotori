@@ -78,10 +78,12 @@ describe('Reader — spread-rtl navigation', () => {
     key('ArrowLeft');
     expect(spread().dataset['pageIndexes']).toBe('5');
 
+    fireEvent.click(screen.getByTestId('toc-toggle'));
     fireEvent.click(screen.getByTestId('cover-toggle'));
     await waitFor(() => expect(screen.getByTestId('cover-toggle')).toHaveAttribute('aria-pressed', 'false'));
     expect((await host.manga.getVolume(VOL)).coverIsSingle).toBe(false);
     expect(spread().dataset['pageIndexes']).toBe('5');
+    key('Escape');
 
     key('Home');
     expect(spread().dataset['pageIndexes']).toBe('0,1');
@@ -250,5 +252,29 @@ describe('Reader — Android default width-fit & touch gestures', () => {
 
     await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(true));
     expect(useBreakdownStore.getState().request?.sentence.length).toBeGreaterThan(0);
+
+    // Even if Android WebView fires a trailing compatibility mousedown on the newly mounted scrim,
+    // the BottomSheet remains open within the 350ms guard window.
+    const scrim = document.querySelector('.k-bottom-sheet-scrim');
+    if (scrim) fireEvent.mouseDown(scrim);
+    expect(useBreakdownStore.getState().isOpen).toBe(true);
+  });
+
+  it('opens the page numbers & directory sheet from the book button in single-page mode and jumps to any page', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+
+    const tocBtn = screen.getByTestId('toc-toggle');
+    expect(tocBtn).not.toBeDisabled();
+    fireEvent.click(tocBtn);
+
+    const tocSheet = await screen.findByTestId('manga-toc-sheet');
+    expect(tocSheet).toBeInTheDocument();
+
+    // Jump directly to page 5 (0-based index 4) from the page directory list
+    fireEvent.click(screen.getByTestId('toc-page-4'));
+    expect(spread().dataset['pageIndexes']).toBe('4');
+    expect(screen.queryByTestId('manga-toc-sheet')).toBeNull();
   });
 });
