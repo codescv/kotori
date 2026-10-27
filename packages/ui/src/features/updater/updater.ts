@@ -218,7 +218,7 @@ async function fetchLatestRelease(fetchImpl: typeof fetch): Promise<ReleaseInfo>
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
   status: 'idle',
-  currentVersion: '0.1.10',
+  currentVersion: '0.1.12',
   progressPercent: 0,
   downloadedBytes: 0,
   totalBytes: 0,
