@@ -99,4 +99,20 @@ describe('App shell', () => {
     });
     expect(trigger.querySelector('img')).not.toBeNull();
   });
+
+  it('renders the AI assistant brand icon in compact (Android / phone) headers and opens the persona dialog', async () => {
+    setViewport(360);
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    render(<App host={host} />);
+    await screen.findByTestId('series-series-kotori');
+    const trigger = screen.getByTestId('brand-persona-trigger');
+    expect(trigger).toBeInTheDocument();
+    expect(trigger).toHaveTextContent('こ');
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('AI 助手形态设置');
+    await act(async () => {
+      await host.dispose();
+    });
+  });
 });

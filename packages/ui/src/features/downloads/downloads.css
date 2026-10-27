@@ -19,7 +19,8 @@
 .k-dl-task__meta, .k-dl-result__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); }
 .k-dl-result__meta { gap: 4px 8px; }
 .k-dl-result__stat { font-variant-numeric: tabular-nums; }
-.k-dl-task__actions { flex: none; display: flex; gap: 2px; }
+.k-dl-task__actions, .k-dl-result__actions { flex: none; display: flex; align-items: center; gap: 8px; }
+.k-dl-task__actions { gap: 2px; }
 
 .k-dl-status { font: var(--md-sys-typescale-label-medium); padding: 2px 8px; border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); }
 .k-dl-status--downloading, .k-dl-status--resolving, .k-dl-status--importing { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
@@ -42,5 +43,5 @@
 .k-dl-crumb:hover { background: color-mix(in srgb, var(--md-sys-color-primary) var(--k-state-hover), transparent); }
 
 .k-shell--compact .k-dl-task, .k-shell--compact .k-dl-result { flex-wrap: wrap; gap: 12px; }
-.k-shell--compact .k-dl-result .k-btn { margin-left: auto; }
+.k-shell--compact .k-dl-result .k-dl-result__actions { margin-left: auto; }
 .k-shell--compact .k-dl-search__bar .k-btn__label { display: none; }

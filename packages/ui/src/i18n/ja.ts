@@ -287,6 +287,8 @@ export const ja: Messages = {
   'settings.library.animeRoots': 'アニメフォルダ',
   'settings.library.mangaRoots': 'マンガフォルダ',
   'settings.library.add': 'フォルダを追加',
+  'settings.about.nameOrigin':
+    'Kotori（小鳥 / 言採り）：表向きは愛らしい「小鳥」、紐解けば「言（こと）＋採り（とり）」——言葉を採集する人（Sentence Miner の和風雅称）。',
   'settings.about.platform': 'プラットフォーム：{platform} · {os} · v{version}',
   'settings.about.dataDir': 'データフォルダ：{dir}',
   'settings.invalidNumber': '有効な数値を入力してください',
@@ -308,7 +310,7 @@ export const ja: Messages = {
   'settings.library.empty': 'フォルダはまだ追加されていません',
   'persona.title': 'AI アシスタント設定',
   'persona.name': 'ニックネーム',
-  'persona.namePlaceholder': '例：ことり',
+  'persona.namePlaceholder': '例：小鳥 / 言採り / ことり',
   'persona.avatar': 'アイコン画像（URL または Data URL）',
   'persona.uploadImage': '画像をアップロード',
   'persona.resetAvatar': 'デフォルトに戻す',

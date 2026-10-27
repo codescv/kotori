@@ -428,6 +428,100 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     return { importedVolumeId: volume.id };
   };
 
+  const runTorrent = async (
+    task: DownloadTask,
+    source: Extract<DownloadSource, { kind: 'torrent' }>,
+    signal: AbortSignal,
+    autoImport: boolean,
+    fileIndexes?: readonly number[],
+  ): Promise<WorkerResult> => {
+    const engine = deps.torrent;
+    if (!engine) throw new KotoriError('unsupported', 'torrent engine is not configured');
+    const magnet = source.magnet ?? source.nyaa?.magnet;
+    const torrentUrl = source.torrentUrl ?? source.nyaa?.torrentUrl;
+    if (magnet && magnet.startsWith('magnet:')) parseMagnet(magnet);
+    await deps.fs.mkdir(task.targetDir);
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let handlePromise: Promise<{ readonly stop: (reason: 'pause' | 'cancel', deleteFiles?: boolean) => Promise<void> }> | undefined;
+
+      const finish = (err?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', onAbort);
+        if (err !== undefined) reject(err);
+        else resolve();
+      };
+
+      const onAbort = (): void => {
+        const reason = runtimes.get(task.id)?.reason;
+        const stopKind = reason === 'pause' || reason === 'dispose' ? 'pause' : 'cancel';
+        const del = reason === 'cancel' || reason === 'remove';
+        void (handlePromise ? handlePromise.then((h) => h.stop(stopKind, del)) : Promise.resolve()).finally(() => {
+          finish(new KotoriError('cancelled', 'download aborted'));
+        });
+      };
+
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+
+      handlePromise = engine.start(
+        {
+          taskId: task.id,
+          infoHash: source.infoHash,
+          magnet,
+          torrentUrl,
+          targetDir: task.targetDir,
+          maxPeers: ctx.settings.current().downloads.maxPeersPerTorrent,
+          fileIndexes,
+        },
+        (ev) => {
+          if (settled) return;
+          if (ev.status === 'failed') {
+            void handlePromise?.then((h) => h.stop('pause', false)).finally(() => {
+              finish(new KotoriError('network', ev.error ?? 'torrent download failed'));
+            });
+            return;
+          }
+          const patch: TaskPatch = {
+            downloadedBytes: ev.downloadedBytes,
+            speedBps: ev.speedBps,
+            ...(ev.totalBytes !== undefined ? { totalBytes: ev.totalBytes } : {}),
+            ...(ev.progress !== undefined ? { progress: ev.progress } : {}),
+            ...(ev.peers !== undefined ? { peers: ev.peers } : {}),
+            ...(ev.etaMs !== undefined ? { etaMs: ev.etaMs } : {}),
+            ...(ev.files !== undefined ? { files: ev.files } : {}),
+          };
+          if (ev.status === 'resolving') {
+            patch.status = 'resolving';
+          } else if (ev.status === 'downloading') {
+            patch.status = 'downloading';
+          }
+          update(task.id, patch, ev.etaMs === undefined ? ['etaMs'] : []);
+          if (ev.status === 'completed') {
+            void handlePromise?.then((h) => h.stop('pause', false)).finally(() => {
+              finish();
+            });
+          }
+        },
+      );
+      handlePromise.catch((err: unknown) => finish(err));
+    });
+
+    if (!autoImport) return {};
+    update(task.id, { status: 'importing' });
+    try {
+      const series = await libs.anime.importSeries({ path: task.targetDir, titleOverride: task.title });
+      return { importedSeriesId: series.id };
+    } catch {
+      return {};
+    }
+  };
+
   const requests = new Map<string, DownloadRequest>();
 
   /** Execute one task to completion / pause / cancel / failure. */
@@ -436,11 +530,12 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     const request = requests.get(taskId);
     if (!runtime || !request) return;
     const { signal } = runtime.controller;
-    const task = update(taskId, { status: 'downloading', speedBps: 0 }, ['error']);
+    const task = update(taskId, { status: request.source.kind === 'torrent' ? 'resolving' : 'downloading', speedBps: 0 }, ['error']);
     try {
       const source = task.source;
       let result: WorkerResult = {};
-      if (source.kind === 'jimaku') result = await runJimaku(task, source, signal, request.autoImport);
+      if (source.kind === 'torrent') result = await runTorrent(task, source, signal, request.autoImport, source.fileIndexes);
+      else if (source.kind === 'jimaku') result = await runJimaku(task, source, signal, request.autoImport);
       else if (source.kind === 'mokuro-moe') result = await runMokuro(task, source, signal, request.autoImport);
       else if (source.kind === 'http') result = await runHttp(task, source, signal, request.autoImport);
       if (signal.aborted) throw new KotoriError('cancelled', 'download aborted');
@@ -539,10 +634,13 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     async start(request) {
       const now = deps.now();
       const source = request.source;
+      const title = titleOf(request);
       const targetDir =
         request.targetDir ??
         (source.kind === 'torrent'
-          ? 'external'
+          ? deps.torrent
+            ? joinPath(dirs.downloads, safeFileName(title))
+            : 'external'
           : source.kind === 'jimaku'
             ? joinPath(dirs.subtitles, 'jimaku', String(source.entry.id))
             : source.kind === 'mokuro-moe'
@@ -552,7 +650,7 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
         id: uniqueId('dl', now),
         kind: kindOf(source),
         source,
-        title: titleOf(request),
+        title,
         status: 'queued',
         progress: 0,
         downloadedBytes: 0,
@@ -564,7 +662,7 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
       tasks.set(task.id, task);
       requests.set(task.id, request);
       emitNow(task);
-      if (source.kind === 'torrent') return handOffTorrent(task, source);
+      if (source.kind === 'torrent' && !deps.torrent) return handOffTorrent(task, source);
       queue.push(task.id);
       pump();
       return requireTask(task.id);
@@ -582,7 +680,7 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
     async resume(taskId) {
       const task = requireTask(taskId);
       if (task.status !== 'paused' && task.status !== 'failed') return task;
-      if (task.source.kind === 'torrent') return handOffTorrent(task, task.source);
+      if (task.source.kind === 'torrent' && !deps.torrent) return handOffTorrent(task, task.source);
       resuming.add(taskId);
       update(taskId, { status: 'queued' }, ['error']);
       queue.push(taskId);
@@ -613,10 +711,22 @@ export function createDownloadManager(ctx: HostContext, libs: DownloadLibraries)
       if (deleteFiles || task.status !== 'completed') await removeOutputs(task);
       ctx.emit({ type: 'download-removed', taskId });
     },
-    async selectFiles(taskId) {
+    async selectFiles(taskId, fileIndexes) {
       const task = requireTask(taskId);
-      if (task.kind === 'torrent') throw new KotoriError('unsupported', 'torrents are handed off to an external app on Android');
-      throw new KotoriError('invalid-argument', 'file selection only applies to torrents');
+      if (task.kind !== 'torrent') throw new KotoriError('invalid-argument', 'file selection only applies to torrents');
+      if (!deps.torrent?.selectFiles) {
+        throw new KotoriError('unsupported', 'torrents are handed off to an external app when native engine is absent');
+      }
+      const ev = await deps.torrent.selectFiles(taskId, fileIndexes);
+      const req = requests.get(taskId);
+      if (req && req.source.kind === 'torrent') {
+        requests.set(taskId, { ...req, source: { ...req.source, fileIndexes } });
+      }
+      return update(taskId, {
+        ...(ev.files !== undefined ? { files: ev.files } : {}),
+        ...(ev.totalBytes !== undefined ? { totalBytes: ev.totalBytes } : {}),
+        ...(ev.progress !== undefined ? { progress: ev.progress } : {}),
+      });
     },
     async dispose() {
       disposed = true;

@@ -79,7 +79,7 @@ describe('createCapacitorPlatformHost', () => {
       version: 'test',
       dataDir: DATA_ROOT,
       capabilities: {
-        torrent: false,
+        torrent: true,
         embeddedSubtitles: false,
         vertexAdc: false,
         directoryPicker: true,

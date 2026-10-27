@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import type { AnimeSeries } from '@kotori/core';
 import { useRouteStore } from '../../app/routes';
+import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { Button } from '../../components/m3/Button';
 import { FilledCard, OutlinedCard } from '../../components/m3/Card';
 import { CircularProgress } from '../../components/m3/Progress';
@@ -37,6 +38,7 @@ export function AnimeLibrary() {
   return (
     <div className="k-page">
       <header className="k-page__header">
+        <CompactBrandButton />
         <h1 className="k-headline-small">{t('anime.library.title')}</h1>
         <span className="k-spacer" />
         <Button icon="add" onClick={() => setImportOpen(true)}>

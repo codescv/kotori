@@ -119,20 +119,21 @@ export function NyaaSearch() {
                     <span className="k-dl-result__stat">{formatDate(item.publishedAt)}</span>
                   </div>
                 </div>
-                {canTorrent ? (
-                  <Button
-                    variant={started.has(item.infoHash) ? 'tonal' : 'filled'}
-                    icon={started.has(item.infoHash) ? 'check' : 'download'}
-                    disabled={started.has(item.infoHash)}
-                    onClick={() => void download(item)}
-                  >
-                    {t('downloads.nyaa.download')}
-                  </Button>
-                ) : (
-                  openExternal && (
+                <div className="k-dl-result__actions">
+                  {canTorrent && (
+                    <Button
+                      variant={started.has(item.infoHash) ? 'tonal' : 'filled'}
+                      icon={started.has(item.infoHash) ? 'check' : 'download'}
+                      disabled={started.has(item.infoHash)}
+                      onClick={() => void download(item)}
+                    >
+                      {t('downloads.nyaa.download')}
+                    </Button>
+                  )}
+                  {openExternal && (
                     <IconButton icon="openExternal" variant="tonal" label={t('downloads.nyaa.openMagnet')} onClick={() => void openExternal(item.magnet)} />
-                  )
-                )}
+                  )}
+                </div>
               </li>
             );
           })}

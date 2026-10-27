@@ -105,7 +105,7 @@ button:disabled { cursor: default; }
 
 /* ---- shell ---------------------------------------------------------------- */
 .k-shell { display: flex; height: 100%; width: 100%; overflow: hidden; }
-.k-shell--compact { flex-direction: column; }
+.k-shell--compact { flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
 .k-shell__content { flex: 1; min-width: 0; min-height: 0; overflow: auto; position: relative; }
 
 .k-nav-rail {
@@ -115,7 +115,7 @@ button:disabled { cursor: default; }
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 12px 0;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 0 calc(12px + env(safe-area-inset-bottom, 0px));
   background: var(--md-sys-color-surface-container-low);
 }
 .k-nav-rail__brand { height: 56px; display: grid; place-items: center; margin-bottom: 16px; }
@@ -125,6 +125,7 @@ button:disabled { cursor: default; }
     box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
 }
 .k-nav-rail__brand-btn:hover { transform: scale(1.06); box-shadow: var(--md-sys-elevation-1); }
+.k-compact-brand-btn { flex: none; display: inline-grid; place-items: center; }
 .k-brand-mark {
   width: 40px; height: 40px; border-radius: var(--md-sys-shape-corner-medium);
   display: grid; place-items: center; overflow: hidden; flex: none;

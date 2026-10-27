@@ -4,6 +4,7 @@
  */
 import { useEffect } from 'react';
 import { useRouteStore, type DownloadsTab } from '../../app/routes';
+import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { Tabs } from '../../components/m3/Tabs';
 import { useHost } from '../../host/HostContext';
 import { useHostEvents } from '../../host/useHostEvents';
@@ -34,6 +35,7 @@ export function DownloadsPage() {
   return (
     <div className="k-page k-downloads">
       <header className="k-page__header">
+        <CompactBrandButton />
         <h1 className="k-headline-small">{t('downloads.title')}</h1>
       </header>
       <Tabs<DownloadsTab>

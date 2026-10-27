@@ -2,6 +2,7 @@
  * Settings: AI provider, appearance, anime, manga, downloads, library and an
  * about line. Two columns on expanded windows, one column on phones.
  */
+import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { AiProviderForm } from './AiProviderForm';
@@ -20,6 +21,7 @@ export function SettingsPage() {
   return (
     <div className="k-page k-settings">
       <header className="k-page__header">
+        <CompactBrandButton />
         <h1 className="k-headline-small">{t('settings.title')}</h1>
       </header>
       <div className="k-settings__columns">
@@ -45,6 +47,9 @@ export function SettingsPage() {
             <DownloadsSection />
           </SettingsSection>
           <SettingsSection id="settings-about" icon="tune" title={t('settings.section.about')}>
+            <p className="k-body-medium" data-testid="settings-about-origin">
+              {t('settings.about.nameOrigin')}
+            </p>
             <p className="k-body-medium" data-testid="settings-about-platform">
               {t('settings.about.platform', { platform: info.platform, os: info.os, version: info.version })}
             </p>

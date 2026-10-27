@@ -4,6 +4,7 @@
  */
 import { useState } from 'react';
 import type { MangaVolume } from '@kotori/core';
+import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { Button } from '../../components/m3/Button';
 import { ElevatedCard } from '../../components/m3/Card';
 import { Dialog } from '../../components/m3/Dialog';
@@ -42,6 +43,7 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
   return (
     <div className="k-page k-manga-library">
       <header className="k-page__header">
+        <CompactBrandButton />
         <h1 className="k-headline-small">{t('manga.library.title')}</h1>
         <span className="k-spacer" />
         <Button icon="add" onClick={() => setImportOpen(true)}>

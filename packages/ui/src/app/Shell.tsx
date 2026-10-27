@@ -57,9 +57,10 @@ export function Shell() {
   const t = useT();
   const tab = useRouteStore((s) => s.tab);
   const setTab = useRouteStore((s) => s.setTab);
+  const personaOpen = useRouteStore((s) => s.personaOpen);
+  const setPersonaOpen = useRouteStore((s) => s.setPersonaOpen);
   const expanded = useIsExpanded();
   const activeDownloads = useActiveDownloads();
-  const [personaOpen, setPersonaOpen] = useState(false);
   const nav = (
     <nav className={expanded ? 'k-nav-rail' : 'k-nav-bar'} aria-label={t('app.name')}>
       {expanded && (

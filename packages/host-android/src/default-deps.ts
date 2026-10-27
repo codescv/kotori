@@ -30,7 +30,14 @@ import { App } from '@capacitor/app';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { KotoriError } from './adapters/core';
-import type { CapacitorHostDeps, DownloadToFileOptions, FsOps, PickFilesOptions } from './deps';
+import type {
+  AndroidTorrentEngine,
+  CapacitorHostDeps,
+  DownloadToFileOptions,
+  FsOps,
+  PickFilesOptions,
+  TorrentProgressEvent,
+} from './deps';
 import { bytesToStream } from './storage/unzip-stream';
 import { dirname, isWithin, joinPath, safeFileName } from './paths';
 import { createCapacitorFs } from './storage/files';
@@ -47,7 +54,65 @@ interface FilePickerPlugin {
   pickFiles(options?: { types?: string[]; limit?: number; readData?: boolean }): Promise<{ files: PickedFile[] }>;
 }
 
+interface KotoriTorrentNativePlugin {
+  openExternal(options: { url: string }): Promise<void>;
+  startTorrent(options: {
+    taskId: string;
+    infoHash: string;
+    magnet?: string;
+    torrentUrl?: string;
+    targetDir: string;
+    maxPeers: number;
+    fileIndexes?: number[];
+  }): Promise<void>;
+  pauseTorrent(options: { taskId: string }): Promise<void>;
+  cancelTorrent(options: { taskId: string; deleteFiles: boolean }): Promise<void>;
+  selectFiles(options: { taskId: string; fileIndexes: number[] }): Promise<TorrentProgressEvent>;
+  addListener(
+    eventName: 'torrentProgress',
+    listenerFunc: (event: TorrentProgressEvent) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+}
+
 const FilePicker = registerPlugin<FilePickerPlugin>('FilePicker');
+const KotoriTorrent = registerPlugin<KotoriTorrentNativePlugin>('KotoriTorrent');
+
+function createNativeTorrentEngine(): AndroidTorrentEngine {
+  return {
+    async start(request, onProgress) {
+      const listener = await KotoriTorrent.addListener('torrentProgress', (event) => {
+        if (event.taskId === request.taskId) onProgress(event);
+      });
+      try {
+        await KotoriTorrent.startTorrent({
+          taskId: request.taskId,
+          infoHash: request.infoHash,
+          ...(request.magnet ? { magnet: request.magnet } : {}),
+          ...(request.torrentUrl ? { torrentUrl: request.torrentUrl } : {}),
+          targetDir: request.targetDir,
+          maxPeers: request.maxPeers,
+          ...(request.fileIndexes ? { fileIndexes: [...request.fileIndexes] } : {}),
+        });
+      } catch (error) {
+        await listener.remove();
+        throw error;
+      }
+      return {
+        async stop(reason, deleteFiles = false) {
+          await listener.remove();
+          if (reason === 'pause') {
+            await KotoriTorrent.pauseTorrent({ taskId: request.taskId }).catch(() => undefined);
+          } else {
+            await KotoriTorrent.cancelTorrent({ taskId: request.taskId, deleteFiles }).catch(() => undefined);
+          }
+        },
+      };
+    },
+    async selectFiles(taskId, fileIndexes) {
+      return KotoriTorrent.selectFiles({ taskId, fileIndexes: [...fileIndexes] });
+    },
+  };
+}
 
 /** The un-patched WebView fetch (`CapacitorHttp` keeps the original as `CapacitorWebFetch`). */
 function webViewFetch(): typeof fetch {
@@ -197,11 +262,24 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
       : !overrides.fs && Capacitor.isNativePlatform()
         ? { downloadToFile: (url: string, path: string, options: DownloadToFileOptions) => nativeDownload(fs, dataRoot, url, path, options) }
         : {}),
+    ...(overrides.torrent
+      ? { torrent: overrides.torrent }
+      : !overrides.fs && Capacitor.isNativePlatform()
+        ? { torrent: createNativeTorrentEngine() }
+        : {}),
     openExternal:
       overrides.openExternal ??
       (async (url) => {
-        if (Capacitor.isNativePlatform()) window.location.href = url;
-        else window.open(url, '_blank', 'noopener');
+        if (Capacitor.isNativePlatform()) {
+          try {
+            await KotoriTorrent.openExternal({ url });
+          } catch (error) {
+            if (isUnimplemented(error)) window.location.href = url;
+            else throw KotoriError.wrap(error, 'io');
+          }
+        } else {
+          window.open(url, '_blank', 'noopener');
+        }
       }),
     pickDirectory:
       overrides.pickDirectory ??

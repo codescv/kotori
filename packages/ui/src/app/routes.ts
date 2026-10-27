@@ -21,10 +21,12 @@ export interface RouteState {
   readonly anime: AnimeView;
   readonly manga: MangaView;
   readonly downloadsTab: DownloadsTab;
+  readonly personaOpen: boolean;
   setTab(tab: Tab): void;
   openAnime(view: AnimeView): void;
   openManga(view: MangaView): void;
   setDownloadsTab(tab: DownloadsTab): void;
+  setPersonaOpen(open: boolean): void;
   reset(): void;
 }
 
@@ -33,6 +35,7 @@ const initial = {
   anime: { kind: 'library' } as AnimeView,
   manga: { kind: 'library' } as MangaView,
   downloadsTab: 'tasks' as DownloadsTab,
+  personaOpen: false,
 };
 
 export const useRouteStore = create<RouteState>()((set) => ({
@@ -41,5 +44,6 @@ export const useRouteStore = create<RouteState>()((set) => ({
   openAnime: (anime) => set({ tab: 'anime', anime }),
   openManga: (manga) => set({ tab: 'manga', manga }),
   setDownloadsTab: (downloadsTab) => set({ tab: 'downloads', downloadsTab }),
+  setPersonaOpen: (personaOpen) => set({ personaOpen }),
   reset: () => set(initial),
 }));

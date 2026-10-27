@@ -287,6 +287,8 @@ export const en: Messages = {
   'settings.library.animeRoots': 'Anime folders',
   'settings.library.mangaRoots': 'Manga folders',
   'settings.library.add': 'Add folder',
+  'settings.about.nameOrigin':
+    'Kotori (小鳥 / 言採り): On the surface a cute "little bird" (小鳥); broken down, "word (言 koto) + gatherer (採り tori)" — a poetic Japanese name for a Sentence Miner.',
   'settings.about.platform': 'Platform: {platform} · {os} · v{version}',
   'settings.about.dataDir': 'Data folder: {dir}',
   'settings.invalidNumber': 'Enter a valid number',
@@ -308,7 +310,7 @@ export const en: Messages = {
   'settings.library.empty': 'No folders added yet',
   'persona.title': 'AI Assistant Persona',
   'persona.name': 'Nickname',
-  'persona.namePlaceholder': 'e.g. Kotori / ことり',
+  'persona.namePlaceholder': 'e.g. 小鳥 / 言採り / Kotori',
   'persona.avatar': 'Avatar image (URL or Data URL)',
   'persona.uploadImage': 'Upload image',
   'persona.resetAvatar': 'Reset icon',

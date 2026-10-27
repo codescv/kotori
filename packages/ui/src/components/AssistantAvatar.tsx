@@ -4,6 +4,8 @@
  */
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { AiPersonaSettings } from '@kotori/core';
+import { useRouteStore } from '../app/routes';
+import { useIsExpanded } from '../hooks/useMediaQuery';
 import { useHost } from '../host/HostContext';
 import { useT } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
@@ -42,6 +44,29 @@ export function AssistantAvatar({ persona: personaProp, className, size }: Assis
         fallbackChar
       )}
     </span>
+  );
+}
+
+/**
+ * Top-left AI assistant trigger button rendered in page headers on compact
+ * viewports (Android / phones `< 840px`), where the desktop `NavRail` is hidden.
+ */
+export function CompactBrandButton() {
+  const expanded = useIsExpanded();
+  const t = useT();
+  const setPersonaOpen = useRouteStore((s) => s.setPersonaOpen);
+  if (expanded) return null;
+  return (
+    <button
+      type="button"
+      className="k-nav-rail__brand-btn k-compact-brand-btn"
+      aria-label={t('persona.title')}
+      title={t('persona.title')}
+      onClick={() => setPersonaOpen(true)}
+      data-testid="brand-persona-trigger"
+    >
+      <AssistantAvatar size={36} />
+    </button>
   );
 }
 

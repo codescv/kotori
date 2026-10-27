@@ -45,6 +45,41 @@ export interface PickFilesOptions {
   readonly multiple?: boolean;
 }
 
+export interface TorrentProgressEvent {
+  readonly taskId: string;
+  readonly status: 'resolving' | 'downloading' | 'completed' | 'failed';
+  readonly progress?: number | undefined;
+  readonly downloadedBytes: number;
+  readonly totalBytes?: number | undefined;
+  readonly speedBps: number;
+  readonly peers?: number | undefined;
+  readonly etaMs?: number | undefined;
+  readonly error?: string | undefined;
+  readonly files?: readonly {
+    readonly index: number;
+    readonly path: string;
+    readonly sizeBytes: number;
+    readonly downloadedBytes: number;
+    readonly selected: boolean;
+  }[] | undefined;
+}
+
+export interface AndroidTorrentEngine {
+  start(
+    request: {
+      readonly taskId: string;
+      readonly infoHash: string;
+      readonly magnet?: string | undefined;
+      readonly torrentUrl?: string | undefined;
+      readonly targetDir: string;
+      readonly maxPeers: number;
+      readonly fileIndexes?: readonly number[] | undefined;
+    },
+    onProgress: (event: TorrentProgressEvent) => void,
+  ): Promise<{ readonly stop: (reason: 'pause' | 'cancel', deleteFiles?: boolean) => Promise<void> }>;
+  selectFiles?(taskId: string, fileIndexes: readonly number[]): Promise<TorrentProgressEvent>;
+}
+
 export interface CapacitorHostDeps {
   readonly fs: FsOps;
   /** Absolute root of `Directory.Data` (holds `subtitles/`, `manga/`, `downloads/`). */
@@ -75,6 +110,11 @@ export interface CapacitorHostDeps {
    * `fetch` and are appended in ~1 MiB chunks.
    */
   readonly downloadToFile?: (url: string, path: string, options: DownloadToFileOptions) => Promise<void>;
+  /**
+   * Optional built-in Android BitTorrent engine (`KotoriTorrentPlugin`).
+   * When absent, torrent tasks fall back to handing the magnet to `openExternal`.
+   */
+  readonly torrent?: AndroidTorrentEngine;
   /** Open URL / magnet in an external app (Android intent). */
   readonly openExternal: (url: string) => Promise<void>;
   /** Native directory picker; `undefined` when cancelled. */

@@ -290,6 +290,8 @@ export const zhCN = {
   'settings.library.animeRoots': '动画文件夹',
   'settings.library.mangaRoots': '漫画文件夹',
   'settings.library.add': '添加文件夹',
+  'settings.about.nameOrigin':
+    'Kotori（小鳥 / 言採り）：表面是可爱的「小鸟」，拆开则是「言（こと）+ 採り（とり）」——采撷词句之人（Sentence Miner 的绝佳和风雅称）。',
   'settings.about.platform': '平台：{platform} · {os} · v{version}',
   'settings.about.dataDir': '数据目录：{dir}',
   // settings (downloads-settings-ui)
@@ -312,7 +314,7 @@ export const zhCN = {
   'settings.library.empty': '尚未添加文件夹',
   'persona.title': 'AI 助手形态设置',
   'persona.name': '助手昵称',
-  'persona.namePlaceholder': '例如：小鳥 / ことり',
+  'persona.namePlaceholder': '例如：小鳥 / 言採り / ことり',
   'persona.avatar': '助手图片（图片 URL 或 Data URL）',
   'persona.uploadImage': '上传本地图片',
   'persona.resetAvatar': '恢复默认图标',

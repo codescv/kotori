@@ -199,6 +199,50 @@ describe('downloads', () => {
     expect(noApp).toMatchObject({ status: 'failed', error: 'No app can handle magnet links' });
   });
 
+  it('torrent sources use built-in Android torrent engine when present and auto-import anime', async () => {
+    const t = await host(() => new Response(''), {
+      torrent: {
+        async start(req, onProgress) {
+          await t.fs.writeFile(`${req.targetDir}/Frieren - 01.mkv`, new Uint8Array(64));
+          queueMicrotask(() => {
+            onProgress({
+              taskId: req.taskId,
+              status: 'downloading',
+              progress: 0.5,
+              downloadedBytes: 32,
+              totalBytes: 64,
+              speedBps: 1024,
+              peers: 4,
+              files: [{ index: 0, path: `${req.targetDir}/Frieren - 01.mkv`, sizeBytes: 64, downloadedBytes: 32, selected: true }],
+            });
+            onProgress({
+              taskId: req.taskId,
+              status: 'completed',
+              progress: 1,
+              downloadedBytes: 64,
+              totalBytes: 64,
+              speedBps: 0,
+              peers: 4,
+              files: [{ index: 0, path: `${req.targetDir}/Frieren - 01.mkv`, sizeBytes: 64, downloadedBytes: 64, selected: true }],
+            });
+          });
+          return { stop: async () => undefined };
+        },
+      },
+    });
+    const magnet = 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Frieren';
+    const task = await t.host.downloads.start({
+      source: { kind: 'torrent', infoHash: '0123456789abcdef0123456789abcdef01234567', magnet },
+      title: 'Frieren',
+      autoImport: true,
+    });
+    const done = await waitFor(t.host, task.id, 'completed');
+    expect(done).toMatchObject({ kind: 'torrent', status: 'completed', progress: 1, downloadedBytes: 64, totalBytes: 64 });
+    expect(done.importedSeriesId).toBeDefined();
+    const series = await t.host.anime.getSeries(done.importedSeriesId ?? '');
+    expect(series.episodeCount).toBe(1);
+  });
+
   it('pause keeps the partial file; resume sends Range and appends on 206; cancel/remove clean up', async () => {
     let gate: (() => void) | undefined;
     const t = await host((_url, init) => {

@@ -34,7 +34,7 @@ import { appDirs } from './storage/files';
 import { openKotoriDb } from './storage/idb';
 
 export const ANDROID_CAPABILITIES: HostCapabilities = {
-  torrent: false,
+  torrent: true,
   embeddedSubtitles: false,
   vertexAdc: false,
   directoryPicker: true,
