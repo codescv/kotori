@@ -29,6 +29,7 @@
 import { App } from '@capacitor/app';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
+import type { AppIconId } from '@kotori/core';
 import { KotoriError } from './adapters/core';
 import type {
   AndroidTorrentEngine,
@@ -56,6 +57,7 @@ interface FilePickerPlugin {
 
 interface KotoriTorrentNativePlugin {
   openExternal(options: { url: string }): Promise<void>;
+  setAppIcon(options: { iconId: AppIconId }): Promise<{ iconId: AppIconId; changed: boolean }>;
   startTorrent(options: {
     taskId: string;
     infoHash: string;
@@ -266,6 +268,15 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
       ? { torrent: overrides.torrent }
       : !overrides.fs && Capacitor.isNativePlatform()
         ? { torrent: createNativeTorrentEngine() }
+        : {}),
+    ...(overrides.setAppIcon
+      ? { setAppIcon: overrides.setAppIcon }
+      : !overrides.fs && Capacitor.isNativePlatform()
+        ? {
+            setAppIcon: async (iconId: AppIconId) => {
+              await KotoriTorrent.setAppIcon({ iconId });
+            },
+          }
         : {}),
     openExternal:
       overrides.openExternal ??

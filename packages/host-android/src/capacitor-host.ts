@@ -79,7 +79,17 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
 
   const settings: SettingsApi = {
     get: () => settingsStore.get(),
-    update: (patch) => settingsStore.update(patch),
+    async update(patch) {
+      const prevIcon = settingsStore.current().ui.appIcon ?? 's4-01';
+      const next = await settingsStore.update(patch);
+      const nextIcon = next.ui.appIcon ?? 's4-01';
+      if (nextIcon !== prevIcon && deps.setAppIcon) {
+        await deps.setAppIcon(nextIcon).catch((error) => {
+          console.warn('[kotori:host-android] setAppIcon failed', error);
+        });
+      }
+      return next;
+    },
     testAi: (ai) => engine.testAi(ai),
   };
 

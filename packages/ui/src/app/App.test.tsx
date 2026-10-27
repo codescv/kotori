@@ -56,6 +56,11 @@ describe('App shell', () => {
     });
     await waitFor(() => expect(root.dataset['theme']).toBe('light'));
     expect(root.style.getPropertyValue('--md-sys-color-surface')).not.toBe(darkSurface);
+    expect(document.head.querySelector('link[rel="icon"]')?.getAttribute('href')).toBe('/icons/s4-01.png');
+    await act(async () => {
+      await host.settings.update({ ui: { appIcon: 's3-03' } });
+    });
+    await waitFor(() => expect(document.head.querySelector('link[rel="icon"]')?.getAttribute('href')).toBe('/icons/s3-03.png'));
   });
 
   it('opens a series and an episode from the library', async () => {
@@ -79,6 +84,11 @@ describe('App shell', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('AI 助手形态设置');
+    expect(screen.getByTestId('persona-preset-s4-01')).toBeInTheDocument();
+    expect(screen.getByTestId('persona-preset-s3-01')).toBeInTheDocument();
+    expect(screen.getByTestId('persona-preset-avatar-01')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('persona-preset-s4-02'));
+    expect(screen.getByLabelText('助手图片（图片 URL 或 Data URL）')).toHaveValue('/icons/s4-02.png');
 
     fireEvent.change(screen.getByLabelText('助手昵称'), { target: { value: '千束' } });
     fireEvent.change(screen.getByLabelText('助手图片（图片 URL 或 Data URL）'), {

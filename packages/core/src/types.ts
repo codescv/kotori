@@ -985,6 +985,16 @@ export interface DownloadTask {
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
+export type AppIconId =
+  | 's4-01'
+  | 's4-02'
+  | 's4-03'
+  | 's4-04'
+  | 's3-01'
+  | 's3-02'
+  | 's3-03'
+  | 's3-04';
+
 export interface UiSettings {
   readonly theme: ThemeMode;
   /** M3 seed colour (hex) for tonal palette generation. */
@@ -993,6 +1003,8 @@ export interface UiSettings {
   readonly locale: 'zh-CN' | 'en' | 'ja';
   /** 0.8..1.6 multiplier for subtitle / bubble text. */
   readonly fontScale: number;
+  /** Selected launcher / favicon app icon preset (default `'s4-01'`). */
+  readonly appIcon?: AppIconId;
 }
 
 export interface AnimeSettings {

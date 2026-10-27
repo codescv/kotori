@@ -6,6 +6,7 @@
 import { useLayoutEffect, useMemo } from 'react';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSettingsStore } from '../stores/settings';
+import { appIconUrl } from './app-icons';
 import { applyM3Tokens, buildM3Tokens, normaliseSeed, type M3Tokens } from './m3-theme';
 
 export interface ThemeState {
@@ -28,15 +29,29 @@ export function useResolvedTheme(): ThemeState {
 export function useTheme(target?: HTMLElement | null): ThemeState {
   const theme = useResolvedTheme();
   const fontScale = useSettingsStore((s) => s.settings.ui.fontScale);
+  const appIcon = useSettingsStore((s) => s.settings.ui.appIcon);
   useLayoutEffect(() => {
     const el = target ?? (typeof document !== 'undefined' ? document.documentElement : null);
     if (!el) return;
     applyM3Tokens(el, theme.tokens, theme.dark);
     el.style.setProperty('--kotori-font-scale', String(fontScale));
+    if (!target && typeof document !== 'undefined' && document.head) {
+      const href = appIconUrl(appIcon);
+      let link = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        link.type = 'image/png';
+        document.head.appendChild(link);
+      }
+      if (link.getAttribute('href') !== href) {
+        link.setAttribute('href', href);
+      }
+    }
     if (el.dataset['themeReady'] === undefined && typeof requestAnimationFrame === 'function') {
       // Enable colour transitions only after the first themed frame has painted.
       requestAnimationFrame(() => requestAnimationFrame(() => (el.dataset['themeReady'] = '')));
     }
-  }, [target, theme.tokens, theme.dark, fontScale]);
+  }, [target, theme.tokens, theme.dark, fontScale, appIcon]);
   return theme;
 }

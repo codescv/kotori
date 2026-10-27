@@ -119,6 +119,7 @@ describe('validateSettings', () => {
     ['ui.fontScale', { ui: { fontScale: 3.5 } }],
     ['ui.seedColor', { ui: { seedColor: '#12345' } }],
     ['ui.seedColor', { ui: { seedColor: 'red' } }],
+    ['ui.appIcon', { ui: { appIcon: 'invalid-icon' as never } }],
     ['downloads.maxActiveDownloads', { downloads: { maxActiveDownloads: 0 } }],
     ['downloads.maxPeersPerTorrent', { downloads: { maxPeersPerTorrent: 0 } }],
     ['anime.repeatCount', { anime: { repeatCount: -1 } }],
@@ -136,7 +137,7 @@ describe('validateSettings', () => {
   it('accepts boundary values', () => {
     const candidate = deepMerge(defaultSettings(DATA_DIR), {
       ai: { temperature: 2, timeoutMs: 1000, targetLanguage: 'en' },
-      ui: { fontScale: 0.5, seedColor: '#abcdef' },
+      ui: { fontScale: 0.5, seedColor: '#abcdef', appIcon: 's3-02' },
       downloads: { maxActiveDownloads: 1, maxPeersPerTorrent: 1 },
       anime: { repeatCount: 0 },
       manga: { preloadPages: 0 },

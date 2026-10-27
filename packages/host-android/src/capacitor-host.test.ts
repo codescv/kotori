@@ -200,6 +200,21 @@ describe('settings', () => {
     expect(deepMerge({ a: 1, b: { c: 2 } }, { b: { c: undefined, d: 3 } })).toEqual({ a: 1, b: { c: 2, d: 3 } });
   });
 
+  it('invokes setAppIcon when ui.appIcon changes in settings.update', async () => {
+    const setAppIcon = vi.fn(() => Promise.resolve());
+    const { host } = await makeHost({ setAppIcon });
+    await host.settings.update({ ui: { theme: 'dark' } });
+    expect(setAppIcon).not.toHaveBeenCalled();
+
+    const updated = await host.settings.update({ ui: { appIcon: 's3-02' } });
+    expect(updated.ui.appIcon).toBe('s3-02');
+    expect(setAppIcon).toHaveBeenCalledTimes(1);
+    expect(setAppIcon).toHaveBeenCalledWith('s3-02');
+
+    await host.settings.update({ ui: { appIcon: 's3-02' } });
+    expect(setAppIcon).toHaveBeenCalledTimes(1);
+  });
+
   it('testAi reports failure instead of throwing', async () => {
     const { host } = await makeHost();
     const result = await host.settings.testAi();

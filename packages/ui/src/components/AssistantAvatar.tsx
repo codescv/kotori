@@ -10,6 +10,7 @@ import { useHost } from '../host/HostContext';
 import { useT } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
 import { showSnackbar } from '../stores/snackbar';
+import { PERSONA_AVATAR_PRESETS } from '../theme/app-icons';
 import { Button } from './m3/Button';
 import { cx } from './m3/cx';
 import { Dialog } from './m3/Dialog';
@@ -166,6 +167,31 @@ export function PersonaDialog({ open, onClose }: PersonaDialogProps) {
               </Button>
             )}
           </div>
+        </div>
+      </div>
+      <div className="k-persona-presets" data-testid="persona-avatar-presets">
+        <span className="k-label-medium k-muted">{t('persona.presets')}</span>
+        <div className="k-persona-presets__grid" role="radiogroup" aria-label={t('persona.presets')}>
+          {PERSONA_AVATAR_PRESETS.map((preset) => {
+            const selected = avatarUrl.trim() === preset.src;
+            const label = t(preset.labelKey);
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                aria-label={label}
+                title={label}
+                data-testid={`persona-preset-${preset.id}`}
+                className={cx('k-persona-preset-btn', selected && 'is-selected')}
+                onClick={() => setAvatarUrl(preset.src)}
+              >
+                <img src={preset.src} alt={label} className="k-persona-preset-btn__img" />
+                <span className="k-persona-preset-btn__code">{preset.code}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
       <TextField
