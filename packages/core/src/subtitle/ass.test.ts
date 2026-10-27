@@ -9,6 +9,7 @@ describe('stripAssTags', () => {
     expect(stripAssTags('{\\p1}m 0 0 l 10 10{\\p0}')).toBe('');
     expect(stripAssTags('{\\k20}手|て{\\k30}紙|がみ')).toBe('手紙');
     expect(stripAssTags('a|b {unclosed')).toBe('a|b {unclosed');
+    expect(stripAssTags('{\\pos(460,1020)\\c&H00ffff&}これこそﾊﾞﾝﾄﾞ女子って感じ｡\\N')).toBe('これこそバンド女子って感じ。');
   });
 });
 

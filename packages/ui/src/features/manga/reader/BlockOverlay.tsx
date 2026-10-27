@@ -16,6 +16,7 @@ import { cx } from '../../../components/m3/cx';
 import { useHost } from '../../../host/HostContext';
 import { charIndexAt, clientToPage, deriveCharRegions } from '../../../lib/manga';
 import { useBreakdownStore } from '../../../stores/breakdown';
+import { scheduleBlockTapPick } from './PageCanvas';
 
 export interface BlockOverlayProps {
   readonly volumeId: string;
@@ -106,14 +107,18 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
     if (!start || e.changedTouches.length !== 1 || e.touches.length > 0) return;
     const t = e.changedTouches[0]!;
     if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 16) return;
-    e.stopPropagation();
     if (e.cancelable) e.preventDefault();
     lastTouchPickRef.current = Date.now();
+    const clientX = t.clientX;
+    const clientY = t.clientY;
+    const ownerSvg = e.currentTarget.ownerSVGElement;
     const hitEl =
       (typeof document !== 'undefined' && typeof document.elementFromPoint === 'function'
-        ? document.elementFromPoint(t.clientX, t.clientY)
+        ? document.elementFromPoint(clientX, clientY)
         : null) ?? (e.target as Element);
-    pickAtPoint(hitEl, t.clientX, t.clientY, e.currentTarget.ownerSVGElement);
+    scheduleBlockTapPick(() => {
+      pickAtPoint(hitEl, clientX, clientY, ownerSvg);
+    }, 230);
   };
   const onKey = (e: KeyboardEvent<SVGGElement>): void => {
     if (e.key === 'Enter' || e.key === ' ') {

@@ -10,6 +10,7 @@ describe('stripSubtitleHtml', () => {
     expect(stripSubtitleHtml('<font color="#fff">A &amp; B&nbsp;&#x3042;&#12354;</font>')).toBe('A & B ああ');
     expect(stripSubtitleHtml('  上の行 \r\n\r\n 下の行\\N三行目 ')).toBe('上の行\n下の行\n三行目');
     expect(stripSubtitleHtml('a < b > c')).toBe('a < b > c');
+    expect(stripSubtitleHtml('これこそﾊﾞﾝﾄﾞ女子って感じ｡')).toBe('これこそバンド女子って感じ。');
   });
 });
 

@@ -48,7 +48,6 @@
 
 /* ---- Japanese text & ruby ------------------------------------------------ */
 [lang='ja'] {
-  font-feature-settings: 'palt' 1;
   line-break: strict;
   word-break: normal;
 }

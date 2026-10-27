@@ -6,7 +6,7 @@
 import type { AssMarkup, ParsedSubtitleTrack, SubtitleCue } from '../types';
 import { parseClock } from '../util/time';
 import { sortCuesByStart } from './cue-utils';
-import { splitSubtitleLines } from './srt';
+import { normalizeJapaneseKana, splitSubtitleLines } from './srt';
 
 /** `[Script Info]` values relevant to markup normalisation. */
 export interface AssScriptInfo {
@@ -101,9 +101,9 @@ function applyTag(tag: string, scan: AssScan, drawing: number): number {
   return drawing;
 }
 
-/** Trim each line and drop blank ones. */
+/** Trim each line, normalise half-width katakana, and drop blank lines. */
 function tidyLines(text: string): string {
-  return text
+  return normalizeJapaneseKana(text)
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '')

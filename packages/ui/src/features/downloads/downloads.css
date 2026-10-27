@@ -1,5 +1,7 @@
 /* Downloads page: task list, search bars, rich media cards, cover thumbnails, catalog breadcrumbs. */
-.k-downloads__body { padding-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.k-downloads { flex: 1; min-height: 100%; display: flex; flex-direction: column; touch-action: pan-y; }
+.k-downloads__body { flex: 1; padding-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.k-downloads .k-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 220px; }
 
 .k-dl-list, .k-dl-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .k-dl-task, .k-dl-result {
@@ -37,7 +39,7 @@
 .k-dl-status--failed { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
 .k-dl-status--paused, .k-dl-status--cancelled { background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
 
-.k-dl-search { display: flex; flex-direction: column; gap: 12px; }
+.k-dl-search { flex: 1; display: flex; flex-direction: column; gap: 12px; }
 .k-dl-search__bar { display: flex; align-items: center; gap: 12px; }
 .k-dl-search__bar .k-field { flex: 1; }
 

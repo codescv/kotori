@@ -28,11 +28,24 @@ function decodeEntities(text: string): string {
 }
 
 /**
+ * Normalise half-width katakana & CJK punctuation (`U+FF61`–`U+FF9F`, e.g.
+ * ARIB STD-B24 broadcast captions `これこそﾊﾞﾝﾄﾞ女子って感じ｡` →
+ * `これこそバンド女子って感じ。`) and decomposed combining voiced marks
+ * (`U+3099` / `U+309A`) into standard precomposed full-width kana (`NFC`).
+ */
+export function normalizeJapaneseKana(text: string): string {
+  return text
+    .replace(/[\uff61-\uff9f]+/g, (m) => m.normalize('NFKC'))
+    .replace(/[\u3040-\u30ff][\u3099\u309a]/g, (m) => m.normalize('NFC'));
+}
+
+/**
  * Clean an SRT / VTT cue payload to plain text: `<ruby>base<rt>reading</rt></ruby>`
  * keeps only the base (also drops `<rp>`), every other HTML / VTT tag
  * (`<i>`, `<font …>`, `<c.cls>`, `<v Name>`, `<00:01.000>`) is removed,
  * ASS-style `{\an8}` override blocks are removed, `\N` → newline, `\h` →
- * space, entities are decoded, and each line is trimmed (blank lines dropped).
+ * space, entities are decoded, half-width katakana are normalised to full-width,
+ * and each line is trimmed (blank lines dropped).
  */
 export function stripSubtitleHtml(raw: string): string {
   const text = raw
@@ -44,7 +57,7 @@ export function stripSubtitleHtml(raw: string): string {
     .replace(/<\d{1,3}(?::\d{2}){1,2}(?:[.,]\d{1,3})?>/g, '')
     .replace(/\\N/g, '\n')
     .replace(/\\h/g, ' ');
-  return decodeEntities(text)
+  return normalizeJapaneseKana(decodeEntities(text))
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '')
