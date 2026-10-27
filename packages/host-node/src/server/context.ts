@@ -23,7 +23,7 @@ import { createDownloadsService, createFilesService, type NodeFilesApi, type Ope
 import { createMangaService, type NodeMangaService } from './services/manga';
 import { EventHub } from './util';
 
-export const KOTORI_VERSION = '0.1.15';
+export const KOTORI_VERSION = '0.1.16';
 
 /** Server-side implementation of the routed `PlatformHost` groups. */
 export interface NodeHost {
