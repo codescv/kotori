@@ -204,6 +204,11 @@ describe('App shell', () => {
     fireEvent.touchEnd(dlPage, { touches: [], changedTouches: [{ clientX: 220, clientY: 300 }] });
     expect(screen.getByTestId('downloads-tabpanel').dataset['activeTab']).toBe('anime');
 
+    // Top tablist remains visible when anime/manga search results render
+    const tablist = screen.getByRole('tablist', { name: '下载' });
+    expect(tablist).toBeInTheDocument();
+    expect(tablist.querySelectorAll('[role="tab"]')).toHaveLength(4);
+
     await act(async () => {
       await host.dispose();
     });
