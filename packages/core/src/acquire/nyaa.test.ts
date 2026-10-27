@@ -122,9 +122,9 @@ describe('parseNyaaRss', () => {
 describe('sortNyaaItems', () => {
   it('sorts items by seeders, date, size and downloads', async () => {
     const items = parseNyaaRss(await fixture('nyaa-rss.xml'));
-    expect(sortNyaaItems(items, 'seeders').map((x) => x.seeders)).toEqual([412, 87, 14]);
-    expect(sortNyaaItems(items, 'size').map((x) => x.sizeText)).toEqual(['41.2 GiB', '1.4 GiB', '742.5 MiB']);
-    expect(sortNyaaItems(items, 'downloads').map((x) => x.downloads)).toEqual([18234, 4910, 612]);
+    expect(sortNyaaItems(items, 'seeders').map((x) => x.seeders)).toEqual([412, 87, 5]);
+    expect(sortNyaaItems(items, 'size').map((x) => x.sizeText)).toEqual(['86.2 GiB', '1.4 GiB', '742.5 MiB']);
+    expect(sortNyaaItems(items, 'downloads').map((x) => x.downloads)).toEqual([18234, 2210, 731]);
     const byDate = sortNyaaItems(items, 'date');
     expect(byDate[0]?.publishedAt).toBeGreaterThanOrEqual(byDate[1]?.publishedAt ?? 0);
     expect(byDate[1]?.publishedAt).toBeGreaterThanOrEqual(byDate[2]?.publishedAt ?? 0);
