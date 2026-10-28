@@ -7,6 +7,7 @@ import { useUpdateStore } from '../features/updater/updater';
 import { HostProvider } from '../host/HostContext';
 import { createMockPlatformHost, type MockHostOptions, type MockPlatformHost } from '../host/mock-host';
 import { useBreakdownStore } from '../stores/breakdown';
+import { useDictStore } from '../stores/dict';
 import { useSettingsStore } from '../stores/settings';
 import { useSnackbarStore } from '../stores/snackbar';
 
@@ -17,6 +18,7 @@ export function resetStores(): void {
   useSnackbarStore.getState().reset();
   useAnimeStore.getState().reset();
   useUpdateStore.getState().reset();
+  useDictStore.getState().reset();
 }
 
 export function renderWithHost(ui: ReactElement, options: MockHostOptions = {}): RenderResult & { host: MockPlatformHost } {

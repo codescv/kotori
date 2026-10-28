@@ -105,6 +105,10 @@ const SERIES_A_LINES: readonly LineSpec[] = [
   { at: 80_200, dur: 2600, text: '何を諦めないの？テストのこと？', actor: 'ことり' },
   { at: 83_400, dur: 2800, text: 'それは……秘密だ。', actor: '湊' },
   { at: 87_000, dur: 3200, text: '空がこんなに青いと、なんでもできる気がする。', actor: 'ことり' },
+  // Dictionary showcase lines (matched / uncertain homographs / instant lookup).
+  { at: 91_000, dur: 3200, text: 'バンドの女子、ひとりで全部食べたって言ってた。', actor: 'ことり' },
+  { at: 94_800, dur: 3200, text: '命をかけても守りたいって、そう感じたんだ。', actor: '湊' },
+  { at: 98_600, dur: 3000, text: '人生を賭けた勝負だって、わかってる。', actor: '湊' },
 ];
 
 const SERIES_B_LINES: readonly LineSpec[] = [
