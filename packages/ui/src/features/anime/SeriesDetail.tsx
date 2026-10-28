@@ -1,5 +1,5 @@
 /** Series detail: Fushi-style hero with cover, synopsis & metadata, actions (edit · rescan · auto Jimaku · remove) and the episode list. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouteStore } from '../../app/routes';
 import { Button } from '../../components/m3/Button';
 import { Icon } from '../../components/m3/Icon';
@@ -35,12 +35,15 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
+  const removingRef = useRef(false);
 
   useEffect(() => {
+    removingRef.current = false;
     setDismissedSuggestion(false);
   }, [seriesId]);
 
   useEffect(() => {
+    if (removingRef.current) return;
     void loadEpisodes(host, seriesId);
   }, [host, seriesId, loadEpisodes]);
 
@@ -93,6 +96,21 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
       await useAnimeStore.getState().invalidate(host);
       showSnackbar('已关联番剧信息');
     } catch (e) {
+      showSnackbar(errMsg(e), { tone: 'error' });
+    }
+  };
+
+  const handleRemoveSeries = async (): Promise<void> => {
+    if (removingRef.current) return;
+    removingRef.current = true;
+    useAnimeStore.getState().forgetSeries(seriesId);
+    openAnime({ kind: 'library' });
+    useRouteStore.getState().pruneAnimeSeries(seriesId);
+    try {
+      await host.anime.removeSeries(seriesId);
+    } catch (e: unknown) {
+      removingRef.current = false;
+      void useAnimeStore.getState().invalidate(host);
       showSnackbar(errMsg(e), { tone: 'error' });
     }
   };
@@ -196,16 +214,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
               >
                 {t('anime.series.autoJimaku')}
               </Button>
-              <Button
-                variant="text"
-                icon="delete"
-                onClick={() =>
-                  void host.anime
-                    .removeSeries(seriesId)
-                    .then(() => openAnime({ kind: 'library' }))
-                    .catch((e: unknown) => showSnackbar(errMsg(e), { tone: 'error' }))
-                }
-              >
+              <Button variant="text" icon="delete" onClick={() => void handleRemoveSeries()} data-testid="remove-series-btn">
                 {t('anime.series.remove')}
               </Button>
             </div>

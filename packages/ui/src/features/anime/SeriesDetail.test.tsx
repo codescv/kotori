@@ -1,13 +1,16 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { useRouteStore } from '../../app/routes';
 import { HostProvider } from '../../host/HostContext';
 import { createMockPlatformHost } from '../../host/mock-host';
+import { AnimePage } from './AnimePage';
 import { ImportSeriesDialog } from './ImportSeriesDialog';
 import { SeriesDetail } from './SeriesDetail';
 import { useAnimeStore } from './useAnimeStore';
 
 beforeEach(() => {
   useAnimeStore.getState().reset();
+  useRouteStore.getState().reset();
 });
 afterEach(cleanup);
 
@@ -87,5 +90,46 @@ describe('SeriesDetail & EditSeriesDialog', () => {
       const list = await host.anime.listSeries();
       expect(list.some((s) => s.title === 'Bocchi the Rock!' && s.anilistId === undefined)).toBe(true);
     });
+  });
+
+  it('removes an open series cleanly without triggering "Series ... not found" on invalidate or leaving stale back history', async () => {
+    const host = createMockPlatformHost({ latencyMs: 5 });
+    const initial = await host.anime.listSeries();
+    const target = initial[0]!;
+
+    render(
+      <HostProvider host={host}>
+        <AnimePage />
+      </HostProvider>,
+    );
+
+    // Open SeriesDetail from AnimeLibrary so episodes[target.id] is populated and route history records library -> series
+    const card = await screen.findByTestId(`series-${target.id}`);
+    fireEvent.click(card);
+    await waitFor(() => expect(useAnimeStore.getState().episodes[target.id]?.length).toBeGreaterThan(0));
+
+    // Click remove ("移出库")
+    fireEvent.click(await screen.findByTestId('remove-series-btn'));
+
+    // Returns to AnimeLibrary with zero error banner and removed series evicted from store + route history
+    await waitFor(() => expect(useRouteStore.getState().anime.kind).toBe('library'));
+    await waitFor(async () => {
+      const remaining = await host.anime.listSeries();
+      expect(remaining.some((s) => s.id === target.id)).toBe(false);
+    });
+    await useAnimeStore.getState().invalidate(host);
+
+    expect(useAnimeStore.getState().error).toBeUndefined();
+    expect(useAnimeStore.getState().episodes[target.id]).toBeUndefined();
+    expect(document.querySelector('.k-error-text')).toBeNull();
+    expect(screen.queryByTestId(`series-${target.id}`)).toBeNull();
+
+    // Pressing Back must NOT navigate back to the deleted series
+    expect(useRouteStore.getState().goBack()).toBe(false);
+    expect(useRouteStore.getState().anime).toEqual({ kind: 'library' });
+
+    // Even if loadEpisodes is called directly for a vanished seriesId, not-found does not pollute global error
+    await useAnimeStore.getState().loadEpisodes(host, 'sr_607d98a31fe5a05e');
+    expect(useAnimeStore.getState().error).toBeUndefined();
   });
 });

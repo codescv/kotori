@@ -1,0 +1,159 @@
+import { mkdtempSync } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { HostEvent } from '@kotori/core';
+import type { TorrentEngine } from '../../downloads/torrent-engine';
+import { createServerContext, type ServerContext } from '../context';
+
+describe('NodeAnimeService — animeRoots folder detection, split consolidation & permanent removal', () => {
+  let dir: string;
+  let ctx: ServerContext;
+  let events: HostEvent[];
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'kotori-anime-svc-'));
+    events = [];
+    const fakeEngine: TorrentEngine = {
+      add: async () => {
+        throw new Error('torrent disabled');
+      },
+      get: () => undefined,
+      remove: async () => undefined,
+      destroy: async () => undefined,
+    };
+    ctx = await createServerContext(
+      { host: '127.0.0.1', port: 0, dataDir: join(dir, 'data'), openBrowser: false },
+      {
+        fetch: async () => new Response('not found', { status: 404 }),
+        ffmpeg: null,
+        adc: async () => 'token',
+        home: dir,
+        torrentEngine: () => fakeEngine,
+      },
+    );
+    ctx.events.subscribe((e) => events.push(e));
+  });
+
+  afterEach(async () => {
+    await ctx.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function makeNogiFolder(): Promise<{ nogiDir: string; files: string[] }> {
+    const nogiDir = join(dir, 'Videos', 'NogiKouji');
+    await mkdir(nogiDir, { recursive: true });
+    const names = [
+      '2026-08-16_【公式】「乃木坂工事中」# 577「夏休み目標発表会」2026.08.16 OA_[aaa111].mp4',
+      '2026-08-23_【公式】「乃木坂工事中」# 578「初耳46 前編」2026.08.23 OA_[cEE5gee6cx4].mp4',
+      '2026-08-30_【公式】「乃木坂工事中」# 579「初耳46 後編」2026.08.30 OA_[bbb222].mp4',
+    ];
+    const files: string[] = [];
+    for (const name of names) {
+      const fp = join(nogiDir, name);
+      await writeFile(fp, new Uint8Array(512));
+      files.push(fp);
+    }
+    return { nogiDir, files };
+  }
+
+  it('imports a configured series folder of .mp4 files as a single multi-episode series instead of splitting per file', async () => {
+    const { nogiDir } = await makeNogiFolder();
+
+    await ctx.host.settings.update({ library: { animeRoots: [nogiDir] } });
+    const list = await ctx.host.anime.listSeries();
+
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      title: '乃木坂工事中',
+      sourcePath: nogiDir,
+      episodeCount: 3,
+    });
+    const episodes = await ctx.host.anime.listEpisodes(list[0]!.id);
+    expect(episodes.map((e) => e.parsedName.episode)).toEqual([577, 578, 579]);
+  });
+
+  it('automatically consolidates previously split per-file series into a single folder series while preserving progress', async () => {
+    const { nogiDir, files } = await makeNogiFolder();
+
+    // Simulate legacy broken state: each video file was imported as its own standalone 1-episode series.
+    const splitSeries = [];
+    for (const fp of files) {
+      splitSeries.push(await ctx.host.anime.importSeries({ path: fp }));
+    }
+    expect(await ctx.host.anime.listSeries()).toHaveLength(3);
+
+    const firstSplitEps = await ctx.host.anime.listEpisodes(splitSeries[0]!.id);
+    await ctx.host.anime.saveProgress(firstSplitEps[0]!.id, {
+      positionMs: 42_000,
+      durationMs: 1_500_000,
+      updatedAt: 1_700_000_000_000,
+    });
+
+    // Adding nogiDir to animeRoots consolidates the 3 split series into 1 series with 3 episodes.
+    await ctx.host.settings.update({ library: { animeRoots: [nogiDir] } });
+    const afterConsolidation = await ctx.host.anime.listSeries();
+
+    expect(afterConsolidation).toHaveLength(1);
+    expect(afterConsolidation[0]).toMatchObject({
+      title: '乃木坂工事中',
+      sourcePath: nogiDir,
+      episodeCount: 3,
+    });
+    const consolidatedEps = await ctx.host.anime.listEpisodes(afterConsolidation[0]!.id);
+    expect(consolidatedEps).toHaveLength(3);
+    expect(consolidatedEps[0]?.progress?.positionMs).toBe(42_000);
+  });
+
+  it('permanently removes a series without scanRoots/listSeries re-importing it, cleans matching animeRoots, and allows explicit re-import', async () => {
+    const { nogiDir } = await makeNogiFolder();
+
+    await ctx.host.settings.update({ library: { animeRoots: [nogiDir] } });
+    const [imported] = await ctx.host.anime.listSeries();
+    expect(imported).toBeDefined();
+
+    await ctx.host.anime.removeSeries(imported!.id);
+
+    // Matching animeRoots entry is removed and settings-changed is emitted.
+    expect((await ctx.host.settings.get()).library.animeRoots).toEqual([]);
+    expect(events.some((e) => e.type === 'settings-changed' && e.settings.library.animeRoots.length === 0)).toBe(true);
+
+    // Neither listSeries() nor scanRoots([nogiDir]) re-imports the excluded path.
+    expect(await ctx.host.anime.listSeries()).toEqual([]);
+    await ctx.host.anime.scanRoots([nogiDir]);
+    expect(await ctx.host.anime.listSeries()).toEqual([]);
+
+    // Re-adding nogiDir in settings.update unexcludes it and imports it cleanly again.
+    await ctx.host.settings.update({ library: { animeRoots: [nogiDir] } });
+    const reAdded = await ctx.host.anime.listSeries();
+    expect(reAdded).toHaveLength(1);
+    expect(reAdded[0]?.sourcePath).toBe(nogiDir);
+
+    // Also verify child folder removal inside a multi-series parent root stays excluded while keeping sibling series.
+    await ctx.host.anime.removeSeries(reAdded[0]!.id);
+    const parentRoot = join(dir, 'AnimeLibrary');
+    const showA = join(parentRoot, 'ShowA');
+    const showB = join(parentRoot, 'ShowB');
+    await mkdir(showA, { recursive: true });
+    await mkdir(showB, { recursive: true });
+    await writeFile(join(showA, '[Sub] ShowA - 01.mp4'), new Uint8Array(256));
+    await writeFile(join(showB, '[Sub] ShowB - 01.mp4'), new Uint8Array(256));
+
+    await ctx.host.settings.update({ library: { animeRoots: [parentRoot] } });
+    const both = await ctx.host.anime.listSeries();
+    expect(both.map((s) => s.title).sort()).toEqual(['ShowA', 'ShowB']);
+
+    const targetA = both.find((s) => s.title === 'ShowA')!;
+    await ctx.host.anime.removeSeries(targetA.id);
+
+    // Parent root remains configured, ShowB stays, and ShowA is NOT re-imported by listSeries() / scanRoots().
+    expect((await ctx.host.settings.get()).library.animeRoots).toEqual([parentRoot]);
+    const remaining = await ctx.host.anime.listSeries();
+    expect(remaining.map((s) => s.title)).toEqual(['ShowB']);
+
+    // Explicit manual importSeries unexcludes ShowA.
+    await ctx.host.anime.importSeries({ path: showA });
+    expect((await ctx.host.anime.listSeries()).map((s) => s.title).sort()).toEqual(['ShowA', 'ShowB']);
+  });
+});

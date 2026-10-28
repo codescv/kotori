@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, extname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { KotoriError } from '@kotori/core';
 import type {
   AnimeApi,
@@ -49,6 +49,8 @@ export interface NodeAnimeService extends AnimeApi {
   coverPath(seriesId: Id): string | undefined;
   /** Wait for background probes (tests / shutdown). */
   idle(): Promise<void>;
+  /** Remove `path` (and any descendants) from the persistent excluded-anime-paths set. */
+  unexcludePath(path: string): void;
   /** Scan configured anime library roots (plus ~/download/anime & ~/Downloads/anime) for unimported series. */
   scanRoots(roots?: readonly string[]): Promise<void>;
   autoFetchJimaku(
@@ -58,6 +60,15 @@ export interface NodeAnimeService extends AnimeApi {
 }
 
 const EXT_BY_FORMAT: Readonly<Record<SubtitleFormat, string>> = { ass: '.ass', srt: '.srt', vtt: '.vtt' };
+const EXCLUDED_PATHS_KEY = 'excluded_anime_paths';
+
+/** Expand leading `~` / `~/` and resolve to a normalized absolute path. */
+export function resolveAnimePath(rawPath: string): string {
+  const trimmed = rawPath.trim();
+  if (trimmed === '~') return resolve(homedir());
+  if (trimmed.startsWith('~/')) return resolve(join(homedir(), trimmed.slice(2)));
+  return resolve(trimmed);
+}
 
 export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
   const { repos } = deps;
@@ -85,6 +96,56 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     const t = repos.tracks.get(id);
     if (!t) throw new KotoriError('not-found', `Subtitle track ${id} not found`);
     return t;
+  }
+
+  function getExcludedPaths(): Set<string> {
+    const row = deps.db.prepare('SELECT json FROM settings WHERE key = ?').get(EXCLUDED_PATHS_KEY) as { json: string } | undefined;
+    if (!row) return new Set();
+    try {
+      const parsed = JSON.parse(row.json) as unknown;
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((x): x is string => typeof x === 'string' && x.length > 0).map(resolveAnimePath));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function saveExcludedPaths(paths: ReadonlySet<string>): void {
+    deps.db
+      .prepare('INSERT INTO settings (key, json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json')
+      .run(EXCLUDED_PATHS_KEY, JSON.stringify([...paths]));
+  }
+
+  function excludePath(p: string): void {
+    const abs = resolveAnimePath(p);
+    const next = getExcludedPaths();
+    if (!next.has(abs)) {
+      next.add(abs);
+      saveExcludedPaths(next);
+    }
+  }
+
+  function unexcludePath(p: string): void {
+    const abs = resolveAnimePath(p);
+    const prefix = abs === '/' ? '/' : `${abs}/`;
+    const cur = getExcludedPaths();
+    let changed = false;
+    for (const x of [...cur]) {
+      if (x === abs || x.startsWith(prefix)) {
+        cur.delete(x);
+        changed = true;
+      }
+    }
+    if (changed) saveExcludedPaths(cur);
+  }
+
+  async function purgeSeriesRecord(series: AnimeSeries): Promise<void> {
+    const episodes = repos.episodes.listBySeries(series.id);
+    repos.series.remove(series.id);
+    for (const ep of episodes) {
+      cueCache.deleteWhere((k) => ep.subtitleTracks.some((t) => k.startsWith(`${t.id}|`)));
+      await deps.subtitles.removeEpisode(ep.id);
+    }
   }
 
   /** Persist a scan result; prunes vanished episodes and sidecars. */
@@ -127,6 +188,10 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
         }
         repos.tracks.pruneOrigin(episodeId, 'external', sidecarIds);
         ensureDefaultTrack(episodeId);
+        if (ep.filePath !== scan.sourcePath) {
+          const split = repos.series.getByPath(ep.filePath);
+          if (split && split.id !== seriesId) repos.series.remove(split.id);
+        }
       });
       for (const id of repos.episodes.idsBySeries(seriesId)) if (!keep.has(id)) repos.episodes.remove(id);
     });
@@ -369,8 +434,9 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
   }
 
   const service: NodeAnimeService = {
+    unexcludePath,
     async listSeries() {
-      if (!process.env['VITEST']) {
+      if (!process.env['VITEST'] || deps.settings.get().library.animeRoots.length > 0) {
         await service.scanRoots().catch(() => undefined);
       }
       await syncExistingSeries().catch(() => undefined);
@@ -389,7 +455,11 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     async getEpisode(id) {
       return requireEpisode(id);
     },
-    importSeries: (request) => importOrRescan(request.path, request.titleOverride, request.anilistId, request.coverUrl),
+    importSeries: async (request) => {
+      if (!isAbsolute(request.path)) throw new KotoriError('invalid-argument', 'Import path must be absolute');
+      unexcludePath(request.path);
+      return importOrRescan(request.path, request.titleOverride, request.anilistId, request.coverUrl);
+    },
     async updateSeries(seriesId, patch) {
       const series = requireSeries(seriesId);
       const oldCoverPath = repos.series.coverPath(seriesId);
@@ -444,8 +514,17 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     },
     async scanRoots(roots) {
       const configured = roots ?? deps.settings.get().library.animeRoots;
+      const configuredSet = new Set(configured.filter(Boolean).map(resolveAnimePath));
       const defaultDirs = process.env['VITEST'] ? [] : [deps.settings.get().downloads.downloadDir];
-      const allRoots = [...configured, ...defaultDirs].filter((p, i, a) => Boolean(p) && a.indexOf(p) === i);
+      const seenRoots = new Set<string>();
+      const allRoots = [...configured, ...defaultDirs].filter((p) => {
+        if (!p) return false;
+        const abs = resolveAnimePath(p);
+        if (seenRoots.has(abs)) return false;
+        seenRoots.add(abs);
+        return true;
+      });
+      const excludedPaths = getExcludedPaths();
       const incompletePaths = new Set<string>();
       try {
         for (const task of deps.downloads().list()) {
@@ -464,31 +543,98 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
         // DownloadManager may not be initialized yet
       }
       for (const rawRoot of allRoots) {
-        const rootPath = rawRoot.startsWith('~/') ? join(homedir(), rawRoot.slice(2)) : resolve(rawRoot);
-        if (!existsSync(rootPath)) continue;
+        const rootPath = resolveAnimePath(rawRoot);
+        if (!existsSync(rootPath) || excludedPaths.has(rootPath) || incompletePaths.has(rootPath)) continue;
+        const isConfiguredRoot = configured.includes(rawRoot) || configuredSet.has(rootPath);
         try {
+          const rootStat = await stat(rootPath);
+          if (rootStat.isFile()) {
+            if (isConfiguredRoot && !repos.series.getByPath(rootPath) && !repos.episodes.get(stableId('ep', rootPath))) {
+              await importOrRescan(rootPath, undefined).catch(() => undefined);
+            }
+            continue;
+          }
           const entries = await readdir(rootPath, { withFileTypes: true });
-          let importedChild = false;
+          const childDirs: string[] = [];
+          const videoFiles: string[] = [];
           for (const entry of entries) {
             if (entry.name.startsWith('.') || entry.name.startsWith('@')) continue;
-            const childPath = join(rootPath, entry.name);
-            if (incompletePaths.has(resolve(childPath))) continue;
+            const childPath = resolve(join(rootPath, entry.name));
+            if (incompletePaths.has(childPath)) continue;
             if (entry.isDirectory()) {
-              if (!repos.series.getByPath(childPath)) {
-                const s = await importOrRescan(childPath, undefined).catch(() => undefined);
-                if (s) importedChild = true;
-              } else {
-                importedChild = true;
-              }
+              childDirs.push(childPath);
             } else if (entry.isFile() && /\.(mkv|mp4|webm|m4v)$/i.test(entry.name)) {
-              if (!repos.series.getByPath(childPath) && !repos.episodes.get(stableId('ep', childPath))) {
-                const s = await importOrRescan(childPath, undefined).catch(() => undefined);
-                if (s) importedChild = true;
-              }
+              videoFiles.push(childPath);
             }
           }
-          if (!importedChild && configured.includes(rawRoot) && !repos.series.getByPath(rootPath)) {
-            await importOrRescan(rootPath, undefined).catch(() => undefined);
+
+          if (isConfiguredRoot && childDirs.length === 0 && videoFiles.length > 0) {
+            let removedSplit = false;
+            const savedProgress = new Map<Id, NonNullable<AnimeEpisode['progress']>>();
+            for (const vf of videoFiles) {
+              const split = repos.series.getByPath(vf);
+              if (split && split.id !== stableId('sr', rootPath)) {
+                for (const ep of repos.episodes.listBySeries(split.id)) {
+                  if (ep.progress) savedProgress.set(ep.id, ep.progress);
+                }
+                await purgeSeriesRecord(split);
+                removedSplit = true;
+              }
+            }
+            if (!repos.series.getByPath(rootPath) && !excludedPaths.has(rootPath)) {
+              const imported = await importOrRescan(rootPath, undefined).catch(() => undefined);
+              if (imported && savedProgress.size > 0) {
+                for (const [epId, prog] of savedProgress) {
+                  if (repos.episodes.get(epId)) repos.episodes.saveProgress(epId, prog);
+                }
+              }
+            } else if (removedSplit) {
+              deps.emit({ type: 'library-changed', scope: 'anime' });
+            }
+          } else {
+            let hasChildSeries = false;
+            for (const dirPath of childDirs) {
+              if (excludedPaths.has(dirPath)) {
+                hasChildSeries = true;
+                continue;
+              }
+              if (!repos.series.getByPath(dirPath)) {
+                const s = await importOrRescan(dirPath, undefined).catch(() => undefined);
+                if (s) hasChildSeries = true;
+              } else {
+                hasChildSeries = true;
+              }
+            }
+            if (isConfiguredRoot && !hasChildSeries && videoFiles.length > 0) {
+              let removedSplit = false;
+              const savedProgress = new Map<Id, NonNullable<AnimeEpisode['progress']>>();
+              for (const vf of videoFiles) {
+                const split = repos.series.getByPath(vf);
+                if (split && split.id !== stableId('sr', rootPath)) {
+                  for (const ep of repos.episodes.listBySeries(split.id)) {
+                    if (ep.progress) savedProgress.set(ep.id, ep.progress);
+                  }
+                  await purgeSeriesRecord(split);
+                  removedSplit = true;
+                }
+              }
+              if (!repos.series.getByPath(rootPath) && !excludedPaths.has(rootPath)) {
+                const imported = await importOrRescan(rootPath, undefined).catch(() => undefined);
+                if (imported && savedProgress.size > 0) {
+                  for (const [epId, prog] of savedProgress) {
+                    if (repos.episodes.get(epId)) repos.episodes.saveProgress(epId, prog);
+                  }
+                }
+              } else if (removedSplit) {
+                deps.emit({ type: 'library-changed', scope: 'anime' });
+              }
+            } else if ((!isConfiguredRoot || childDirs.length > 0) && !repos.series.getByPath(rootPath)) {
+              for (const filePath of videoFiles) {
+                if (!excludedPaths.has(filePath) && !repos.series.getByPath(filePath) && !repos.episodes.get(stableId('ep', filePath))) {
+                  await importOrRescan(filePath, undefined).catch(() => undefined);
+                }
+              }
+            }
           }
         } catch {
           // Ignore unreadable directories
@@ -498,7 +644,11 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     },
     async removeSeries(seriesId, deleteFiles = false) {
       const series = requireSeries(seriesId);
+      const seriesPath = resolveAnimePath(series.sourcePath);
       const episodes = repos.episodes.listBySeries(series.id);
+      const isSingleFileSeries = episodes.length === 1 && resolveAnimePath(episodes[0]!.filePath) === seriesPath;
+
+      excludePath(seriesPath);
       repos.series.remove(series.id);
       for (const ep of episodes) {
         cueCache.deleteWhere((k) => ep.subtitleTracks.some((t) => k.startsWith(`${t.id}|`)));
@@ -508,6 +658,29 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
           for (const t of ep.subtitleTracks) if (t.origin === 'external' && t.filePath) await rm(t.filePath, { force: true });
         }
       }
+
+      const currentRoots = deps.settings.get().library.animeRoots;
+      if (currentRoots.length > 0) {
+        const remainingSeries = repos.series.list();
+        const filteredRoots = currentRoots.filter((rawRoot) => {
+          const rootAbs = resolveAnimePath(rawRoot);
+          if (rootAbs === seriesPath) return false;
+          if (isSingleFileSeries && dirname(seriesPath) === rootAbs) {
+            const prefix = rootAbs === '/' ? '/' : `${rootAbs}/`;
+            const hasOtherInRoot = remainingSeries.some((s) => {
+              const sp = resolveAnimePath(s.sourcePath);
+              return sp === rootAbs || sp.startsWith(prefix);
+            });
+            if (!hasOtherInRoot) return false;
+          }
+          return true;
+        });
+        if (filteredRoots.length !== currentRoots.length) {
+          const nextSettings = deps.settings.update({ library: { animeRoots: filteredRoots } });
+          deps.emit({ type: 'settings-changed', settings: nextSettings });
+        }
+      }
+
       deps.emit({ type: 'library-changed', scope: 'anime' });
     },
     async rescanSeries(seriesId) {

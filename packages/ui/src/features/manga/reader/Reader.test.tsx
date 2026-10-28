@@ -372,8 +372,7 @@ describe('Reader — Android default width-fit & touch gestures', () => {
   });
 });
 
-describe('Reader — sequential bubble reading (气泡顺读), guide context & HUD', () => {
-  const sentence = (): string | undefined => useBreakdownStore.getState().request?.sentence;
+describe('Reader — guide context, HUD & no bubble stepper', () => {
   // jsdom never loads images: fire `load` asynchronously so the page-guide downscale proceeds.
   const origSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
   const origGetContext = HTMLCanvasElement.prototype.getContext;
@@ -395,38 +394,27 @@ describe('Reader — sequential bubble reading (气泡顺读), guide context & H
     if (origSrc) Object.defineProperty(HTMLImageElement.prototype, 'src', origSrc);
   });
 
-  it('steps through the spread bubbles in RTL reading order with ◀/▶ and [ / ], crossing into the next spread', async () => {
+  it('does not render the sequential bubble stepper on the stage or in the breakdown header, and ignores [ / ] keys', async () => {
     setup();
     await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
-    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('–/6');
-    expect(screen.getByRole('group', { name: /气泡/ })).toHaveTextContent('💬 台词');
+    expect(screen.queryByTestId('bubble-step-count')).toBeNull();
+    expect(screen.queryByTestId('bubble-step-prev')).toBeNull();
+    expect(screen.queryByTestId('bubble-step-next')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('bubble-step-next'));
-    await waitFor(() => expect(sentence()).toBe('おはよう、ことり。'));
-    expect(useBreakdownStore.getState().request?.contextAfter).toEqual(['今日も早いね。', '朝の空気が好きなんだ。']);
-    // The breakdown sheet hosts the stepper while it is open.
-    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('1/6');
-
-    fireEvent.click(screen.getByTestId('bubble-step-next'));
-    await waitFor(() => expect(sentence()).toBe('今日も早いね。'));
+    // Pressing [ and ] neither opens the breakdown nor turns the spread.
     key(']');
-    await waitFor(() => expect(sentence()).toBe('朝の空気が好きなんだ。'));
-    key(']');
-    // Page 2 (left page of the RTL spread) starts at its top-right bubble.
-    await waitFor(() => expect(sentence()).toBe('ちょっと待ってくれよ、'));
-    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('4/6');
     key('[');
-    await waitFor(() => expect(sentence()).toBe('朝の空気が好きなんだ。'));
+    expect(useBreakdownStore.getState().isOpen).toBe(false);
+    expect(spread().dataset['pageIndexes']).toBe('1,2');
 
-    // Past the last bubble of the spread → next spread, first bubble.
-    key(']');
-    key(']');
-    key(']');
-    await waitFor(() => expect(sentence()).toBe('え、何の話だっけ？'));
-    key(']');
-    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('3,4'));
-    await waitFor(() => expect(sentence()).toBe('食べてんじゃねぇよ！'));
-    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('1/4');
+    // Opening a bubble directly via BlockOverlay also has no stepper in the sheet header.
+    const overlay1 = await screen.findByTestId('block-overlay-1');
+    const block = overlay1.querySelector('[data-block-index="0"]') as HTMLElement;
+    fireEvent.click(block);
+    await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(true));
+    expect(screen.queryByTestId('bubble-step-count')).toBeNull();
+    expect(screen.queryByTestId('bubble-step-prev')).toBeNull();
+    expect(screen.queryByTestId('bubble-step-next')).toBeNull();
   });
 
   it('passes the guide speaker and neighbouring guide bubbles as context when picking a ✨ 陪读本页 bubble', async () => {

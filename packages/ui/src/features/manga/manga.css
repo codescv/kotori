@@ -26,8 +26,7 @@
 .k-reader.is-immersive .k-reader__scrubber-wrap,
 .k-reader.is-immersive .k-reader__jump-back,
 .k-reader.is-immersive .k-reader__next-volume,
-.k-reader.is-immersive .k-reader__edge,
-.k-reader.is-immersive .k-bubble-step--floating {
+.k-reader.is-immersive .k-reader__edge {
   display: none !important;
 }
 .k-reader--bg-black .k-reader__stage-wrap { background: #000; }
@@ -103,19 +102,6 @@
   background: color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent); color: #fff;
   font: var(--md-sys-typescale-label-medium); font-variant-numeric: tabular-nums; opacity: 0.75;
 }
-
-/* Sequential bubble stepper (气泡顺读): ◀ 💬 台词 k/N ▶ */
-.k-bubble-step { display: inline-flex; align-items: center; gap: 4px; }
-.k-bubble-step__label { padding-left: 4px; color: var(--md-sys-color-primary); font-weight: 600; white-space: nowrap; user-select: none; }
-.k-bubble-step__count { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.k-bubble-step--floating {
-  position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); z-index: 5;
-  padding: 2px 6px; border-radius: 999px;
-  background: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 90%, transparent);
-  color: var(--md-sys-color-on-surface); box-shadow: var(--md-sys-elevation-2);
-}
-.k-bubble-step--floating.is-raised { bottom: 100px; }
-.k-bubble-step--header { margin-right: 4px; color: var(--md-sys-color-on-surface-variant); }
 
 /* ---- zoom / spread / page ----------------------------------------------------------- */
 .k-zoompan { position: absolute; inset: 0; overflow: hidden; touch-action: none; display: flex; }

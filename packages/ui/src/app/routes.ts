@@ -37,6 +37,8 @@ export interface RouteState extends RouteSnapshot {
   setPersonaOpen(open: boolean): void;
   setReaderImmersive(immersive: boolean): void;
   toggleReaderImmersive(): void;
+  /** Strip any active view or history entries referencing a deleted anime series. */
+  pruneAnimeSeries(seriesId: Id): void;
   /** Unwinds one navigation level; returns `true` if handled or `false` if already at root. */
   goBack(): boolean;
   reset(): void;
@@ -57,6 +59,9 @@ const sameAnimeView = (a: AnimeView, b: AnimeView): boolean => {
   if (a.kind === 'player' && b.kind === 'player') return a.seriesId === b.seriesId && a.episodeId === b.episodeId;
   return true;
 };
+
+const referencesAnimeSeries = (view: AnimeView, seriesId: Id): boolean =>
+  (view.kind === 'series' || view.kind === 'player') && view.seriesId === seriesId;
 
 const sameMangaView = (a: MangaView, b: MangaView): boolean => {
   if (a.kind !== b.kind) return false;
@@ -180,6 +185,33 @@ export const useRouteStore = create<RouteState>()((set, get) => ({
   setPersonaOpen: (personaOpen) => set({ personaOpen }),
   setReaderImmersive: (readerImmersive) => set({ readerImmersive }),
   toggleReaderImmersive: () => set((s) => ({ readerImmersive: !s.readerImmersive })),
+  pruneAnimeSeries: (seriesId) =>
+    set((s) => {
+      const nextAnime: AnimeView = referencesAnimeSeries(s.anime, seriesId) ? { kind: 'library' } : s.anime;
+      const cleaned: RouteSnapshot[] = [];
+      for (const snap of s.history) {
+        if (snap.tab === 'anime' && referencesAnimeSeries(snap.anime, seriesId)) continue;
+        const normalized: RouteSnapshot = referencesAnimeSeries(snap.anime, seriesId)
+          ? { ...snap, anime: { kind: 'library' } }
+          : snap;
+        const prev = cleaned[cleaned.length - 1];
+        if (prev && sameSnapshot(prev, normalized)) continue;
+        cleaned.push(normalized);
+      }
+      const currentSnap: RouteSnapshot = {
+        tab: s.tab,
+        anime: nextAnime,
+        manga: s.manga,
+        downloadsTab: s.downloadsTab,
+      };
+      while (cleaned.length > 0 && sameSnapshot(cleaned[cleaned.length - 1]!, currentSnap)) {
+        cleaned.pop();
+      }
+      return {
+        anime: nextAnime,
+        history: cleaned,
+      };
+    }),
   goBack: () => {
     const s = get();
     if (s.personaOpen) {

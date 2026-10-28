@@ -12,7 +12,7 @@
  *   preloaded (±`settings.manga.preloadPages`).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { MangaBlock, MangaGuideBubble, MangaPage, MangaPageGuideResult, MangaReadingMode, MangaVolume } from '@kotori/core';
+import type { MangaGuideBubble, MangaPage, MangaPageGuideResult, MangaReadingMode, MangaVolume } from '@kotori/core';
 import { BreakdownPanel } from '../../../components/breakdown/AiBreakdownPanel';
 import { Button } from '../../../components/m3/Button';
 import { Chip } from '../../../components/m3/Chip';
@@ -29,7 +29,7 @@ import { useBackInterceptor, useRouteStore } from '../../../app/routes';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
-import { BlockOverlay, blockContext, blocksInReadingOrder, openBlockBreakdown } from './BlockOverlay';
+import { BlockOverlay, blockContext } from './BlockOverlay';
 import { BubbleSelectTool } from './BubbleSelectTool';
 import { GuideMarkers, PageGuideSheet } from './PageGuideSheet';
 import { ZoomPan } from './PageCanvas';
@@ -191,14 +191,8 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   // in a ref updated during render), so a key press right after a re-render
   // never sees stale spreads while passive effects are still pending.
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
-  const stepBubbleRef = useRef<(delta: number) => void>(() => {});
   keyHandler.current = (e: KeyboardEvent): void => {
     if (e.defaultPrevented || isTyping(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.key === '[' || e.key === ']') {
-      e.preventDefault();
-      stepBubbleRef.current(e.key === ']' ? 1 : -1);
-      return;
-    }
     if (mode === 'webtoon') return;
     let handled = true;
     switch (e.key) {
@@ -382,63 +376,6 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
     [host, volumeId, sceneHint, guides],
   );
 
-  // ---- sequential bubble reading (气泡顺读) ----------------------------------------------
-  // Explainable bubbles of the visible page(s) in RTL reading order: pages by index,
-  // then top-right → bottom-left within each page.
-  const stepBubbles = useMemo(
-    () =>
-      [...spreadPages]
-        .sort((a, b) => a.index - b.index)
-        .flatMap((page) => blocksInReadingOrder(page).filter((block) => block.text.trim() !== '').map((block) => ({ page, block }))),
-    [spreadPages],
-  );
-  const activeStep = useMemo(() => {
-    if (!breakdownOpen || breakdownRequest?.source.kind !== 'manga') return -1;
-    const src = breakdownRequest.source;
-    if (src.volumeId !== volumeId || src.blockIndex === undefined) return -1;
-    return stepBubbles.findIndex((x) => x.page.index === src.pageIndex && x.block.index === src.blockIndex);
-  }, [breakdownOpen, breakdownRequest, volumeId, stepBubbles]);
-  const openStep = useCallback(
-    (page: MangaPage, block: MangaBlock) => {
-      setTocOpen(false);
-      setGuideOpen(false);
-      openBlockBreakdown(host, volumeId, page, block, 0, sceneHint);
-    },
-    [host, volumeId, sceneHint],
-  );
-  // Crossing a spread boundary turns the page, then opens its first / last bubble.
-  const pendingStepRef = useRef<'first' | 'last' | undefined>(undefined);
-  const stepBubble = (delta: number): void => {
-    if (selectTool) return;
-    const n = stepBubbles.length;
-    const next = activeStep < 0 ? (delta > 0 ? 0 : n - 1) : activeStep + delta;
-    const target = n > 0 ? stepBubbles[next] : undefined;
-    if (target) {
-      openStep(target.page, target.block);
-      return;
-    }
-    const canTurn = delta > 0 ? spreadIdx < spreads.length - 1 : spreadIdx > 0;
-    if (!canTurn) return;
-    pendingStepRef.current = delta > 0 ? 'first' : 'last';
-    go(delta > 0 ? 1 : -1);
-  };
-  stepBubbleRef.current = stepBubble;
-  useEffect(() => {
-    const pending = pendingStepRef.current;
-    if (!pending) return;
-    const target = pending === 'first' ? stepBubbles[0] : stepBubbles[stepBubbles.length - 1];
-    // Pages without dialogue (illustrations) keep walking in the same direction.
-    if (!target) {
-      const delta = pending === 'first' ? 1 : -1;
-      const canTurn = delta > 0 ? spreadIdx < spreads.length - 1 : spreadIdx > 0;
-      if (canTurn) go(delta);
-      else pendingStepRef.current = undefined;
-      return;
-    }
-    pendingStepRef.current = undefined;
-    openStep(target.page, target.block);
-  }, [stepBubbles, openStep, go, spreadIdx, spreads.length]);
-
   const renderOverlay = (page: MangaPage) => (
     <>
       <BlockOverlay volumeId={volumeId} page={page} showOutlines={outlines} sceneHint={sceneHint} />
@@ -454,23 +391,6 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const dialoguePages = useMemo(() => (pages ?? []).filter((p) => p.blocks.length > 0), [pages]);
   const tocPages = tocFilter === 'dialogue' ? dialoguePages : (pages ?? []);
   const progressPct = total > 0 ? Math.round(((anchor + 1) / total) * 100) : 0;
-  // OCR volumes only; shown on illustration spreads too so ◀/▶ can walk past them.
-  const showStepper = !selectTool && (stepBubbles.length > 0 || dialoguePages.length > 0);
-  const renderStepper = (variant: 'floating' | 'header') => (
-    <div
-      className={cx('k-bubble-step', `k-bubble-step--${variant}`, variant === 'floating' && isLastSpread && nextVolume && onOpenVolume && 'is-raised')}
-      role="group"
-      title="按阅读顺序逐个点读本页台词气泡 (快捷键 [ / ])"
-      aria-label={t('manga.reader.bubbleStep', { current: activeStep + 1, total: stepBubbles.length })}
-    >
-      <IconButton icon="chevronLeft" size="small" label={t('manga.reader.prevBubble')} onClick={() => stepBubble(-1)} data-testid="bubble-step-prev" />
-      <span className="k-bubble-step__label k-label-medium" aria-hidden="true">💬 台词</span>
-      <span className="k-bubble-step__count k-label-medium" data-testid="bubble-step-count">
-        {`${activeStep >= 0 ? activeStep + 1 : '–'}/${stepBubbles.length}`}
-      </span>
-      <IconButton icon="chevronRight" size="small" label={t('manga.reader.nextBubble')} onClick={() => stepBubble(1)} data-testid="bubble-step-next" />
-    </div>
-  );
 
   return (
     <div
@@ -681,7 +601,6 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
               )}
             </>
           )}
-          {showStepper && !breakdownOpen && renderStepper('floating')}
           {immersive && total > 0 && (
             <div className="k-reader__hud" data-testid="immersive-page-hud" aria-hidden="true">
               {`${pageLabel} / ${total}`}
@@ -694,7 +613,6 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
           onClose={closeBreakdown}
           title={t('breakdown.title')}
           closeLabel={t('common.close')}
-          headerActions={showStepper ? renderStepper('header') : undefined}
         >
           <BreakdownPanel />
         </AdaptiveSheet>

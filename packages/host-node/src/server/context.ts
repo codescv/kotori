@@ -18,7 +18,7 @@ import { findFfmpeg, type FfmpegPaths } from '../media/ffmpeg';
 import { SettingsStore } from '../settings/store';
 import { TorrentClient } from '../torrent';
 import type { ServerOptions } from './index';
-import { attachJimakuSubtitle, createAnimeService, type NodeAnimeService } from './services/anime';
+import { attachJimakuSubtitle, createAnimeService, resolveAnimePath, type NodeAnimeService } from './services/anime';
 import { createDownloadsService, createFilesService, type NodeFilesApi, type Opener } from './services/downloads';
 import { createDictService } from './services/dict';
 import { createMangaService, type NodeMangaService } from './services/manga';
@@ -173,10 +173,19 @@ export async function createServerContext(options: ServerOptions, overrides: Con
   const settingsApi: SettingsApi = {
     get: async () => settings.get(),
     update: async (patch) => {
+      const prevRoots = settings.get().library.animeRoots;
       const next = settings.update(patch);
       emit({ type: 'settings-changed', settings: next });
+      if (patch.library?.animeRoots !== undefined) {
+        const prevResolved = new Set(prevRoots.map(resolveAnimePath));
+        for (const rawRoot of next.library.animeRoots) {
+          if (!prevResolved.has(resolveAnimePath(rawRoot))) {
+            anime.unexcludePath(rawRoot);
+          }
+        }
+      }
       if (patch.library?.animeRoots !== undefined || patch.downloads?.downloadDir !== undefined) {
-        void anime.scanRoots(next.library.animeRoots).catch(() => undefined);
+        await anime.scanRoots(next.library.animeRoots).catch(() => undefined);
       }
       return next;
     },
