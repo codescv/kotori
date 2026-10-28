@@ -16,3 +16,8 @@ export function useHost(): PlatformHost {
   if (!host) throw new Error('useHost() called outside <HostProvider>');
   return host;
 }
+
+/** Like `useHost()` but `null` outside a provider (presentational components rendered standalone). */
+export function useOptionalHost(): PlatformHost | null {
+  return useContext(HostContext);
+}

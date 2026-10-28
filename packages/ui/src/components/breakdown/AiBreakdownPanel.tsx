@@ -16,7 +16,7 @@
  * mount). Subtitle sources get `🔊 原声`, `🐢 0.75×` slow replay and `🗣 跟读`
  * shadowing (listen → countdown pause of 1.2 × the slice → listen again).
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { FollowUpMessage, SentenceExplanation } from '@kotori/core';
 import { useHost } from '../../host/HostContext';
 import { useT, type Translate } from '../../i18n';
@@ -33,6 +33,7 @@ import { Tabs } from '../m3/Tabs';
 import { ChunkCard } from './ChunkCard';
 import { FollowUpThread } from './FollowUpThread';
 import { GrammarList } from './GrammarList';
+import { InstantDictPopup, useInstantLookup } from './InstantDictPopup';
 import { RubyText } from './RubyText';
 import { useBreakdownSelection } from './useBreakdownSelection';
 import { VocabList } from './VocabList';
@@ -79,6 +80,10 @@ export interface AiBreakdownPanelProps {
   /** Duration of the source audio slice — enables `🗣 跟读` shadowing. */
   readonly audioDurationMs?: number | undefined;
   readonly bubblePreview?: BubbleCropPreview | undefined;
+  /** Click-to-lookup card rendered right under the sticky sentence (P2 `InstantDictPopup`). */
+  readonly instantLookup?: ReactNode;
+  /** Called (in addition to focusing) when a character of the sticky sentence is tapped. */
+  readonly onSentenceCharClick?: ((charIndex: number) => void) | undefined;
   readonly t?: Translate;
   readonly className?: string | undefined;
 }
@@ -141,6 +146,8 @@ export function AiBreakdownPanel({
   onReplayAudio,
   audioDurationMs,
   bubblePreview,
+  instantLookup,
+  onSentenceCharClick,
   t: tProp,
   className,
 }: AiBreakdownPanelProps) {
@@ -152,6 +159,14 @@ export function AiBreakdownPanel({
   const personaName = persona?.name?.trim();
   const copy = useCallback(() => void navigator.clipboard?.writeText(explanation.sentence).catch(() => {}), [explanation.sentence]);
   const speak = useCallback(() => void speakJapanese(explanation.sentence), [explanation.sentence]);
+  const { selectChar } = sel;
+  const onSentenceChar = useCallback(
+    (i: number) => {
+      selectChar(i);
+      onSentenceCharClick?.(i);
+    },
+    [selectChar, onSentenceCharClick],
+  );
 
   // Open at the top (sticky sentence + translation + chunk 1) unless a later
   // chunk is focused — that card then scrolls itself into view.
@@ -225,9 +240,10 @@ export function AiBreakdownPanel({
           segments={explanation.ruby}
           highlight={sel.highlightSpan}
           focusIndex={focusCharIndex}
-          onCharClick={sel.selectChar}
+          onCharClick={onSentenceChar}
         />
       </div>
+      {instantLookup}
       <section className="k-breakdown__sentence-block">
         <div className="k-breakdown__meta">
           {explanation.register && <span className="k-tag">{t(`breakdown.register.${explanation.register}`)}</span>}
@@ -381,12 +397,25 @@ export function AiBreakdownPanel({
 }
 
 /** Skeleton shown while Gemini works (sentence is already known → render it). */
-export function BreakdownSkeleton({ sentence, focusCharIndex, t }: { readonly sentence: string; readonly focusCharIndex?: number | undefined; readonly t: Translate }) {
+export function BreakdownSkeleton({
+  sentence,
+  focusCharIndex,
+  instantLookup,
+  onCharClick,
+  t,
+}: {
+  readonly sentence: string;
+  readonly focusCharIndex?: number | undefined;
+  readonly instantLookup?: ReactNode;
+  readonly onCharClick?: ((charIndex: number) => void) | undefined;
+  readonly t: Translate;
+}) {
   return (
     <div className="k-breakdown is-loading" data-testid="breakdown-loading" aria-busy="true">
       <div className="k-breakdown__sentence">
-        <RubyText text={sentence} focusIndex={focusCharIndex} />
+        <RubyText text={sentence} focusIndex={focusCharIndex} onCharClick={onCharClick} />
       </div>
+      {instantLookup}
       <LinearProgress label={t('breakdown.loading')} />
       <p className="k-muted">{t('breakdown.loading')}</p>
       <div className="k-skeleton k-skeleton--line" />
@@ -427,7 +456,32 @@ export function BreakdownPanel({ className }: { readonly className?: string | un
       : undefined;
   const audioDurationMs = subtitleSource ? Math.max(0, subtitleSource.endMs - subtitleSource.startMs) : undefined;
 
-  if (status === 'loading' && request) return <BreakdownSkeleton sentence={request.sentence} focusCharIndex={focusCharIndex} t={t} />;
+  // P2 click-to-lookup: the tapped character (subtitle / bubble / sticky
+  // sentence) is looked up in local dictionaries in parallel with the AI call.
+  // Chunk-card clicks move the focus but do not trigger a lookup.
+  const [lookupIndex, setLookupIndex] = useState<number | undefined>(focusCharIndex);
+  useEffect(() => {
+    setLookupIndex(useBreakdownStore.getState().focusCharIndex);
+  }, [request]);
+  const lookup = useInstantLookup(request?.sentence, lookupIndex);
+  const onSkeletonChar = useCallback(
+    (i: number) => {
+      setFocus(i);
+      setLookupIndex(i);
+    },
+    [setFocus],
+  );
+
+  if (status === 'loading' && request)
+    return (
+      <BreakdownSkeleton
+        sentence={request.sentence}
+        focusCharIndex={focusCharIndex}
+        instantLookup={<InstantDictPopup state={lookup} />}
+        onCharClick={onSkeletonChar}
+        t={t}
+      />
+    );
   if (status === 'error' && error) {
     const known = ['ai-auth', 'ai-quota', 'ai-timeout'] as const;
     const msg = (known as readonly string[]).includes(error.code)
@@ -462,6 +516,8 @@ export function BreakdownPanel({ className }: { readonly className?: string | un
         onReplayAudio={onReplayAudio}
         audioDurationMs={audioDurationMs}
         bubblePreview={request?.source.kind === 'manga' ? bubblePreview : undefined}
+        instantLookup={<InstantDictPopup state={lookup} collapsible />}
+        onSentenceCharClick={setLookupIndex}
         t={t}
       />
     );

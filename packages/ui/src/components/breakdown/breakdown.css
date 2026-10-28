@@ -71,3 +71,94 @@
 .k-bottom-sheet .k-breakdown__bubble-crop:not(.is-expanded) {
   padding: 4px 10px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Dictionary enrichment (VocabList three states, badges, senses).     */
+/* Kotori sage-green M3 palette: `--k-primary` falls back to primary.  */
+/* ------------------------------------------------------------------ */
+.k-vocab-list .k-vocab__tts { margin-left: 0; }
+.k-vocab__label { font: var(--md-sys-typescale-label-medium); font-weight: 600; color: var(--md-sys-color-on-surface-variant); }
+.k-vocab.is-linked .k-vocab__label { color: inherit; opacity: 0.85; }
+.k-vocab__ctx { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 2px; }
+.k-vocab__conj-chip {
+  margin-left: 6px; padding: 0 6px; border-radius: 6px; font: var(--md-sys-typescale-label-small);
+  background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);
+}
+
+.k-pitch { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
+.k-pitch__item { display: inline-flex; align-items: center; gap: 2px; }
+.k-pitch__svg { display: block; overflow: visible; }
+.k-pitch__line { stroke: var(--k-primary, var(--md-sys-color-primary)); stroke-width: 1.6; fill: none; stroke-linejoin: round; }
+.k-pitch__line--particle { stroke-dasharray: 2 2; opacity: 0.7; }
+.k-pitch__drop { stroke: var(--md-sys-color-tertiary, var(--k-primary, var(--md-sys-color-primary))); stroke-width: 1.6; }
+.k-pitch__dot { fill: var(--md-sys-color-surface, #fff); stroke: var(--k-primary, var(--md-sys-color-primary)); stroke-width: 1.4; }
+.k-pitch__dot.is-high { fill: var(--k-primary, var(--md-sys-color-primary)); }
+.k-pitch__dot--particle { fill: transparent; stroke-dasharray: 1.5 1.5; }
+.k-pitch__mora { font-size: 10px; fill: var(--md-sys-color-on-surface-variant); font-family: inherit; }
+.k-pitch__num { font: var(--md-sys-typescale-label-medium); font-weight: 700; color: var(--k-primary, var(--md-sys-color-primary)); }
+.k-vocab.is-linked .k-pitch__num { color: inherit; }
+
+.k-freq {
+  font: var(--md-sys-typescale-label-small); padding: 1px 6px; border-radius: 6px; white-space: nowrap;
+  background: color-mix(in srgb, var(--k-primary, var(--md-sys-color-primary)) 12%, transparent);
+  color: var(--md-sys-color-on-surface); border: 1px solid color-mix(in srgb, var(--k-primary, var(--md-sys-color-primary)) 35%, transparent);
+}
+.k-freq.is-kana { border-style: dashed; }
+
+.k-dict-senses { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; font: var(--md-sys-typescale-body-small); }
+.k-dict-senses__label { font: var(--md-sys-typescale-label-medium); font-weight: 600; color: var(--md-sys-color-on-surface-variant); }
+.k-dict-group__head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.k-dict-group__hw { font-weight: 600; }
+.k-dict-group__src { font: var(--md-sys-typescale-label-small); color: var(--md-sys-color-on-surface-variant); opacity: 0.85; }
+.k-dict-group__list { list-style: none; margin: 0; padding: 0 0 0 4px; display: flex; flex-direction: column; gap: 1px; }
+.k-dict-sense { display: flex; gap: 4px; align-items: baseline; }
+.k-dict-sense__num { color: var(--k-primary, var(--md-sys-color-primary)); flex-shrink: 0; }
+.k-dict-sense__body { display: flex; flex-direction: column; min-width: 0; }
+.k-dict-sense__example { color: var(--md-sys-color-on-surface-variant); }
+.k-dict-sense.is-matched .k-dict-sense__gloss { font-weight: 600; text-decoration: underline; text-decoration-color: var(--k-primary, var(--md-sys-color-primary)); text-underline-offset: 3px; }
+.k-dict-senses__more, .k-dict-candidates__toggle {
+  align-self: flex-start; border: 0; background: transparent; padding: 2px 0; cursor: pointer;
+  color: var(--k-primary, var(--md-sys-color-primary)); font: var(--md-sys-typescale-label-medium); text-align: left;
+}
+.k-vocab.is-linked .k-dict-senses__more, .k-vocab.is-linked .k-dict-candidates__toggle { color: inherit; }
+.k-dict-candidates { margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+.k-dict-candidates__toggle { color: var(--md-sys-color-on-surface-variant); line-height: 1.6; }
+.k-dict-candidates__label { font-weight: 600; }
+.k-dict-cand-chip { color: var(--md-sys-color-on-surface); }
+.k-dict-candidates__list { display: flex; flex-direction: column; gap: 6px; }
+.k-dict-candidate {
+  padding: 6px 8px; border-radius: var(--md-sys-shape-corner-small, 8px);
+  background: var(--md-sys-color-surface-container); border: 1px solid var(--md-sys-color-outline-variant);
+}
+.k-dict-candidate__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.k-dict-candidate__hw { font-weight: 600; }
+
+/* P2 instant lookup card. */
+.k-instant-dict {
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  background: color-mix(in srgb, var(--k-primary, var(--md-sys-color-primary)) 8%, var(--md-sys-color-surface-container-low, transparent));
+  border: 1px solid color-mix(in srgb, var(--k-primary, var(--md-sys-color-primary)) 30%, transparent);
+}
+.k-instant-dict__bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.k-instant-dict__title { font: var(--md-sys-typescale-label-medium); color: var(--k-primary, var(--md-sys-color-primary)); font-weight: 700; }
+.k-instant-dict__headline { font-size: 16px; }
+.k-instant-dict__surface { color: var(--md-sys-color-on-surface-variant); }
+.k-instant-dict__reading { color: var(--md-sys-color-on-surface-variant); font-size: 13px; }
+.k-instant-dict__btn {
+  border: 0; background: transparent; cursor: pointer; padding: 2px 6px; border-radius: 999px; line-height: 1;
+  color: var(--md-sys-color-on-surface-variant); margin-left: 0;
+}
+.k-instant-dict__btn:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.k-instant-dict__body { display: flex; flex-direction: column; gap: 4px; }
+.k-instant-dict__badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.k-instant-dict__chain { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.k-instant-dict__reason {
+  font: var(--md-sys-typescale-label-small); padding: 0 6px; border-radius: 6px;
+  background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);
+}
+.k-instant-dict__others { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font: var(--md-sys-typescale-body-small); }
+.k-instant-dict__other {
+  border: 1px solid var(--md-sys-color-outline-variant); background: transparent; border-radius: 999px;
+  padding: 0 8px; cursor: pointer; color: inherit; font: inherit;
+}

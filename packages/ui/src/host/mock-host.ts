@@ -8,7 +8,9 @@
  *   abortable `explain`, streaming follow-ups, mock VLM OCR / page guide;
  * - downloads: Nyaa / Jimaku / mokuro.moe search and simulated progress with
  *   `download-updated` events (≤ 1 per tick per task) and auto-import;
- * - files: a fake server-side path browser.
+ * - files: a fake server-side path browser;
+ * - dict: seeded Wiktionary JA-ZH / Kanjium pitch / JPDB frequency fixtures
+ *   run through the real `@kotori/core` enrichment and click-to-lookup.
  */
 import {
   KotoriError,
@@ -40,6 +42,7 @@ import {
 import { applySettingsPatch, DEFAULT_SETTINGS, mergeDeep } from '../app/default-settings';
 import { mockJimakuFiles, mockJimakuSearch, mockListDirectory, mockMokuroCatalog, mockNyaaSearch } from './mock/acquire';
 import { createAnimeFixtures } from './mock/anime';
+import { createMockDictHost } from './mock/dict-host';
 import { explanationFor } from './mock/explanations';
 import { bubbleGeometry, createMangaFixtures, type BubbleSpec } from './mock/manga';
 
@@ -57,6 +60,12 @@ export interface MockHostOptions {
   readonly streamDelayMs?: number;
   /** Seed the explanation cache with these sentences (instant hits). */
   readonly precachedSentences?: readonly string[];
+  /**
+   * Local dictionaries: `'seeded'` (default) = Wiktionary JA-ZH + Kanjium pitch
+   * + JPDB frequency fixtures; `'empty'` = `host.dict` with nothing installed;
+   * `'absent'` = no `host.dict` at all (legacy hosts).
+   */
+  readonly dictionaries?: 'seeded' | 'empty' | 'absent';
 }
 
 /** Mock host with test hooks. */
@@ -102,6 +111,7 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
   const latency = options.latencyMs ?? 120;
   const tickMs = options.downloadTickMs ?? 500;
   const streamDelay = options.streamDelayMs ?? 40;
+  const dictMode = options.dictionaries ?? 'seeded';
   const listeners = new Set<(e: HostEvent) => void>();
   const calls = new Map<string, number>();
   const track = (name: string): void => void calls.set(name, (calls.get(name) ?? 0) + 1);
@@ -760,6 +770,8 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
           }
         : {}),
     },
+
+    ...(dictMode !== 'absent' ? { dict: createMockDictHost({ seeded: dictMode === 'seeded', delay: () => delay(), emit, track, newId }) } : {}),
 
     subscribe(listener) {
       listeners.add(listener);

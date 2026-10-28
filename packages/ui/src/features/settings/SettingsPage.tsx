@@ -1,6 +1,6 @@
 /**
- * Settings: AI provider, appearance, anime, manga, downloads, library and an
- * about line. Two columns on expanded windows, one column on phones.
+ * Settings: AI provider, dictionaries, appearance, anime, manga, downloads,
+ * library and an about line. Two columns on expanded windows, one column on phones.
  */
 import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { useHost } from '../../host/HostContext';
@@ -12,6 +12,7 @@ import { DownloadsSection } from './DownloadsSection';
 import { SettingsSection } from './fields';
 import { LibrarySection } from './LibrarySection';
 import { MangaSection } from './MangaSection';
+import { DictionarySection } from './sections/DictionarySection';
 import { UpdateSection } from '../updater/UpdateBanner';
 import './settings.css';
 
@@ -29,6 +30,9 @@ export function SettingsPage() {
         <div className="k-settings__column">
           <SettingsSection id="settings-ai" icon="sparkle" title={t('settings.section.ai')}>
             <AiProviderForm />
+          </SettingsSection>
+          <SettingsSection id="settings-dictionary" icon="book" title={t('settings.section.dictionary')}>
+            <DictionarySection />
           </SettingsSection>
           <SettingsSection id="settings-anime" icon="movie" title={t('settings.section.anime')}>
             <AnimeSection />

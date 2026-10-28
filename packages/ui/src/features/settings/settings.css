@@ -88,3 +88,38 @@
   font: var(--md-sys-typescale-label-small);
   font-weight: 600;
 }
+
+/* 词典与查词 (DictionarySection). */
+.k-dict-settings { gap: 12px; }
+.k-dict-settings__block { display: flex; flex-direction: column; gap: 6px; }
+.k-dict-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.k-dict-row, .k-dict-preset {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-radius: var(--md-sys-shape-corner-medium, 12px);
+  border: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container-low);
+}
+.k-dict-preset { flex-direction: column; align-items: stretch; }
+.k-dict-preset__desc { margin: 0; }
+.k-dict-row.is-disabled .k-dict-row__main { opacity: 0.6; }
+.k-dict-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 220px; }
+.k-dict-row__actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.k-dict-row__btn {
+  border: 1px solid var(--md-sys-color-outline-variant); background: transparent; color: inherit; cursor: pointer;
+  border-radius: 999px; min-width: 32px; height: 32px; font-size: 15px;
+}
+.k-dict-row__btn:disabled { opacity: 0.35; cursor: default; }
+.k-dict-attr { margin: 0; overflow-wrap: anywhere; }
+.k-dict-kind {
+  font: var(--md-sys-typescale-label-small); padding: 1px 6px; border-radius: 6px;
+  background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+}
+.k-dict-kind--pitch { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
+.k-dict-kind--freq { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+.k-dict-license {
+  font: var(--md-sys-typescale-label-small); padding: 1px 6px; border-radius: 6px;
+  border: 1px solid var(--md-sys-color-primary); color: var(--md-sys-color-primary);
+}
+.k-dict-license.is-external { border-color: var(--md-sys-color-outline); color: var(--md-sys-color-on-surface-variant); }
+.k-dict-progress { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; border-radius: 8px; background: var(--md-sys-color-surface-container); }
+.k-dict-progress.is-failed { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.k-btn--danger { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
