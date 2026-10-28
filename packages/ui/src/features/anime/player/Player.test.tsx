@@ -236,6 +236,75 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       await waitFor(() => expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true'));
       await waitFor(() => expect(useBreakdownStore.getState().request?.sentence).toBe(MERGED));
     });
+
+    it('switching from AI解析 back to 字幕列表 scrolls to the current or explained subtitle row', async () => {
+      const scrolled: Array<{ text: string | undefined; opts: unknown }> = [];
+      const originalScroll = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element, opts?: unknown) {
+        if (this.getAttribute('data-testid') === 'transcript-row') {
+          scrolled.push({ text: this.querySelector('.k-transcript__text')?.textContent ?? undefined, opts });
+        }
+      };
+
+      try {
+        // 1. Active cue at saved position (45s -> 「え、何の話だっけ？」)
+        const { unmount } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        const cue = await screen.findByTestId('overlay-cue');
+        expect(cue.textContent).toBe('え、何の話だっけ？');
+        fireEvent.click(glyphAt(cue, 0));
+        await waitFor(() => expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true'));
+
+        scrolled.length = 0;
+        fireEvent.click(screen.getByRole('tab', { name: /字幕列表/ }));
+        await waitFor(() =>
+          expect(scrolled).toContainEqual({
+            text: 'え、何の話だっけ？',
+            opts: { block: 'center', behavior: 'smooth' },
+          }),
+        );
+        unmount();
+
+        // 2. Episode at 00:00 (activeRowIndex = -1): clicking a far-down transcript line opens AI解析,
+        //    and switching back to 字幕列表 scrolls to that explained row instead of staying at top.
+        resetStores();
+        useSettingsStore.setState({ settings: { ...DEFAULT_SETTINGS, anime: { ...DEFAULT_SETTINGS.anime, seekPaddingMs: 250 } } });
+        renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep2" />);
+        const farRow = await rowByText('人生を賭けた勝負だって、わかってる。');
+        const farText = farRow.querySelector<HTMLElement>('.k-transcript__text');
+        if (!farText) throw new Error('no text');
+        fireEvent.click(glyphAt(farText, 0));
+        await waitFor(() => expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true'));
+
+        scrolled.length = 0;
+        fireEvent.click(screen.getByRole('tab', { name: /字幕列表/ }));
+        await waitFor(() =>
+          expect(scrolled).toContainEqual({
+            text: '人生を賭けた勝負だって、わかってる。',
+            opts: { block: 'center', behavior: 'smooth' },
+          }),
+        );
+
+        // 3. Seeking with seekPaddingMs = 250 (ms = startMs - 250 -> activeRowIndex = -1 between cues),
+        //    switching to AI解析 and back to 字幕列表 scrolls to the seeked row.
+        const seekTarget = await rowByText('空がこんなに青いと、なんでもできる気がする。');
+        const timeBtn = seekTarget.querySelector<HTMLButtonElement>('.k-transcript__time');
+        if (!timeBtn) throw new Error('no time button');
+        fireEvent.click(timeBtn);
+        fireEvent.click(screen.getByRole('tab', { name: /AI 解析/ }));
+        await waitFor(() => expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true'));
+
+        scrolled.length = 0;
+        fireEvent.click(screen.getByRole('tab', { name: /字幕列表/ }));
+        await waitFor(() =>
+          expect(scrolled).toContainEqual({
+            text: '空がこんなに青いと、なんでもできる気がする。',
+            opts: { block: 'center', behavior: 'smooth' },
+          }),
+        );
+      } finally {
+        Element.prototype.scrollIntoView = originalScroll;
+      }
+    });
   });
 
   it('pre-explain toggle syncs globally and batch-prefetches up to 5 upcoming subtitle lines', async () => {

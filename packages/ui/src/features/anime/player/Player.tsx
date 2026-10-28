@@ -113,6 +113,12 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
   const breakdownRequest = useBreakdownStore((s) => s.request);
   const closeBreakdown = useBreakdownStore((s) => s.close);
+  const explainedAtMsRef = useRef<number | undefined>(undefined);
+  const prevBreakdownRequestRef = useRef(breakdownRequest);
+  if (breakdownRequest !== prevBreakdownRequestRef.current) {
+    prevBreakdownRequestRef.current = breakdownRequest;
+    explainedAtMsRef.current = breakdownRequest ? clock.currentMs : undefined;
+  }
   const sideSheetSwipe = useTabSwipe<PanelTab>(['transcript', 'breakdown'], panelTab, setPanelTab);
 
   useBackInterceptor(() => {
@@ -417,6 +423,10 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     return () => window.removeEventListener('keydown', onKey);
   }, [clock, prevRow, nextRow, toggleRepeatCue, closeBreakdown]);
 
+  const preferExplainingOnMount =
+    (explainedAtMsRef.current !== undefined && Math.abs(clock.currentMs - explainedAtMsRef.current) < 500) ||
+    (sb.source !== undefined && clock.currentMs >= sb.source.startMs - 500 && clock.currentMs <= sb.source.endMs + 500);
+
   const transcript = (
     <TranscriptPanel
       rows={rows}
@@ -430,6 +440,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       highlightFor={sb.highlightFor}
       cachedCueIndexes={preExplain.cachedCueIndexes}
       prefetchingCueIndexes={preExplain.prefetchingCueIndexes}
+      preferExplainingOnMount={preferExplainingOnMount}
       t={t}
     />
   );
@@ -582,7 +593,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             />
           }
         >
-          <div {...sideSheetSwipe} style={{ height: '100%' }}>
+          <div {...sideSheetSwipe} style={{ minHeight: '100%' }}>
             {panelTab === 'transcript' ? transcript : <BreakdownPanel />}
           </div>
         </SideSheet>

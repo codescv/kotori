@@ -3,11 +3,9 @@
  * auto-follow of the playing line, search, click-to-seek (timestamp), per-char
  * click → breakdown, and multi-select (shift-click, select mode, or long-press
  * on touch) → "合并解析" which explains the rows as one sentence via
- * `mergeCuesToSentence`. Rows use `content-visibility: auto` so long tracks
- * stay cheap to render (browser-level virtualisation). ASS speakers (`Name`)
- * render as a compact `[Actor]` chip; bilingual fansub cues show the Japanese
- * line (the part sent to Gemini) with the translation as a subtle, tap-to-expand
- * sub-line.
+ * `mergeCuesToSentence`. ASS speakers (`Name`) render as a compact `[Actor]`
+ * chip; bilingual fansub cues show the Japanese line (the part sent to Gemini)
+ * with the translation as a subtle, tap-to-expand sub-line.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { SubtitleCue, TranscriptRow } from '@kotori/core';
@@ -33,6 +31,8 @@ export interface TranscriptPanelProps {
   readonly highlightFor: (cue: SubtitleCue) => CueHighlight;
   readonly cachedCueIndexes?: ReadonlySet<number> | undefined;
   readonly prefetchingCueIndexes?: ReadonlySet<number> | undefined;
+  /** Whether to prefer scrolling to `explaining` row on mount before playback moves (default `true`). */
+  readonly preferExplainingOnMount?: boolean | undefined;
   readonly t: Translate;
 }
 
@@ -46,6 +46,50 @@ export function activeRowIndex(rows: readonly TranscriptRow[], activeRaw: Readon
     if (row.cue.startMs <= ms && ms < Math.max(row.chainEndMs, row.cue.endMs)) byTime = i;
   }
   return byTime;
+}
+
+/**
+ * Target row index for scrolling:
+ * - Active cue when no different cue is being explained;
+ * - Explained cue when returning from the AI breakdown tab (`preferExplaining`) or at `00:00`;
+ * - Active cue during playback;
+ * - Otherwise (`activeIdx < 0` and `ms > 0`): an upcoming cue within 600 ms
+ *   (e.g. right after `jumpToRow` pre-roll), else the most recent cue with `startMs <= ms`.
+ */
+export function scrollTargetRowIndex(
+  rows: readonly TranscriptRow[],
+  activeIdx: number,
+  ms: number,
+  highlightFor: (cue: SubtitleCue) => CueHighlight,
+  preferExplaining = false,
+): number {
+  const explainingIdx = rows.findIndex((r) => highlightFor(r.cue).explaining);
+  const activeRow = activeIdx >= 0 ? rows[activeIdx] : undefined;
+  if (
+    activeIdx >= 0 &&
+    (explainingIdx < 0 || explainingIdx === activeIdx || (activeRow !== undefined && highlightFor(activeRow.cue).explaining))
+  ) {
+    return activeIdx;
+  }
+  if (explainingIdx >= 0 && (preferExplaining || ms <= 0)) {
+    return explainingIdx;
+  }
+  if (activeIdx >= 0) {
+    return activeIdx;
+  }
+  if (ms > 0) {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
+      const delta = row.cue.startMs - ms;
+      if (delta >= 0 && delta <= 600) return i;
+    }
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const row = rows[i];
+      if (row && row.cue.startMs <= ms) return i;
+    }
+  }
+  return -1;
 }
 
 interface RowProps {
@@ -157,25 +201,57 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
   );
 });
 
-export function TranscriptPanel({ rows, activeRawIndexes, currentMs, selected, onSelectedChange, onSeek, onCharClick, onExplainSelection, highlightFor, cachedCueIndexes, prefetchingCueIndexes, t }: TranscriptPanelProps) {
+export function TranscriptPanel({
+  rows,
+  activeRawIndexes,
+  currentMs,
+  selected,
+  onSelectedChange,
+  onSeek,
+  onCharClick,
+  onExplainSelection,
+  highlightFor,
+  cachedCueIndexes,
+  prefetchingCueIndexes,
+  preferExplainingOnMount = true,
+  t,
+}: TranscriptPanelProps) {
   const [query, setQuery] = useState('');
   const [follow, setFollow] = useState(true);
   const [selectMode, setSelectMode] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   const userScrollUntil = useRef(0);
+  const isInitialMountRef = useRef(true);
+  const initialScrollPendingRef = useRef(true);
+  const mountedAtMsRef = useRef(currentMs);
+  if (currentMs !== mountedAtMsRef.current) {
+    isInitialMountRef.current = false;
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim();
     return q ? rows.filter((r) => r.cue.text.includes(q)) : rows;
   }, [rows, query]);
   const activeIdx = activeRowIndex(filtered, activeRawIndexes, currentMs);
-  const activeRep = filtered[activeIdx]?.rep;
+  const targetIdx = scrollTargetRowIndex(filtered, activeIdx, currentMs, highlightFor, preferExplainingOnMount && isInitialMountRef.current);
+  const targetRep = filtered[targetIdx]?.rep;
 
   useEffect(() => {
-    if (!follow || activeRep === undefined || Date.now() < userScrollUntil.current) return;
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-rep="${activeRep}"]`);
-    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [activeRep, follow]);
+    if (!follow || targetRep === undefined || Date.now() < userScrollUntil.current) return;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-rep="${targetRep}"]`);
+    if (!el || typeof el.scrollIntoView !== 'function') return;
+    const isInitial = initialScrollPendingRef.current;
+    initialScrollPendingRef.current = false;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (!isInitial || typeof requestAnimationFrame !== 'function') return;
+    const raf = requestAnimationFrame(() => {
+      const target = listRef.current?.querySelector<HTMLElement>(`[data-rep="${targetRep}"]`);
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ block: 'center' });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [targetRep, follow]);
 
   const toggle = useCallback(
     (rep: number): void => {
@@ -207,7 +283,15 @@ export function TranscriptPanel({ rows, activeRawIndexes, currentMs, selected, o
       <div className="k-transcript__toolbar">
         <TextField className="k-transcript__search" label={t('transcript.search')} value={query} onValueChange={setQuery} leadingIcon="search" />
         <IconButton icon="list" label={t('transcript.selectMode')} selected={selectMode} onClick={() => setSelectMode((m) => !m)} />
-        <IconButton icon="sort" label={t('transcript.follow')} selected={follow} onClick={() => setFollow((f) => !f)} />
+        <IconButton
+          icon="sort"
+          label={t('transcript.follow')}
+          selected={follow}
+          onClick={() => {
+            userScrollUntil.current = 0;
+            setFollow((f) => !f);
+          }}
+        />
       </div>
       {selected.size > 0 && (
         <div className="k-transcript__selection" role="toolbar">

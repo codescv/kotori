@@ -115,7 +115,6 @@
 .k-side-sheet .k-transcript__list { overflow: visible; }
 .k-transcript__row {
   display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: var(--md-sys-shape-corner-medium); cursor: pointer;
-  content-visibility: auto; contain-intrinsic-size: auto 52px;
   transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
 }
 .k-transcript__row:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
