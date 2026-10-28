@@ -123,6 +123,7 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
             text={primaryJa}
             highlight={highlight.span}
             focusIndex={highlight.focus}
+            focusSpan={highlight.focusSpan}
             onCharClick={selectMode ? undefined : (i) => onCharClick(row.cue, i)}
           />
         </div>

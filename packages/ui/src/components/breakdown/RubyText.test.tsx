@@ -4,7 +4,7 @@ import type { RubySegment } from '@kotori/core';
 import { DEFAULT_SETTINGS } from '../../app/default-settings';
 import { useSettingsStore } from '../../stores/settings';
 import { glyphAt, resetStores } from '../../test/utils';
-import { RubyText, tileSegments } from './RubyText';
+import { RubyText, inferWordSpanAt, tileSegments } from './RubyText';
 
 const SENTENCE = '食べてんじゃねぇよ！';
 const RUBY: RubySegment[] = [
@@ -60,6 +60,42 @@ describe('RubyText', () => {
     expect(glyphAt(container, 7)).toHaveClass('is-hl', 'is-hl-end');
     expect(glyphAt(container, 8)).not.toHaveClass('is-hl');
     expect(glyphAt(container, 3)).toHaveClass('is-focus');
+  });
+
+  it('highlights the entire katakana word ("ライブハウス") when any kana inside it is focused', () => {
+    const text = 'ライブハウスで演奏する';
+    for (let idx = 0; idx < 6; idx++) {
+      expect(inferWordSpanAt(text, idx)).toEqual([0, 6]);
+      const { container, unmount } = render(<RubyText text={text} focusIndex={idx} />);
+      for (let g = 0; g < 6; g++) {
+        expect(glyphAt(container, g)).toHaveClass('is-focus');
+      }
+      expect(glyphAt(container, 0)).toHaveClass('is-focus-start');
+      expect(glyphAt(container, 0)).not.toHaveClass('is-focus-end');
+      expect(glyphAt(container, 3)).not.toHaveClass('is-focus-start');
+      expect(glyphAt(container, 3)).not.toHaveClass('is-focus-end');
+      expect(glyphAt(container, 5)).toHaveClass('is-focus-end');
+      expect(glyphAt(container, 5)).not.toHaveClass('is-focus-start');
+      expect(glyphAt(container, 6)).not.toHaveClass('is-focus');
+      unmount();
+    }
+  });
+
+  it('highlights compound kanji and ruby words (e.g. clicking 子 in 女子 highlights both 女 and 子)', () => {
+    const text = 'バンドの女子が歌う';
+    const segs: RubySegment[] = [
+      { base: 'バンドの', charSpan: [0, 4] },
+      { base: '女子', ruby: 'じょし', charSpan: [4, 6] },
+      { base: 'が', charSpan: [6, 7] },
+      { base: '歌', ruby: 'うた', charSpan: [7, 8] },
+      { base: 'う', charSpan: [8, 9] },
+    ];
+    expect(inferWordSpanAt(text, 5, segs)).toEqual([4, 6]);
+    const { container } = render(<RubyText text={text} segments={segs} focusIndex={5} />);
+    expect(glyphAt(container, 3)).not.toHaveClass('is-focus');
+    expect(glyphAt(container, 4)).toHaveClass('is-focus', 'is-focus-start');
+    expect(glyphAt(container, 5)).toHaveClass('is-focus', 'is-focus-end');
+    expect(glyphAt(container, 6)).not.toHaveClass('is-focus');
   });
 
   it('renders a slice of a longer sentence with an offset (chunk cards)', () => {

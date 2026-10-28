@@ -14,6 +14,7 @@ import type { CharSpan, ExplainSource, Id, SubtitleCue } from '@kotori/core';
 import { useHost } from '../../../host/HostContext';
 import { cueJapaneseText, cueOffsetToSentenceIndex, mergeCuesToSentence, subtitleExplainContext, toSubtitleContextRows } from '../../../lib/cues';
 import { useBreakdownStore } from '../../../stores/breakdown';
+import { inferWordSpanAt } from '../../../components/breakdown/RubyText';
 import { deriveSelection } from '../../../components/breakdown/useBreakdownSelection';
 
 type SubtitleSource = Extract<ExplainSource, { kind: 'subtitle' }>;
@@ -21,11 +22,12 @@ type SubtitleSource = Extract<ExplainSource, { kind: 'subtitle' }>;
 export interface CueHighlight {
   readonly span: CharSpan | undefined;
   readonly focus: number | undefined;
+  readonly focusSpan?: CharSpan | undefined;
   /** This cue is part of the sentence currently explained. */
   readonly explaining: boolean;
 }
 
-const NONE: CueHighlight = { span: undefined, focus: undefined, explaining: false };
+const NONE: CueHighlight = { span: undefined, focus: undefined, focusSpan: undefined, explaining: false };
 
 export function useSubtitleBreakdown(params: {
   readonly episodeId: Id;
@@ -89,6 +91,11 @@ export function useSubtitleBreakdown(params: {
   );
 
   const selection = useMemo(() => deriveSelection(explanation, focusCharIndex), [explanation, focusCharIndex]);
+  const sentenceFocusSpan = useMemo<CharSpan | undefined>(() => {
+    if (focusCharIndex === undefined) return undefined;
+    if (selection.focusWordSpan) return selection.focusWordSpan;
+    return request ? inferWordSpanAt(request.sentence, focusCharIndex, explanation?.ruby, 0) : undefined;
+  }, [focusCharIndex, selection.focusWordSpan, request, explanation?.ruby]);
 
   const highlightFor = useCallback(
     (cue: SubtitleCue): CueHighlight => {
@@ -103,10 +110,16 @@ export function useSubtitleBreakdown(params: {
         const e = Math.min(hl[1], cs[1]);
         if (e > s) span = [s - cs[0], e - cs[0]];
       }
+      let focusSpan: CharSpan | undefined;
+      if (sentenceFocusSpan) {
+        const fs = Math.max(sentenceFocusSpan[0], cs[0]);
+        const fe = Math.min(sentenceFocusSpan[1], cs[1]);
+        if (fe > fs) focusSpan = [fs - cs[0], fe - cs[0]];
+      }
       const focus = focusCharIndex !== undefined && focusCharIndex >= cs[0] && focusCharIndex < cs[1] ? focusCharIndex - cs[0] : undefined;
-      return { span, focus, explaining: true };
+      return { span, focus, focusSpan, explaining: true };
     },
-    [source, selection.highlightSpan, focusCharIndex],
+    [source, selection.highlightSpan, sentenceFocusSpan, focusCharIndex],
   );
 
   return { openCue, openMerged, highlightFor, source };

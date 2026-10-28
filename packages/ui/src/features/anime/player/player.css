@@ -56,7 +56,7 @@
 }
 .k-sub-overlay__top .k-sub-line { font-size: calc(var(--kotori-subtitle-size) * 0.7); background: rgb(0 0 0 / 0.25); }
 .k-sub-line .k-glyph.is-hl { background: color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent); color: #fff; }
-.k-sub-line .k-glyph.is-focus { box-shadow: inset 0 -3px 0 var(--md-sys-color-primary); }
+.k-sub-line .k-glyph.is-focus { background: color-mix(in srgb, var(--md-sys-color-primary) 68%, transparent); box-shadow: inset 0 -3px 0 var(--md-sys-color-primary); }
 .k-sub-line .k-ruby-text.is-clickable .k-glyph:hover { background: rgb(255 255 255 / 0.22); }
 .k-sub-line.is-explaining { background: rgb(0 0 0 / 0.6); }
 /* Hide subtitles (B): the overlay renders no lines at all (no blur / hover reveal). */

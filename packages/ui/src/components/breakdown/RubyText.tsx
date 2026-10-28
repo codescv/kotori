@@ -25,6 +25,8 @@ export interface RubyTextProps {
   readonly highlight?: CharSpan | undefined;
   /** UTF-16 index of the clicked character. */
   readonly focusIndex?: number | undefined;
+  /** UTF-16 span of the focused word (overrides automatic word-span inference from `focusIndex`). */
+  readonly focusSpan?: CharSpan | undefined;
   readonly onCharClick?: ((charIndex: number) => void) | undefined;
   /** Hide `<rt>` readings (keeps layout & hit mapping identical). */
   readonly showRuby?: boolean;
@@ -51,6 +53,108 @@ interface Seg {
 
 const segmenter =
   typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter('ja', { granularity: 'grapheme' }) : undefined;
+
+const jaWordSegmenter =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('ja', { granularity: 'word' }) : null;
+
+function isKatakanaChar(ch: string): boolean {
+  return /^[\u30A1-\u30FA\u30FC-\u30FEー]$/.test(ch);
+}
+
+function isKanjiChar(ch: string): boolean {
+  return /^([\u4E00-\u9FFF\u3400-\u4DBF々ヶヵ]|\p{Script=Han})$/u.test(ch);
+}
+
+function isPunctOrSpace(ch: string): boolean {
+  if (isKatakanaChar(ch) || isKanjiChar(ch) || /^[\u309D\u309E]$/.test(ch)) return false;
+  return /^[\s\u3000-\u303F\uFF00-\uFF0F\uFF1A-\uFF20\uFF3B-\uFF40\uFF5B-\uFF65\p{P}\p{S}]$/u.test(ch);
+}
+
+function prevCodePointSlice(text: string, pos: number): string {
+  if (pos >= 2) {
+    const hi = text.charCodeAt(pos - 2);
+    const lo = text.charCodeAt(pos - 1);
+    if (hi >= 0xd800 && hi <= 0xdbff && lo >= 0xdc00 && lo <= 0xdfff) {
+      return text.slice(pos - 2, pos);
+    }
+  }
+  return text[pos - 1] ?? '';
+}
+
+function codePointSliceAt(text: string, pos: number): string {
+  const cp = text.codePointAt(pos);
+  return cp === undefined ? '' : String.fromCodePoint(cp);
+}
+
+/**
+ * Synchronous word-boundary helper for highlighting an entire Japanese word
+ * (e.g. `"ライブハウス"`, `"女子"`, `"食べた"`) when any character inside it is tapped.
+ */
+export function inferWordSpanAt(
+  text: string,
+  charIndex: number,
+  segments?: readonly RubySegment[],
+  offset = 0,
+): CharSpan | undefined {
+  const localIdx = charIndex - offset;
+  if (localIdx < 0 || localIdx >= text.length) return undefined;
+  const ch = codePointSliceAt(text, localIdx);
+  if (!ch) return undefined;
+  if (isPunctOrSpace(ch)) return [charIndex, charIndex + ch.length];
+
+  // Rule A — Contiguous Katakana Run (critical so compound loanwords like "ライブハウス" stay together).
+  if (
+    isKatakanaChar(ch) &&
+    (ch !== 'ー' ||
+      (localIdx > 0 && isKatakanaChar(text[localIdx - 1]!)) ||
+      (localIdx + 1 < text.length && isKatakanaChar(text[localIdx + 1]!)))
+  ) {
+    let start = localIdx;
+    let end = localIdx + ch.length;
+    while (start > 0 && isKatakanaChar(text[start - 1]!)) start--;
+    while (end < text.length && isKatakanaChar(text[end]!)) end++;
+    return [start + offset, end + offset];
+  }
+
+  // Rule B — RubySegment & Kanji + Intl.Segmenter('ja', { granularity: 'word' }).
+  let start = localIdx;
+  let end = localIdx + ch.length;
+
+  if (segments) {
+    for (const seg of segments) {
+      if (seg.ruby && seg.ruby.length > 0 && seg.charSpan[0] <= charIndex && charIndex < seg.charSpan[1]) {
+        start = Math.min(start, Math.max(0, seg.charSpan[0] - offset));
+        end = Math.max(end, Math.min(text.length, seg.charSpan[1] - offset));
+      }
+    }
+  }
+
+  if (jaWordSegmenter) {
+    for (const seg of jaWordSegmenter.segment(text)) {
+      const segEnd = seg.index + seg.segment.length;
+      if (seg.index <= localIdx && localIdx < segEnd) {
+        if (seg.isWordLike) {
+          start = Math.min(start, seg.index);
+          end = Math.max(end, segEnd);
+        }
+        break;
+      }
+    }
+  } else if (isKanjiChar(ch)) {
+    while (start > 0) {
+      const prev = prevCodePointSlice(text, start);
+      if (!prev || !isKanjiChar(prev)) break;
+      start -= prev.length;
+    }
+    while (end < text.length) {
+      const next = codePointSliceAt(text, end);
+      if (!next || !isKanjiChar(next)) break;
+      end += next.length;
+    }
+  }
+
+  return [start + offset, end + offset];
+}
 
 function glyphsOf(base: string, start: number): Glyph[] {
   const out: Glyph[] = [];
@@ -159,6 +263,7 @@ function RubyTextImpl({
   segments,
   highlight,
   focusIndex,
+  focusSpan,
   onCharClick,
   showRuby = true,
   offset = 0,
@@ -167,6 +272,10 @@ function RubyTextImpl({
   'data-testid': testId,
 }: RubyTextProps) {
   const segs = useMemo(() => tileSegments(text, segments, offset), [text, segments, offset]);
+  const resolvedFocusSpan = useMemo<CharSpan | undefined>(
+    () => focusSpan ?? (focusIndex !== undefined ? inferWordSpanAt(text, focusIndex, segments, offset) : undefined),
+    [focusSpan, focusIndex, text, segments, offset],
+  );
   const furiganaMode = useSettingsStore((s) => s.settings.anime.furiganaMode ?? 'all');
   const [revealed, setRevealed] = useState<ReadonlySet<number>>(() => new Set());
   const reveal = useCallback((start: number) => setRevealed((prev) => (prev.has(start) ? prev : new Set(prev).add(start))), []);
@@ -174,6 +283,7 @@ function RubyTextImpl({
   // A new sentence starts fully veiled again.
   useEffect(() => setRevealed((prev) => (prev.size === 0 ? prev : new Set())), [text]);
   const inHl = (start: number): boolean => highlight !== undefined && start >= highlight[0] && start < highlight[1];
+  const inFocus = (pos: number): boolean => resolvedFocusSpan !== undefined && pos >= resolvedFocusSpan[0] && pos < resolvedFocusSpan[1];
 
   const onClick = (e: MouseEvent<HTMLSpanElement>): void => {
     if (tapMode) {
@@ -202,10 +312,13 @@ function RubyTextImpl({
       data-testid={testId}
     >
       {segs.map((seg) => {
-        const glyphs = seg.glyphs.map((g) =>
-          g.text === '\n' ? (
-            <br key={g.start} data-char-start={g.start} data-char-end={g.end} />
-          ) : (
+        const glyphs = seg.glyphs.map((g) => {
+          if (g.text === '\n') {
+            return <br key={g.start} data-char-start={g.start} data-char-end={g.end} />;
+          }
+          const isFocused =
+            inFocus(g.start) || (resolvedFocusSpan === undefined && focusIndex !== undefined && focusIndex >= g.start && focusIndex < g.end);
+          return (
             <span
               key={g.start}
               data-glyph=""
@@ -216,13 +329,15 @@ function RubyTextImpl({
                 inHl(g.start) && 'is-hl',
                 inHl(g.start) && !inHl(g.start - 1) && 'is-hl-start',
                 inHl(g.start) && !inHl(g.end) && 'is-hl-end',
-                focusIndex !== undefined && focusIndex >= g.start && focusIndex < g.end && 'is-focus',
+                isFocused && 'is-focus',
+                isFocused && (resolvedFocusSpan === undefined || !inFocus(g.start - 1)) && 'is-focus-start',
+                isFocused && (resolvedFocusSpan === undefined || !inFocus(g.end)) && 'is-focus-end',
               )}
             >
               {g.text}
             </span>
-          ),
-        );
+          );
+        });
         const segHl = highlight !== undefined && seg.start < highlight[1] && seg.end > highlight[0];
         return seg.ruby ? (
           <ruby key={seg.start} className={cx('k-ruby', segHl && 'is-hl', tapMode && revealed.has(seg.start) && 'is-revealed')} data-char-start={seg.start} data-char-end={seg.end}>

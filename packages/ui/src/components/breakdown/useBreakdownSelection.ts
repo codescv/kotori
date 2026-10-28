@@ -9,13 +9,16 @@
  */
 import { useCallback, useMemo } from 'react';
 import type { CharSpan, Id, SemanticChunk, SentenceExplanation } from '@kotori/core';
-import { chunkIndexAt, vocabForChunk } from '../../lib/explanation';
+import { chunkIndexAt, findVocabAt, vocabForChunk } from '../../lib/explanation';
+import { inferWordSpanAt } from './RubyText';
 
 export interface BreakdownSelection {
   readonly activeChunkIndex: number;
   readonly activeChunk: SemanticChunk | undefined;
   /** Span painted in the sentence (`RubyText.highlight`). */
   readonly highlightSpan: CharSpan | undefined;
+  /** Word-level span focused within the sentence (`RubyText.focusSpan`). */
+  readonly focusWordSpan: CharSpan | undefined;
   readonly linkedVocabIds: ReadonlySet<Id>;
   readonly linkedGrammarIds: ReadonlySet<Id>;
   /** Sentence click → focus that character. */
@@ -24,23 +27,47 @@ export interface BreakdownSelection {
   selectChunk(chunkId: Id): void;
 }
 
+const EMPTY_SELECTION: Omit<BreakdownSelection, 'selectChar' | 'selectChunk'> = {
+  activeChunkIndex: -1,
+  activeChunk: undefined,
+  highlightSpan: undefined,
+  focusWordSpan: undefined,
+  linkedVocabIds: new Set(),
+  linkedGrammarIds: new Set(),
+};
+
 /** Non-hook core of {@link useBreakdownSelection} (exported for unit tests). */
 export function deriveSelection(
   explanation: SentenceExplanation | undefined,
   focusCharIndex: number | undefined,
 ): Omit<BreakdownSelection, 'selectChar' | 'selectChunk'> {
   if (!explanation || focusCharIndex === undefined) {
-    return { activeChunkIndex: -1, activeChunk: undefined, highlightSpan: undefined, linkedVocabIds: new Set(), linkedGrammarIds: new Set() };
+    return EMPTY_SELECTION;
   }
+  const vocabAtFocus = findVocabAt(explanation, focusCharIndex);
+  const inferred = inferWordSpanAt(explanation.sentence, focusCharIndex, explanation.ruby, 0);
+  let focusWordSpan: CharSpan | undefined;
+  if (vocabAtFocus) {
+    const inferredSlice = inferred ? explanation.sentence.slice(inferred[0], inferred[1]) : '';
+    const isContiguousKatakana = inferredSlice.length > 0 && /^[\u30A1-\u30FA\u30FC-\u30FEー]+$/.test(inferredSlice);
+    focusWordSpan =
+      inferred && isContiguousKatakana
+        ? [Math.min(vocabAtFocus.charSpan[0], inferred[0]), Math.max(vocabAtFocus.charSpan[1], inferred[1])]
+        : vocabAtFocus.charSpan;
+  } else {
+    focusWordSpan = inferred;
+  }
+
   const idx = chunkIndexAt(explanation, focusCharIndex);
   const chunk = idx >= 0 ? explanation.chunks[idx] : undefined;
   if (!chunk) {
-    return { activeChunkIndex: -1, activeChunk: undefined, highlightSpan: undefined, linkedVocabIds: new Set(), linkedGrammarIds: new Set() };
+    return { ...EMPTY_SELECTION, focusWordSpan };
   }
   return {
     activeChunkIndex: idx,
     activeChunk: chunk,
     highlightSpan: chunk.charSpan,
+    focusWordSpan,
     linkedVocabIds: new Set(vocabForChunk(explanation, chunk).map((v) => v.id)),
     linkedGrammarIds: new Set(explanation.grammar.filter((g) => g.chunkIds.includes(chunk.id)).map((g) => g.id)),
   };

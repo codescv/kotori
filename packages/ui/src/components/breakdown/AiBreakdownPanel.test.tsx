@@ -88,8 +88,48 @@ describe('AiBreakdownPanel – bidirectional chunk highlight', () => {
 
   it('deriveSelection: no focus → nothing highlighted', () => {
     expect(deriveSelection(EXPL, undefined).activeChunk).toBeUndefined();
+    expect(deriveSelection(EXPL, undefined).focusWordSpan).toBeUndefined();
     expect(deriveSelection(EXPL, 0).activeChunk?.id).toBe('c0');
+    expect(deriveSelection(EXPL, 1).focusWordSpan).toEqual([0, 2]);
     expect([...deriveSelection(EXPL, 2).linkedVocabIds]).toEqual(['v1']);
+  });
+
+  it('clicking a middle character of a word highlights all glyphs of that word in the sticky header', () => {
+    const bandExpl = explanationFor('バンドの女子、ひとりで全部食べたって言ってた。', 'zh-CN');
+    const { unmount } = render(<Harness explanation={bandExpl} />);
+    // Click 'ン' (index 1) inside 'バンド' [0, 3) → highlights 'バ', 'ン', 'ド', not 'の' (index 3).
+    fireEvent.click(glyphAt(sentence(), 1));
+    expect(glyphAt(sentence(), 0)).toHaveClass('is-focus', 'is-focus-start');
+    expect(glyphAt(sentence(), 1)).toHaveClass('is-focus');
+    expect(glyphAt(sentence(), 2)).toHaveClass('is-focus', 'is-focus-end');
+    expect(glyphAt(sentence(), 3)).not.toHaveClass('is-focus');
+
+    // Click '子' (index 5) inside '女子' [4, 6) → highlights both '女' and '子'.
+    fireEvent.click(glyphAt(sentence(), 5));
+    expect(glyphAt(sentence(), 3)).not.toHaveClass('is-focus');
+    expect(glyphAt(sentence(), 4)).toHaveClass('is-focus', 'is-focus-start');
+    expect(glyphAt(sentence(), 5)).toHaveClass('is-focus', 'is-focus-end');
+    expect(glyphAt(sentence(), 6)).not.toHaveClass('is-focus');
+
+    // Click 'べ' (index 14) inside '食べた' [13, 16) → highlights '食', 'べ', 'た'.
+    fireEvent.click(glyphAt(sentence(), 14));
+    expect(glyphAt(sentence(), 13)).toHaveClass('is-focus', 'is-focus-start');
+    expect(glyphAt(sentence(), 14)).toHaveClass('is-focus');
+    expect(glyphAt(sentence(), 15)).toHaveClass('is-focus', 'is-focus-end');
+    expect(glyphAt(sentence(), 16)).not.toHaveClass('is-focus');
+    unmount();
+
+    // Katakana compound ("ライブハウス") stays highlighted as one full 6-kana word even if AI vocab split it.
+    const livehouseExpl = explanationFor('下北沢のライブハウスで演奏した。', 'zh-CN');
+    render(<Harness explanation={livehouseExpl} />);
+    fireEvent.click(glyphAt(sentence(), 7)); // 'ハ' inside 'ライブハウス' [4, 10)
+    expect(glyphAt(sentence(), 3)).not.toHaveClass('is-focus'); // 'の'
+    for (let i = 4; i < 10; i++) {
+      expect(glyphAt(sentence(), i)).toHaveClass('is-focus');
+    }
+    expect(glyphAt(sentence(), 4)).toHaveClass('is-focus-start');
+    expect(glyphAt(sentence(), 9)).toHaveClass('is-focus-end');
+    expect(glyphAt(sentence(), 10)).not.toHaveClass('is-focus'); // 'で'
   });
 
   it('renders manga bubble crop preview, cultural note card, audio slice replay, and TTS buttons', () => {

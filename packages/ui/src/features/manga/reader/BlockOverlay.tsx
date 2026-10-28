@@ -11,6 +11,7 @@
  */
 import { memo, useMemo, useRef, type KeyboardEvent, type MouseEvent, type TouchEvent } from 'react';
 import { sortBlocksInReadingOrder, type CharSpan, type MangaBlock, type MangaPage, type PlatformHost } from '@kotori/core';
+import { inferWordSpanAt } from '../../../components/breakdown/RubyText';
 import { deriveSelection } from '../../../components/breakdown/useBreakdownSelection';
 import { cx } from '../../../components/m3/cx';
 import { useHost } from '../../../host/HostContext';
@@ -80,12 +81,17 @@ interface BlockShapeProps {
   readonly active: boolean;
   readonly highlight: CharSpan | undefined;
   readonly focusIndex: number | undefined;
+  readonly focusSpan?: CharSpan | undefined;
   readonly showOutlines: boolean;
   readonly onPick: (block: MangaBlock, charIndex: number) => void;
 }
 
-const BlockShape = memo(function BlockShape({ block, active, highlight, focusIndex, showOutlines, onPick }: BlockShapeProps) {
+const BlockShape = memo(function BlockShape({ block, active, highlight, focusIndex, focusSpan, showOutlines, onPick }: BlockShapeProps) {
   const regions = useMemo(() => deriveCharRegions(block), [block]);
+  const resolvedFocusSpan = useMemo(
+    () => focusSpan ?? (focusIndex !== undefined ? inferWordSpanAt(block.text, focusIndex) : undefined),
+    [focusSpan, focusIndex, block.text],
+  );
   const { rect } = block;
   const pad = Math.max(6, block.fontSize * 0.25);
   const touchStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
@@ -183,7 +189,10 @@ const BlockShape = memo(function BlockShape({ block, active, highlight, focusInd
       />
       {regions.map((r) => {
         const hl = highlight !== undefined && r.utf16Start >= highlight[0] && r.utf16Start < highlight[1];
-        const focus = focusIndex !== undefined && focusIndex >= r.utf16Start && focusIndex < r.utf16End;
+        const focus =
+          resolvedFocusSpan !== undefined
+            ? r.utf16Start < resolvedFocusSpan[1] && r.utf16End > resolvedFocusSpan[0]
+            : focusIndex !== undefined && focusIndex >= r.utf16Start && focusIndex < r.utf16End;
         return (
           <rect
             key={r.utf16Start}
@@ -213,10 +222,12 @@ export function BlockOverlay({ volumeId, page, showOutlines, sceneHint }: BlockO
   const activeBlockIndex =
     isOpen && source?.kind === 'manga' && source.volumeId === volumeId && source.pageIndex === page.index ? source.blockIndex : undefined;
   const activeBlock = activeBlockIndex === undefined ? undefined : page.blocks.find((b) => b.index === activeBlockIndex);
-  const highlight = useMemo(
-    () => (activeBlock && explanation?.sentence === activeBlock.text ? deriveSelection(explanation, focusCharIndex).highlightSpan : undefined),
+  const selection = useMemo(
+    () => (activeBlock && explanation?.sentence === activeBlock.text ? deriveSelection(explanation, focusCharIndex) : undefined),
     [activeBlock, explanation, focusCharIndex],
   );
+  const highlight = selection?.highlightSpan;
+  const focusSpan = selection?.focusWordSpan;
 
   const onPick = (block: MangaBlock, charIndex: number): void => openBlockBreakdown(host, volumeId, page, block, charIndex, sceneHint);
 
@@ -235,6 +246,7 @@ export function BlockOverlay({ volumeId, page, showOutlines, sceneHint }: BlockO
           active={b.index === activeBlockIndex}
           highlight={b.index === activeBlockIndex ? highlight : undefined}
           focusIndex={b.index === activeBlockIndex ? focusCharIndex : undefined}
+          focusSpan={b.index === activeBlockIndex ? focusSpan : undefined}
           showOutlines={showOutlines}
           onPick={onPick}
         />

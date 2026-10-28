@@ -73,8 +73,12 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
     });
     expect(useBreakdownStore.getState().focusCharIndex).toBe(15);
     expect(host.calls.get('ai.explain')).toBe(1);
-    // Reverse highlight: the focused chunk (終わってないんだから = sentence [15,25)) lights up in the row.
-    expect(glyphAt(secondText, 4)).toHaveClass('is-hl', 'is-focus');
+    // Reverse highlight: the focused chunk (終わってないんだから = sentence [15,25)) lights up in the row,
+    // and all glyphs of the focused word 終わっ ([4, 7) locally) get .is-focus.
+    expect(glyphAt(secondText, 4)).toHaveClass('is-hl', 'is-focus', 'is-focus-start');
+    expect(glyphAt(secondText, 5)).toHaveClass('is-hl', 'is-focus');
+    expect(glyphAt(secondText, 6)).toHaveClass('is-hl', 'is-focus', 'is-focus-end');
+    expect(glyphAt(secondText, 7)).not.toHaveClass('is-focus');
     expect(glyphAt(secondText, 13)).toHaveClass('is-hl');
     expect(glyphAt(secondText, 3)).not.toHaveClass('is-hl');
     expect(glyphAt(secondText, 14)).not.toHaveClass('is-hl');

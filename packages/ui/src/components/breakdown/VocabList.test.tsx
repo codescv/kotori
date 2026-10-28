@@ -295,6 +295,62 @@ describe('InstantDictPopup — P2 click-to-lookup', () => {
     fireEvent.click(glyphAt(screen.getByTestId('breakdown-sentence'), sentence.indexOf('バ')));
     await waitFor(() => expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('バンド'));
   });
+
+  it('snaps mid-word taps ("ハ" in "ライブハウスで歌う", "子" in "女子", "べ" in "食べた") to the word start for lookup and highlights the full word', async () => {
+    const host = createMockPlatformHost({ latencyMs: 5 });
+    const sentence = 'ライブハウスで歌う';
+    render(
+      <HostProvider host={host}>
+        <BreakdownPanel />
+      </HostProvider>,
+    );
+    let opening: Promise<void> | undefined;
+    act(() => {
+      // Tap middle kana 'ハ' (index 3) inside "ライブハウス" [0, 6).
+      opening = useBreakdownStore.getState().open(host, { sentence, source: { kind: 'manual' }, focusCharIndex: 3 });
+    });
+
+    const loadingBox = screen.getByTestId('breakdown-loading');
+    for (let i = 0; i < 6; i++) {
+      expect(glyphAt(loadingBox, i)).toHaveClass('is-focus');
+    }
+    expect(glyphAt(loadingBox, 0)).toHaveClass('is-focus-start');
+    expect(glyphAt(loadingBox, 5)).toHaveClass('is-focus-end');
+    expect(glyphAt(loadingBox, 6)).not.toHaveClass('is-focus');
+
+    const popup = await screen.findByTestId('instant-dict-popup');
+    await waitFor(() => expect(within(popup).getByTestId('instant-dict-headline').textContent).toContain('ライブハウス'));
+    expect(within(popup).getByTestId('instant-dict-senses').textContent).toContain('Livehouse');
+
+    await act(async () => {
+      await opening;
+    });
+    const header = screen.getByTestId('breakdown-sentence');
+    for (let i = 0; i < 6; i++) {
+      expect(glyphAt(header, i)).toHaveClass('is-focus');
+    }
+    expect(glyphAt(header, 0)).toHaveClass('is-focus-start');
+    expect(glyphAt(header, 5)).toHaveClass('is-focus-end');
+    expect(glyphAt(header, 6)).not.toHaveClass('is-focus');
+
+    // Mid-word kanji ('子' in "女子") and okurigana ('べ' in "食べた") also snap to word start in InstantDictPopup.
+    const bandSentence = BAND.sentence;
+    act(() => {
+      opening = useBreakdownStore.getState().open(host, {
+        sentence: bandSentence,
+        source: { kind: 'manual' },
+        focusCharIndex: bandSentence.indexOf('子'),
+      });
+    });
+    await waitFor(() => expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('女子'));
+    await act(async () => {
+      await opening;
+    });
+    fireEvent.click(glyphAt(screen.getByTestId('breakdown-sentence'), bandSentence.indexOf('べ')));
+    await waitFor(() =>
+      expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('食べた ← 食べる'),
+    );
+  });
 });
 
 describe('Vocabulary TTS — disambiguated kana reading & touch propagation', () => {

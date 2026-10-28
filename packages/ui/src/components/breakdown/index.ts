@@ -1,5 +1,5 @@
 export { AiBreakdownPanel, BreakdownPanel, BreakdownSkeleton, type AiBreakdownPanelProps } from './AiBreakdownPanel';
-export { RubyText, tileSegments, charIndexFromNode, type RubyTextProps } from './RubyText';
+export { RubyText, tileSegments, charIndexFromNode, inferWordSpanAt, type RubyTextProps } from './RubyText';
 export { ChunkCard } from './ChunkCard';
 export { VocabList, useVocabEnrichment, vocabSpeechText } from './VocabList';
 export { PitchAccentBadge, FreqBadge, splitMorae, pitchLevels, pickFrequencies } from './PitchAccentBadge';

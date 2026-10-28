@@ -55,21 +55,24 @@ describe('BlockOverlay', () => {
     await waitFor(() => expect(useBreakdownStore.getState().status).toBe('ready'));
     expect(host.calls.get('ai.explain')).toBe(1);
 
-    // Focused chunk てんじゃねぇ = [2, 8) is painted on the bubble.
+    // Focused chunk てんじゃねぇ = [2, 8) is painted on the bubble; focused word てん = [2, 4) gets .is-focus.
     for (let i = 2; i < 8; i++) expect(cell(0, i)).toHaveClass('is-hl');
     expect(cell(0, 0)).not.toHaveClass('is-hl');
     expect(cell(0, 8)).not.toHaveClass('is-hl');
     expect(cell(0, 2)).toHaveClass('is-focus');
+    expect(cell(0, 3)).toHaveClass('is-focus');
+    expect(cell(0, 4)).not.toHaveClass('is-focus');
 
-    // Second click on the same bubble → focus only (0 latency, no ai.explain).
-    fireEvent.click(cell(0, 0));
+    // Second click on the same bubble (clicking べ at index 1 inside 食べ [0, 2)) → focus only (0 latency, no ai.explain).
+    fireEvent.click(cell(0, 1));
     s = useBreakdownStore.getState();
-    expect(s.focusCharIndex).toBe(0);
+    expect(s.focusCharIndex).toBe(1);
     expect(s.status).toBe('ready');
     expect(host.calls.get('ai.explain')).toBe(1);
-    expect(cell(0, 0)).toHaveClass('is-hl');
-    expect(cell(0, 1)).toHaveClass('is-hl');
+    expect(cell(0, 0)).toHaveClass('is-hl', 'is-focus');
+    expect(cell(0, 1)).toHaveClass('is-hl', 'is-focus');
     expect(cell(0, 2)).not.toHaveClass('is-hl');
+    expect(cell(0, 2)).not.toHaveClass('is-focus');
 
     // Reverse highlight: focusing a chunk from the panel repaints the bubble.
     act(() => useBreakdownStore.getState().setFocus(8));

@@ -8,13 +8,14 @@
  * ready the card can be collapsed or dismissed.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { InstantLookupMatch } from '@kotori/core';
+import type { CharSpan, InstantLookupMatch } from '@kotori/core';
 import { useOptionalHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { speakJapanese } from '../../lib/tts';
 import { cx } from '../m3/cx';
 import { DictSenses } from './DictSenses';
 import { FreqBadge, pickFrequencies, PitchAccentBadge } from './PitchAccentBadge';
+import { inferWordSpanAt } from './RubyText';
 
 /** Characters that never start a lookup (punctuation / whitespace). */
 const NON_WORD_START = /^[\s、。，．！？!?,.「」『』（）()【】…・〜~ー―：:；;'"“”‘’]/u;
@@ -26,14 +27,15 @@ export interface InstantLookupState {
   /** `${sentence}\u0000${charIndex}` the state belongs to. */
   readonly key: string;
   readonly charIndex: number;
+  readonly wordSpan?: CharSpan | undefined;
   readonly loading: boolean;
   readonly matches: readonly InstantLookupMatch[];
 }
 
 /**
- * Runs `host.dict.lookupPrefix(sentence.slice(charIndex), 16)` whenever the
- * tapped position changes. `undefined` when there is nothing to look up
- * (no dictionary host, no index, punctuation).
+ * Runs `host.dict.lookupPrefix` whenever the tapped position changes, snapping
+ * mid-word taps back to the word start when a dictionary match covers `charIndex`.
+ * `undefined` when there is nothing to look up (no dictionary host, no index, punctuation).
  */
 export function useInstantLookup(sentence: string | undefined, charIndex: number | undefined): InstantLookupState | undefined {
   const host = useOptionalHost();
@@ -44,22 +46,79 @@ export function useInstantLookup(sentence: string | undefined, charIndex: number
       setState(undefined);
       return;
     }
-    const text = sentence.slice(charIndex);
-    if (text.trim() === '' || NON_WORD_START.test(text)) {
+    const clickedSlice = sentence.slice(charIndex);
+    if (clickedSlice.trim() === '') {
+      setState(undefined);
+      return;
+    }
+    const inferredSpan = inferWordSpanAt(sentence, charIndex);
+    const wordStart = inferredSpan ? inferredSpan[0] : charIndex;
+    const fromWordStart = sentence.slice(wordStart);
+    if (fromWordStart.trim() === '' || NON_WORD_START.test(fromWordStart)) {
       setState(undefined);
       return;
     }
     const key = `${sentence}\u0000${charIndex}`;
     let alive = true;
-    setState({ key, charIndex, loading: true, matches: [] });
-    dict
-      .lookupPrefix(text, INSTANT_LOOKUP_MAX_LENGTH)
-      .then((matches) => {
-        if (alive) setState({ key, charIndex, loading: false, matches });
-      })
-      .catch(() => {
-        if (alive) setState({ key, charIndex, loading: false, matches: [] });
-      });
+    setState({ key, charIndex, wordSpan: inferredSpan, loading: true, matches: [] });
+
+    void (async () => {
+      try {
+        let matches: readonly InstantLookupMatch[];
+        let wordSpan: CharSpan | undefined = inferredSpan;
+        if (wordStart < charIndex) {
+          const prefixMatches = await dict.lookupPrefix(fromWordStart, INSTANT_LOOKUP_MAX_LENGTH + (charIndex - wordStart));
+          const covering = prefixMatches.filter((m) => wordStart + m.matchedLength > charIndex);
+          if (covering.length > 0) {
+            matches = covering;
+            wordSpan = [wordStart, Math.max(inferredSpan?.[1] ?? charIndex + 1, wordStart + covering[0]!.matchedLength)];
+          } else {
+            const directMatches = NON_WORD_START.test(clickedSlice)
+              ? []
+              : await dict.lookupPrefix(clickedSlice, INSTANT_LOOKUP_MAX_LENGTH);
+            matches = directMatches;
+            wordSpan = directMatches[0]
+              ? [charIndex, Math.max(inferredSpan?.[1] ?? charIndex + 1, charIndex + directMatches[0].matchedLength)]
+              : inferredSpan;
+          }
+        } else {
+          matches = await dict.lookupPrefix(fromWordStart, INSTANT_LOOKUP_MAX_LENGTH);
+          wordSpan = matches[0]
+            ? [charIndex, Math.max(inferredSpan?.[1] ?? charIndex + 1, charIndex + matches[0].matchedLength)]
+            : inferredSpan;
+        }
+
+        // Okurigana stem fallback (e.g. clicking 'べ' or 'た' inside '食べた' when Intl.Segmenter split '食' + 'べた').
+        if (matches.length === 0 && wordStart > 0 && /^[\u3041-\u309F]$/.test(sentence[wordStart]!)) {
+          let stemStart: number | undefined;
+          let probe = wordStart;
+          for (let step = 0; step < 3 && probe > 0; step++) {
+            const prevSpan = inferWordSpanAt(sentence, probe - 1);
+            if (!prevSpan || prevSpan[0] >= probe) break;
+            const segSlice = sentence.slice(prevSpan[0], prevSpan[1]);
+            if (/[\u4E00-\u9FFF\u3400-\u4DBF々ヶヵ]/.test(segSlice)) {
+              stemStart = prevSpan[0];
+              break;
+            }
+            if (!/^[\u3041-\u309F]+$/.test(segSlice)) break;
+            probe = prevSpan[0];
+          }
+          if (stemStart !== undefined && stemStart < wordStart) {
+            const stemMatches = await dict.lookupPrefix(sentence.slice(stemStart), INSTANT_LOOKUP_MAX_LENGTH + (charIndex - stemStart));
+            const covering = stemMatches.filter((m) => stemStart + m.matchedLength > charIndex);
+            if (covering.length > 0) {
+              matches = covering;
+              wordSpan = [stemStart, Math.max(inferredSpan?.[1] ?? charIndex + 1, stemStart + covering[0]!.matchedLength)];
+            }
+          }
+        }
+
+        if (alive) setState({ key, charIndex, wordSpan, loading: false, matches });
+      } catch {
+        if (alive) setState({ key, charIndex, wordSpan: inferredSpan, loading: false, matches: [] });
+      }
+    })();
+
     return () => {
       alive = false;
     };

@@ -54,7 +54,7 @@ function SubtitleOverlayImpl({ cues, activeIndexes, mergeKaraoke, blind, onCharC
     const { primaryJa, secondaryTranslation } = splitBilingualCueText(cue.text);
     return (
       <div key={`${cue.index}-${cue.startMs}`} className={cx('k-sub-line', hl.explaining && 'is-explaining')} data-testid="overlay-cue" data-cue-index={cue.index}>
-        <RubyText text={primaryJa} highlight={hl.span} focusIndex={hl.focus} onCharClick={(i) => onCharClick(cue, i)} />
+        <RubyText text={primaryJa} highlight={hl.span} focusIndex={hl.focus} focusSpan={hl.focusSpan} onCharClick={(i) => onCharClick(cue, i)} />
         {secondaryTranslation && <span className="k-sub-line__secondary">{secondaryTranslation}</span>}
       </div>
     );
