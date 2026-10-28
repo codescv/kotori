@@ -156,4 +156,44 @@ describe('NodeAnimeService — animeRoots folder detection, split consolidation 
     await ctx.host.anime.importSeries({ path: showA });
     expect((await ctx.host.anime.listSeries()).map((s) => s.title).sort()).toEqual(['ShowA', 'ShowB']);
   });
+
+  it('never resurrects a removed series when removeSeries races against concurrent listSeries, scanRoots, listEpisodes, or SSE listeners', async () => {
+    const { nogiDir } = await makeNogiFolder();
+
+    // Simulate real SSE listeners (App + AnimePage) firing listSeries() on every anime library-changed event.
+    const sseInflight: Promise<unknown>[] = [];
+    const unsub = ctx.events.subscribe((e) => {
+      if (e.type === 'library-changed' && e.scope === 'anime') {
+        sseInflight.push(ctx.host.anime.listSeries());
+        sseInflight.push(ctx.host.anime.listSeries());
+      }
+    });
+
+    try {
+      await ctx.host.settings.update({ library: { animeRoots: [nogiDir] } });
+      await Promise.allSettled(sseInflight.splice(0));
+
+      const [series] = await ctx.host.anime.listSeries();
+      expect(series).toBeDefined();
+
+      // Fire overlapping scanRoots, listSeries, listEpisodes, rescanSeries, and removeSeries concurrently.
+      const p1 = ctx.host.anime.listSeries();
+      const p2 = ctx.host.anime.scanRoots([nogiDir]);
+      const p3 = ctx.host.anime.listEpisodes(series!.id).catch(() => []);
+      const p4 = ctx.host.anime.rescanSeries(series!.id).catch(() => undefined);
+      // Let scanAnimeFolder get mid-flight on the event loop before removeSeries runs.
+      await new Promise((r) => setImmediate(r));
+      const pRemove = ctx.host.anime.removeSeries(series!.id);
+      const p5 = ctx.host.anime.listSeries();
+
+      await Promise.allSettled([p1, p2, p3, p4, pRemove, p5]);
+      await Promise.allSettled(sseInflight.splice(0));
+      await ctx.host.anime.idle();
+
+      expect(await ctx.host.anime.listSeries()).toEqual([]);
+      expect((await ctx.host.settings.get()).library.animeRoots).toEqual([]);
+    } finally {
+      unsub();
+    }
+  });
 });
