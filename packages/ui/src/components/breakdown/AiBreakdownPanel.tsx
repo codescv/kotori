@@ -9,8 +9,14 @@
  *
  * `BreakdownPanel` is the connected container used by the player and the
  * reader: it reads `useBreakdownStore` and renders loading / error / empty.
+ *
+ * Focus contract: the panel always opens at `scrollTop = 0` when the first
+ * chunk (or none) is focused, so the sticky sentence, the translation and the
+ * first chunk are visible immediately (the follow-up thread never scrolls on
+ * mount). Subtitle sources get `🔊 原声`, `🐢 0.75×` slow replay and `🗣 跟读`
+ * shadowing (listen → countdown pause of 1.2 × the slice → listen again).
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FollowUpMessage, SentenceExplanation } from '@kotori/core';
 import { useHost } from '../../host/HostContext';
 import { useT, type Translate } from '../../i18n';
@@ -30,6 +36,34 @@ import { GrammarList } from './GrammarList';
 import { RubyText } from './RubyText';
 import { useBreakdownSelection } from './useBreakdownSelection';
 import { VocabList } from './VocabList';
+import './breakdown.css';
+
+/**
+ * Audio slice replay as registered by the player. The store types it as
+ * `(startMs, endMs) => void`; the player's handler additionally accepts an
+ * optional one-shot playback `rate` (restored when the slice ends).
+ */
+export type AudioSliceReplay = (startMs: number, endMs: number, rate?: number) => void;
+
+/** Playback rate of the `🐢` slow replay pill. */
+export const SLOW_REPLAY_RATE = 0.75;
+/** Shadowing pause = slice duration × this factor. */
+export const SHADOW_PAUSE_FACTOR = 1.2;
+/** Seek padding the player adds around a replayed slice (≈ 80 ms + 120 ms). */
+const SLICE_PADDING_MS = 300;
+
+type ShadowPhase = 'idle' | 'listen' | 'speak' | 'compare';
+
+/** Nearest scrollable ancestor element (the sheet body), if any. */
+function scrollParentOf(el: HTMLElement | null): HTMLElement | undefined {
+  let cur = el?.parentElement ?? null;
+  while (cur && cur !== document.body && cur !== document.documentElement) {
+    const oy = getComputedStyle(cur).overflowY;
+    if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return cur;
+    cur = cur.parentElement;
+  }
+  return undefined;
+}
 
 export interface AiBreakdownPanelProps {
   readonly explanation: SentenceExplanation;
@@ -40,7 +74,10 @@ export interface AiBreakdownPanelProps {
   readonly streamingText?: string | undefined;
   readonly followUpPending?: boolean;
   readonly onRegenerate?: () => void;
-  readonly onReplayAudio?: (() => void) | undefined;
+  /** Replay the source audio slice (subtitles), optionally at a one-shot `rate`. */
+  readonly onReplayAudio?: ((rate?: number) => void) | undefined;
+  /** Duration of the source audio slice — enables `🗣 跟读` shadowing. */
+  readonly audioDurationMs?: number | undefined;
   readonly bubblePreview?: BubbleCropPreview | undefined;
   readonly t?: Translate;
   readonly className?: string | undefined;
@@ -102,6 +139,7 @@ export function AiBreakdownPanel({
   followUpPending = false,
   onRegenerate,
   onReplayAudio,
+  audioDurationMs,
   bubblePreview,
   t: tProp,
   className,
@@ -115,8 +153,70 @@ export function AiBreakdownPanel({
   const copy = useCallback(() => void navigator.clipboard?.writeText(explanation.sentence).catch(() => {}), [explanation.sentence]);
   const speak = useCallback(() => void speakJapanese(explanation.sentence), [explanation.sentence]);
 
+  // Open at the top (sticky sentence + translation + chunk 1) unless a later
+  // chunk is focused — that card then scrolls itself into view.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const activeChunkIndexRef = useRef(sel.activeChunkIndex);
+  activeChunkIndexRef.current = sel.activeChunkIndex;
+  useLayoutEffect(() => {
+    if (activeChunkIndexRef.current > 0) return;
+    const scroller = scrollParentOf(rootRef.current);
+    if (!scroller) return;
+    scroller.scrollTop = 0;
+    // Late layout (fonts, ruby, restored follow-up thread) must not move it either.
+    const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => (scroller.scrollTop = 0)) : undefined;
+    return () => {
+      if (raf !== undefined) cancelAnimationFrame(raf);
+    };
+  }, [explanation.id]);
+
+  // 🗣 Shadowing: play slice → pause (slice × 1.2, countdown) → play slice again.
+  const [shadowPhase, setShadowPhase] = useState<ShadowPhase>('idle');
+  const [shadowLeft, setShadowLeft] = useState(0);
+  const shadowTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const clearShadow = useCallback(() => {
+    for (const id of shadowTimers.current) clearTimeout(id);
+    shadowTimers.current = [];
+  }, []);
+  useEffect(() => clearShadow, [clearShadow]);
+  useEffect(() => {
+    clearShadow();
+    setShadowPhase('idle');
+  }, [explanation.id, clearShadow]);
+  const canShadow = Boolean(onReplayAudio) && audioDurationMs !== undefined && audioDurationMs > 0;
+  const toggleShadow = useCallback(() => {
+    if (!onReplayAudio || !audioDurationMs || audioDurationMs <= 0) return;
+    clearShadow();
+    if (shadowPhase !== 'idle') {
+      setShadowPhase('idle');
+      return;
+    }
+    const later = (ms: number, fn: () => void): void => {
+      shadowTimers.current.push(setTimeout(fn, ms));
+    };
+    const slice = audioDurationMs + SLICE_PADDING_MS;
+    const pause = Math.round(audioDurationMs * SHADOW_PAUSE_FACTOR);
+    const seconds = Math.max(1, Math.ceil(pause / 1000));
+    onReplayAudio(1);
+    setShadowPhase('listen');
+    later(slice, () => {
+      setShadowPhase('speak');
+      setShadowLeft(seconds);
+    });
+    for (let k = 1; k < seconds; k++) later(slice + k * 1000, () => setShadowLeft(seconds - k));
+    later(slice + pause, () => {
+      onReplayAudio(1);
+      setShadowPhase('compare');
+    });
+    later(slice + pause + slice, () => setShadowPhase('idle'));
+  }, [onReplayAudio, audioDurationMs, shadowPhase, clearShadow]);
+  const shadowLabel =
+    shadowPhase === 'listen' ? '👂 听原声…' : shadowPhase === 'speak' ? `🎙 请跟读… ${shadowLeft}s` : shadowPhase === 'compare' ? '🔁 对比原声…' : '🗣 跟读';
+  const omitted = (explanation.omitted ?? []).filter((o) => o.text.trim() !== '');
+  const dialogueRelation = explanation.dialogueRelation?.trim();
+
   return (
-    <div className={cx('k-breakdown', className)} data-testid="ai-breakdown-panel">
+    <div ref={rootRef} className={cx('k-breakdown', className)} data-testid="ai-breakdown-panel">
       {bubblePreview && <BubbleCropHeader preview={bubblePreview} />}
       {/* Direct child of the scroll content so `position: sticky` keeps it in view. */}
       <div className="k-breakdown__sentence" data-testid="breakdown-sentence">
@@ -138,11 +238,36 @@ export function AiBreakdownPanel({
             <button
               type="button"
               className="k-breakdown__action-pill"
-              onClick={onReplayAudio}
+              onClick={() => onReplayAudio()}
               title="重听该句原声片段"
               data-testid="breakdown-replay-audio"
             >
               🔊 原声
+            </button>
+          )}
+          {onReplayAudio && (
+            <button
+              type="button"
+              className="k-breakdown__action-pill"
+              onClick={() => onReplayAudio(SLOW_REPLAY_RATE)}
+              title="0.75× 慢放该句原声"
+              data-testid="breakdown-slow-audio"
+            >
+              🐢 0.75×
+            </button>
+          )}
+          {canShadow && (
+            <button
+              type="button"
+              className={cx('k-breakdown__action-pill', shadowPhase !== 'idle' && 'is-active', shadowPhase === 'speak' && 'is-speak')}
+              onClick={toggleShadow}
+              title="跟读：播放原声 → 停顿留给你跟读 → 再播一遍对比"
+              aria-pressed={shadowPhase !== 'idle'}
+              aria-live="polite"
+              data-testid="breakdown-shadow-audio"
+              data-phase={shadowPhase}
+            >
+              {shadowLabel}
             </button>
           )}
           <button
@@ -162,6 +287,16 @@ export function AiBreakdownPanel({
           <div className="k-breakdown__translation-body">
             {personaName && <span className="k-breakdown__persona-name">{personaName}</span>}
             <p className="k-breakdown__translation">{explanation.translation}</p>
+            {omitted.length > 0 && (
+              <div className="k-breakdown__omitted" data-testid="breakdown-omitted">
+                {omitted.map((o, i) => (
+                  <span key={`${o.text}-${i}`} className="k-breakdown__ghost-chip" lang="ja" title={o.role}>
+                    （省略：{o.text}
+                    {o.role ? <span className="k-breakdown__ghost-role"> · {o.role}</span> : null}）
+                  </span>
+                ))}
+              </div>
+            )}
             {explanation.literalTranslation && (
               <p className="k-breakdown__literal">
                 <span className="k-muted">{t('breakdown.literal')}：</span>
@@ -170,6 +305,27 @@ export function AiBreakdownPanel({
             )}
           </div>
         </div>
+        {dialogueRelation && (
+          <div className="k-breakdown__relation" data-testid="breakdown-dialogue-relation">
+            <span className="k-breakdown__cultural-icon" aria-hidden="true">
+              🔗
+            </span>
+            <div className="k-breakdown__cultural-body">
+              <strong className="k-breakdown__cultural-label">句间关系与语体</strong>
+              <p className="k-breakdown__cultural-text">{dialogueRelation}</p>
+            </div>
+          </div>
+        )}
+        {explanation.degraded && (
+          <div className="k-breakdown__degraded" role="status" data-testid="breakdown-degraded">
+            <span>部分词块未通过原文对齐校验，已自动过滤</span>
+            {onRegenerate && (
+              <button type="button" className="k-breakdown__action-pill" onClick={onRegenerate} data-testid="breakdown-degraded-regenerate">
+                重新生成
+              </button>
+            )}
+          </div>
+        )}
         {explanation.culturalNote && (
           <div className="k-breakdown__cultural-note" data-testid="breakdown-cultural-note">
             <span className="k-breakdown__cultural-icon" aria-hidden="true">💡</span>
@@ -260,14 +416,16 @@ export function BreakdownPanel({ className }: { readonly className?: string | un
 
   const onFollowUp = useCallback((q: string) => void askFollowUp(host, q), [askFollowUp, host]);
   const onRegenerate = useCallback(() => void retry(host), [retry, host]);
+  const subtitleSource = request?.source.kind === 'subtitle' ? request.source : undefined;
   const onReplayAudio =
-    request?.source.kind === 'subtitle' && audioReplayHandler
-      ? () => {
-          if (request.source.kind === 'subtitle') {
-            audioReplayHandler(request.source.startMs, request.source.endMs);
-          }
+    subtitleSource && audioReplayHandler
+      ? (rate?: number) => {
+          const replay = audioReplayHandler as AudioSliceReplay;
+          if (rate === undefined) replay(subtitleSource.startMs, subtitleSource.endMs);
+          else replay(subtitleSource.startMs, subtitleSource.endMs, rate);
         }
       : undefined;
+  const audioDurationMs = subtitleSource ? Math.max(0, subtitleSource.endMs - subtitleSource.startMs) : undefined;
 
   if (status === 'loading' && request) return <BreakdownSkeleton sentence={request.sentence} focusCharIndex={focusCharIndex} t={t} />;
   if (status === 'error' && error) {
@@ -302,6 +460,7 @@ export function BreakdownPanel({ className }: { readonly className?: string | un
         followUpPending={followUpPending}
         onRegenerate={onRegenerate}
         onReplayAudio={onReplayAudio}
+        audioDurationMs={audioDurationMs}
         bubblePreview={request?.source.kind === 'manga' ? bubblePreview : undefined}
         t={t}
       />

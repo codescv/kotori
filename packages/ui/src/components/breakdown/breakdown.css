@@ -1,0 +1,65 @@
+/*
+ * AI breakdown additions (components/breakdown). Base panel styles live in
+ * theme/styles.css; rules here are scoped under `.k-breakdown` / `.k-ruby-text`
+ * so they win regardless of stylesheet order.
+ */
+
+/* B7: the sticky sentence gets a solid backdrop + bottom padding so scrolled cards never bleed under it. */
+.k-breakdown > .k-breakdown__sentence {
+  background: var(--k-breakdown-bg, var(--md-sys-color-surface));
+  padding-bottom: 6px;
+}
+
+/* Omitted subject/object/topic as ghost chips under the translation. */
+.k-breakdown__omitted { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.k-breakdown__ghost-chip {
+  display: inline-flex; align-items: baseline; padding: 1px 8px; border-radius: 999px;
+  border: 1px dashed var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-medium); background: transparent;
+}
+.k-breakdown__ghost-role { opacity: 0.75; font: var(--md-sys-typescale-label-small); }
+
+/* 🔗 dialogue relation banner (merged multi-line explain). */
+.k-breakdown__relation {
+  display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: color-mix(in srgb, var(--md-sys-color-secondary-container) 70%, transparent);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+/* Degraded (some chunks filtered): neutral notice, not an error. */
+.k-breakdown__degraded {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 10px;
+  border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant); font: var(--md-sys-typescale-body-small);
+}
+.k-breakdown .k-chunk-card__warn { color: var(--md-sys-color-on-surface-variant); }
+
+/* Shadowing pill states. */
+.k-breakdown__action-pill.is-active {
+  background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+  border-color: transparent;
+}
+.k-breakdown__action-pill.is-speak {
+  background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);
+  animation: k-shadow-pulse 1s ease-in-out infinite;
+}
+@keyframes k-shadow-pulse { 50% { opacity: 0.7; } }
+
+/* Chunk reading line: reading + optional romaji. */
+.k-breakdown .k-chunk-card__reading { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.k-chunk-card__romaji { font-style: italic; opacity: 0.8; letter-spacing: 0.01em; }
+
+/* Follow-up markdown-light lists / headings. */
+.k-md-list { margin: 2px 0; padding-left: 1.2em; }
+.k-md-list > li { margin: 1px 0; }
+.k-md-list code, .k-md-line strong code { font-weight: inherit; }
+.k-md-heading { margin-top: 2px; }
+
+/* Furigana display modes (settings.anime.furiganaMode). */
+.k-ruby-text.is-ruby-tap .k-ruby rt {
+  opacity: 0; filter: blur(3px);
+  transition: opacity var(--md-sys-motion-duration-short4, 150ms) ease, filter var(--md-sys-motion-duration-short4, 150ms) ease;
+}
+.k-ruby-text.is-ruby-tap .k-ruby:hover rt,
+.k-ruby-text.is-ruby-tap .k-ruby.is-revealed rt { opacity: 1; filter: none; }

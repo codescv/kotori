@@ -1,7 +1,6 @@
-/** Vocabulary of the sentence; items linked to the focused chunk are highlighted. */
+/** Vocabulary of the sentence; items linked to the focused chunk are highlighted. Pitch accent is not shown. */
 import type { Id, VocabEntry } from '@kotori/core';
 import type { Translate } from '../../i18n';
-import { pitchAccentMark } from '../../lib/explanation';
 import { speakJapanese } from '../../lib/tts';
 import { cx } from '../m3/cx';
 import { RubyText } from './RubyText';
@@ -31,11 +30,7 @@ export function VocabList({ vocab, linkedIds, onSelect, t }: VocabListProps) {
               <span className="k-vocab__lemma">
                 <RubyText text={v.lemma} segments={v.lemmaRuby} />
               </span>
-              {v.pitchAccent !== undefined && (
-                <span className="k-vocab__pitch" title={t('breakdown.pitch')}>
-                  {pitchAccentMark(v.pitchAccent)}
-                </span>
-              )}
+              {/* Pitch accent is intentionally not rendered (model output was unreliable). */}
               <span className={cx('k-pos', `k-pos--${v.partOfSpeech}`)}>{t(`pos.${v.partOfSpeech}`)}</span>
               {v.jlpt && <span className="k-jlpt">{v.jlpt}</span>}
               <button

@@ -5,6 +5,7 @@
  */
 import {
   activeCueIndexes,
+  buildSubtitleContext,
   buildTranscriptRows,
   cueIndexAt,
   cueOffsetToSentenceIndex,
@@ -16,14 +17,18 @@ import {
   parseEpisodeName,
   prevCueIndex,
   sentenceIndexToCueOffset,
+  splitBilingualCueText,
   type AnimeEpisode,
   type AnimeSeries,
   type MergedSentence,
+  type SubtitleContextRow,
+  type SubtitleCue,
   type TranscriptOptions,
 } from '@kotori/core';
 
 export {
   activeCueIndexes,
+  buildSubtitleContext,
   buildTranscriptRows,
   cueIndexAt,
   cueOffsetToSentenceIndex,
@@ -34,9 +39,55 @@ export {
   nextCueIndex,
   prevCueIndex,
   sentenceIndexToCueOffset,
+  splitBilingualCueText,
   type MergedSentence,
+  type SubtitleContextRow,
   type TranscriptOptions,
 };
+
+/** Context window shared by single-click explain and batch pre-explain (same prompt ⇒ same cache key). */
+export const SUBTITLE_CONTEXT_BEFORE = 3;
+export const SUBTITLE_CONTEXT_AFTER = 2;
+
+/** Displayable ASS speaker (`Name` field) of a cue; `Default` / empty → `undefined`. */
+export function cueActor(cue: Pick<SubtitleCue, 'markup'>): string | undefined {
+  const actor = cue.markup?.actor?.trim();
+  return actor && actor.toLowerCase() !== 'default' ? actor : undefined;
+}
+
+/** Japanese part of a cue (bilingual fansub translation lines stripped) — what is sent to Gemini. */
+export function cueJapaneseText(cue: Pick<SubtitleCue, 'text'>): string {
+  return splitBilingualCueText(cue.text).primaryJa;
+}
+
+/** Context rows (Japanese text + speaker) for {@link subtitleExplainContext}. */
+export function toSubtitleContextRows(cues: readonly SubtitleCue[]): SubtitleContextRow[] {
+  return cues.map((c) => {
+    const actor = cueActor(c);
+    return actor ? { text: cueJapaneseText(c), actor } : { text: cueJapaneseText(c) };
+  });
+}
+
+/**
+ * Explain-request context for rows `[first, last]` via core `buildSubtitleContext`.
+ * Empty arrays are omitted so the request (and cache key) is identical wherever
+ * it is built. `speaker` is only set for a single row.
+ */
+export function subtitleExplainContext(
+  rows: readonly SubtitleContextRow[],
+  first: number,
+  last: number = first,
+): { contextBefore?: readonly string[]; contextAfter?: readonly string[]; speaker?: string } {
+  if (first < 0 || last < 0) return {};
+  const before = buildSubtitleContext(rows, first, SUBTITLE_CONTEXT_BEFORE, SUBTITLE_CONTEXT_AFTER).contextBefore;
+  const after = buildSubtitleContext(rows, last, SUBTITLE_CONTEXT_BEFORE, SUBTITLE_CONTEXT_AFTER);
+  const speaker = first === last ? after.speaker : undefined;
+  return {
+    ...(before.length > 0 ? { contextBefore: before } : {}),
+    ...(after.contextAfter.length > 0 ? { contextAfter: after.contextAfter } : {}),
+    ...(speaker ? { speaker } : {}),
+  };
+}
 
 /** Check whether a string looks like an uncleaned video/archive release filename. */
 export function isRawMediaFileName(name: string): boolean {

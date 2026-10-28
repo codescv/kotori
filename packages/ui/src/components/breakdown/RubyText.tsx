@@ -7,11 +7,16 @@
  * - a click on a character reports its exact `charIndex`; a click on a reading
  *   (`<rt>`) reports the segment start; a click elsewhere falls back to
  *   `caretPositionFromPoint` / `caretRangeFromPoint` / `elementsFromPoint`;
- * - `highlight` (a `CharSpan`) paints the active chunk, `focusIndex` the caret.
+ * - `highlight` (a `CharSpan`) paints the active chunk, `focusIndex` the caret;
+ * - furigana follows `settings.anime.furiganaMode`: `'all'` (default) shows
+ *   every `<rt>`, `'off'` hides them, `'tap'` keeps them veiled until that
+ *   word is hovered or tapped (layout and hit mapping stay identical).
  */
-import { memo, useMemo, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import type { CharSpan, RubySegment } from '@kotori/core';
+import { useSettingsStore } from '../../stores/settings';
 import { cx } from '../m3/cx';
+import './breakdown.css';
 
 export interface RubyTextProps {
   readonly text: string;
@@ -162,9 +167,20 @@ function RubyTextImpl({
   'data-testid': testId,
 }: RubyTextProps) {
   const segs = useMemo(() => tileSegments(text, segments, offset), [text, segments, offset]);
+  const furiganaMode = useSettingsStore((s) => s.settings.anime.furiganaMode ?? 'all');
+  const [revealed, setRevealed] = useState<ReadonlySet<number>>(() => new Set());
+  const reveal = useCallback((start: number) => setRevealed((prev) => (prev.has(start) ? prev : new Set(prev).add(start))), []);
+  const tapMode = furiganaMode === 'tap';
+  // A new sentence starts fully veiled again.
+  useEffect(() => setRevealed((prev) => (prev.size === 0 ? prev : new Set())), [text]);
   const inHl = (start: number): boolean => highlight !== undefined && start >= highlight[0] && start < highlight[1];
 
   const onClick = (e: MouseEvent<HTMLSpanElement>): void => {
+    if (tapMode) {
+      const ruby = (e.target as Element | null)?.closest?.('ruby[data-char-start]');
+      const start = ruby ? attrInt(ruby, 'data-char-start') : undefined;
+      if (start !== undefined) reveal(start);
+    }
     if (!onCharClick) return;
     const root = e.currentTarget;
     const idx = charIndexFromNode(e.target as Node, root) ?? charIndexFromPoint(root, e.clientX, e.clientY);
@@ -173,7 +189,14 @@ function RubyTextImpl({
 
   return (
     <span
-      className={cx('k-ruby-text', onCharClick && 'is-clickable', !showRuby && 'hide-ruby', className)}
+      className={cx(
+        'k-ruby-text',
+        onCharClick && 'is-clickable',
+        (!showRuby || furiganaMode === 'off') && 'hide-ruby',
+        tapMode && 'is-ruby-tap',
+        className,
+      )}
+      data-furigana={furiganaMode}
       lang={lang}
       onClick={onClick}
       data-testid={testId}
@@ -202,7 +225,7 @@ function RubyTextImpl({
         );
         const segHl = highlight !== undefined && seg.start < highlight[1] && seg.end > highlight[0];
         return seg.ruby ? (
-          <ruby key={seg.start} className={cx('k-ruby', segHl && 'is-hl')} data-char-start={seg.start} data-char-end={seg.end}>
+          <ruby key={seg.start} className={cx('k-ruby', segHl && 'is-hl', tapMode && revealed.has(seg.start) && 'is-revealed')} data-char-start={seg.start} data-char-end={seg.end}>
             {glyphs}
             <rp>(</rp>
             <rt>{seg.ruby}</rt>

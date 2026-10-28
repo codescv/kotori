@@ -1,7 +1,9 @@
 import { fireEvent, render } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RubySegment } from '@kotori/core';
-import { glyphAt } from '../../test/utils';
+import { DEFAULT_SETTINGS } from '../../app/default-settings';
+import { useSettingsStore } from '../../stores/settings';
+import { glyphAt, resetStores } from '../../test/utils';
 import { RubyText, tileSegments } from './RubyText';
 
 const SENTENCE = '食べてんじゃねぇよ！';
@@ -76,5 +78,38 @@ describe('RubyText', () => {
       [2, 4],
       [4, 6],
     ]);
+  });
+
+  describe('furiganaMode (settings.anime.furiganaMode)', () => {
+    beforeEach(resetStores);
+    const setMode = (furiganaMode: 'all' | 'off' | 'tap'): void =>
+      useSettingsStore.setState({ settings: { ...DEFAULT_SETTINGS, anime: { ...DEFAULT_SETTINGS.anime, furiganaMode } } });
+
+    it("'all' (default) shows readings", () => {
+      const { container } = render(<RubyText text={SENTENCE} segments={RUBY} />);
+      expect(container.querySelector('.k-ruby-text')).not.toHaveClass('hide-ruby');
+      expect(container.querySelector('.k-ruby-text')).not.toHaveClass('is-ruby-tap');
+    });
+
+    it("'off' hides <rt> readings but keeps hit mapping", () => {
+      setMode('off');
+      const onCharClick = vi.fn();
+      const { container } = render(<RubyText text={SENTENCE} segments={RUBY} onCharClick={onCharClick} />);
+      expect(container.querySelector('.k-ruby-text')).toHaveClass('hide-ruby');
+      fireEvent.click(glyphAt(container, 0));
+      expect(onCharClick).toHaveBeenLastCalledWith(0);
+    });
+
+    it("'tap' veils readings until that word is tapped", () => {
+      setMode('tap');
+      const onCharClick = vi.fn();
+      const { container } = render(<RubyText text={SENTENCE} segments={RUBY} onCharClick={onCharClick} />);
+      expect(container.querySelector('.k-ruby-text')).toHaveClass('is-ruby-tap');
+      const ruby = container.querySelector('ruby');
+      expect(ruby).not.toHaveClass('is-revealed');
+      fireEvent.click(glyphAt(container, 0));
+      expect(ruby).toHaveClass('is-revealed');
+      expect(onCharClick).toHaveBeenLastCalledWith(0);
+    });
   });
 });

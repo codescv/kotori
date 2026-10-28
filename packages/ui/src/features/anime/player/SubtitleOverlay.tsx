@@ -2,14 +2,17 @@
  * Subtitle overlay over the video: the cues on screen right now, rendered as
  * plain text (no libass) with every character clickable. Per-character ASS
  * karaoke events are shown once as their merged sentence when
- * `mergeKaraoke` is on. Blind-listening mode (`B`) blurs the text until hover.
+ * `mergeKaraoke` is on. Hide-subtitles mode (`B`, `blind`) removes the lines
+ * entirely (no blur / hover reveal — unusable on touch). Bilingual fansub cues
+ * show the Japanese line as clickable ruby text and the translation line as a
+ * plain, non-clickable sub-line (char indices stay relative to the Japanese).
  * The focused chunk of the open explanation is painted back onto the cue.
  */
 import { memo, useMemo } from 'react';
 import type { SubtitleCue } from '@kotori/core';
 import { RubyText } from '../../../components/breakdown/RubyText';
 import { cx } from '../../../components/m3/cx';
-import { mergePerCharacterCueGroups } from '../../../lib/cues';
+import { mergePerCharacterCueGroups, splitBilingualCueText } from '../../../lib/cues';
 import type { CueHighlight } from './useSubtitleBreakdown';
 
 export interface SubtitleOverlayProps {
@@ -48,14 +51,20 @@ function SubtitleOverlayImpl({ cues, activeIndexes, mergeKaraoke, blind, onCharC
   const bottom = shown.filter((c) => (c.markup?.alignment ?? 2) < 7);
   const render = (cue: SubtitleCue) => {
     const hl = highlightFor(cue);
+    const { primaryJa, secondaryTranslation } = splitBilingualCueText(cue.text);
     return (
       <div key={`${cue.index}-${cue.startMs}`} className={cx('k-sub-line', hl.explaining && 'is-explaining')} data-testid="overlay-cue" data-cue-index={cue.index}>
-        <RubyText text={cue.text} highlight={hl.span} focusIndex={hl.focus} onCharClick={(i) => onCharClick(cue, i)} />
+        <RubyText text={primaryJa} highlight={hl.span} focusIndex={hl.focus} onCharClick={(i) => onCharClick(cue, i)} />
+        {secondaryTranslation && <span className="k-sub-line__secondary">{secondaryTranslation}</span>}
       </div>
     );
   };
+  if (blind) {
+    // Hidden subtitles: keep the (empty) overlay element so layout / tests can see the state.
+    return <div className="k-sub-overlay is-blind" aria-live="off" title={blindHint} data-testid="sub-overlay-hidden" />;
+  }
   return (
-    <div className={cx('k-sub-overlay', blind && 'is-blind')} aria-live="off" title={blind ? blindHint : undefined}>
+    <div className="k-sub-overlay" aria-live="off">
       <div className="k-sub-overlay__top">{top.map(render)}</div>
       <div className="k-sub-overlay__bottom">{bottom.map(render)}</div>
     </div>

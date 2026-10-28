@@ -12,7 +12,7 @@
 import { useCallback, useMemo } from 'react';
 import type { CharSpan, ExplainSource, Id, SubtitleCue } from '@kotori/core';
 import { useHost } from '../../../host/HostContext';
-import { cueOffsetToSentenceIndex, mergeCuesToSentence } from '../../../lib/cues';
+import { cueJapaneseText, cueOffsetToSentenceIndex, mergeCuesToSentence, subtitleExplainContext, toSubtitleContextRows } from '../../../lib/cues';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { deriveSelection } from '../../../components/breakdown/useBreakdownSelection';
 
@@ -43,16 +43,15 @@ export function useSubtitleBreakdown(params: {
   const source: SubtitleSource | undefined =
     request?.source.kind === 'subtitle' && request.source.trackId === trackId && request.source.episodeId === episodeId ? request.source : undefined;
 
+  const contextRows = useMemo(() => toSubtitleContextRows(contextCues), [contextCues]);
   const context = useCallback(
     (first: SubtitleCue, last: SubtitleCue) => {
       const i = contextCues.findIndex((c) => c.index === first.index);
       const j = contextCues.findIndex((c) => c.index === last.index);
-      return {
-        contextBefore: i > 0 ? contextCues.slice(Math.max(0, i - 3), i).map((c) => c.text) : undefined,
-        contextAfter: j >= 0 ? contextCues.slice(j + 1, j + 3).map((c) => c.text) : undefined,
-      };
+      // Same builder as `useSubtitlePreExplain` ⇒ identical request ⇒ same cache key.
+      return subtitleExplainContext(contextRows, i, j);
     },
-    [contextCues],
+    [contextCues, contextRows],
   );
 
   const openCue = useCallback(
@@ -65,8 +64,11 @@ export function useSubtitleBreakdown(params: {
         void store.open(host, { sentence: store.request.sentence, source: current, focusCharIndex: cueOffsetToSentenceIndex(current, cue.index, localCharIndex) });
         return;
       }
-      const src: SubtitleSource = { kind: 'subtitle', episodeId, trackId, cueIndexes: [cue.index], cueCharSpans: [[0, cue.text.length]], startMs: cue.startMs, endMs: cue.endMs };
-      void store.open(host, { sentence: cue.text, source: src, focusCharIndex: localCharIndex, sceneHint, ...context(cue, cue) });
+      // Bilingual fansub cues: only the Japanese line is explained.
+      const text = cueJapaneseText(cue);
+      const src: SubtitleSource = { kind: 'subtitle', episodeId, trackId, cueIndexes: [cue.index], cueCharSpans: [[0, text.length]], startMs: cue.startMs, endMs: cue.endMs };
+      const focus = Math.max(0, Math.min(localCharIndex, text.length - 1));
+      void store.open(host, { sentence: text, source: src, focusCharIndex: focus, sceneHint, ...context(cue, cue) });
     },
     [host, episodeId, trackId, sceneHint, context],
   );
@@ -75,7 +77,7 @@ export function useSubtitleBreakdown(params: {
     (cues: readonly SubtitleCue[], focusCharIndex = 0) => {
       if (!trackId || cues.length === 0) return;
       const ordered = [...cues].sort((a, b) => a.startMs - b.startMs || a.index - b.index);
-      const merged = mergeCuesToSentence(ordered);
+      const merged = mergeCuesToSentence(ordered.map((c) => ({ ...c, text: cueJapaneseText(c) })));
       const src: SubtitleSource = { kind: 'subtitle', episodeId, trackId, cueIndexes: merged.cueIndexes, cueCharSpans: merged.cueCharSpans, startMs: merged.startMs, endMs: merged.endMs };
       const first = ordered[0];
       const last = ordered[ordered.length - 1];

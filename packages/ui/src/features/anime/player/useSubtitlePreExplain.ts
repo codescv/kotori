@@ -13,10 +13,11 @@
  *   any pre-explained subtitle opens in 0 ms.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { ExplainRequest, ExplainSource, Id, SubtitleCue, TranscriptRow } from '@kotori/core';
+import type { ExplainRequest, ExplainSource, Id, TranscriptRow } from '@kotori/core';
 import { useHost } from '../../../host/HostContext';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
+import { cueJapaneseText, subtitleExplainContext, toSubtitleContextRows, type SubtitleContextRow } from '../../../lib/cues';
 
 type SubtitleSource = Extract<ExplainSource, { kind: 'subtitle' }>;
 
@@ -34,34 +35,33 @@ export function isExplainableSubtitle(text: string): boolean {
   return stripped.length >= 4;
 }
 
-function buildRowExplainRequest(params: {
+export function buildRowExplainRequest(params: {
   readonly row: TranscriptRow;
   readonly rowIndex: number;
-  readonly allCues: readonly SubtitleCue[];
+  readonly contextRows: readonly SubtitleContextRow[];
   readonly episodeId: Id;
   readonly trackId: Id;
   readonly targetLanguage: ExplainRequest['targetLanguage'];
   readonly sceneHint?: string | undefined;
 }): ExplainRequest {
-  const { row, rowIndex, allCues, episodeId, trackId, targetLanguage, sceneHint } = params;
+  const { row, rowIndex, contextRows, episodeId, trackId, targetLanguage, sceneHint } = params;
   const cue = row.cue;
+  // Must mirror `useSubtitleBreakdown.openCue` exactly (Japanese line only, shared context builder).
+  const text = cueJapaneseText(cue);
   const source: SubtitleSource = {
     kind: 'subtitle',
     episodeId,
     trackId,
     cueIndexes: [cue.index],
-    cueCharSpans: [[0, cue.text.length]],
+    cueCharSpans: [[0, text.length]],
     startMs: cue.startMs,
     endMs: cue.endMs,
   };
-  const contextBefore = rowIndex > 0 ? allCues.slice(Math.max(0, rowIndex - 3), rowIndex).map((c) => c.text) : undefined;
-  const contextAfter = rowIndex >= 0 ? allCues.slice(rowIndex + 1, rowIndex + 3).map((c) => c.text) : undefined;
   return {
-    sentence: cue.text,
+    sentence: text,
     source,
     targetLanguage,
-    ...(contextBefore && contextBefore.length > 0 ? { contextBefore } : {}),
-    ...(contextAfter && contextAfter.length > 0 ? { contextAfter } : {}),
+    ...subtitleExplainContext(contextRows, rowIndex),
     ...(sceneHint ? { sceneHint } : {}),
   };
 }
@@ -129,7 +129,7 @@ export function useSubtitlePreExplain(params: {
 
     const baseIdx = Math.max(0, currentRowIdx);
     const endIdx = Math.min(rows.length, baseIdx + LOOKAHEAD_SCAN_LIMIT);
-    const allCues = rows.map((r) => r.cue);
+    const contextRows = toSubtitleContextRows(rows.map((r) => r.cue));
 
     const run = async (): Promise<void> => {
       // 1. Probe cache for nearby rows not yet probed so `✦` badges appear even when toggle is off.
@@ -144,7 +144,7 @@ export function useSubtitlePreExplain(params: {
         let added = false;
         await Promise.all(
           toProbe.map(async ({ row, idx }) => {
-            const req = buildRowExplainRequest({ row, rowIndex: idx, allCues, episodeId, trackId, targetLanguage, sceneHint });
+            const req = buildRowExplainRequest({ row, rowIndex: idx, contextRows, episodeId, trackId, targetLanguage, sceneHint });
             const hit = await host.ai.getCachedExplanation(req).catch(() => undefined);
             if (hit && !cachedRef.current.has(row.rep)) {
               cachedRef.current.add(row.rep);
@@ -164,9 +164,9 @@ export function useSubtitlePreExplain(params: {
       for (let i = baseIdx; i < endIdx && windowRows.length < BATCH_WINDOW_SIZE; i++) {
         const row = rows[i];
         if (!row) continue;
-        if (!isExplainableSubtitle(row.cue.text)) continue;
+        if (!isExplainableSubtitle(cueJapaneseText(row.cue))) continue;
         if (cachedRef.current.has(row.rep) || prefetchingRef.current.has(row.rep) || failedRef.current.has(row.rep)) continue;
-        const req = buildRowExplainRequest({ row, rowIndex: i, allCues, episodeId, trackId, targetLanguage, sceneHint });
+        const req = buildRowExplainRequest({ row, rowIndex: i, contextRows, episodeId, trackId, targetLanguage, sceneHint });
         windowRows.push({ row, idx: i, req });
       }
 

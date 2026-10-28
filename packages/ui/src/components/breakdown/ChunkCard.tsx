@@ -1,12 +1,19 @@
 /**
  * One semantic chunk (意群): annotated surface with furigana, 📘 textbook form,
  * 🔥 spoken-language evolution, grammatical role, meaning and nuance. When
- * `active` it is highlighted and scrolled into view (`block: 'nearest'`).
+ * `active` it is highlighted and scrolled into view (`block: 'nearest'`) —
+ * except the first card on mount, so the panel opens at `scrollTop = 0`.
+ *
+ * Redundant lines are dropped: the reading when it equals the surface (pure
+ * kana chunks), and 📘 textbook form when it equals the surface with no 🔥
+ * evolution. Romaji is shown only with `settings.anime.showRomaji`.
  */
 import { memo, useEffect, useRef } from 'react';
 import type { SemanticChunk, VocabEntry } from '@kotori/core';
 import type { Translate } from '../../i18n';
+import { useSettingsStore } from '../../stores/settings';
 import { cx } from '../m3/cx';
+import { kanaToRomaji } from './romaji';
 import { RubyText } from './RubyText';
 
 export interface ChunkCardProps {
@@ -20,13 +27,25 @@ export interface ChunkCardProps {
 
 function ChunkCardImpl({ chunk, index, active, vocab, onSelect, t }: ChunkCardProps) {
   const ref = useRef<HTMLElement>(null);
+  const mountedRef = useRef(false);
+  const showRomaji = useSettingsStore((s) => s.settings.anime.showRomaji ?? false);
   useEffect(() => {
+    const firstRun = !mountedRef.current;
+    mountedRef.current = true;
+    // The first card is already in view at the top: scrolling it "into view"
+    // on open would push the sticky sentence / translation off-screen.
+    if (firstRun && index === 0) return;
     if (active && ref.current && typeof ref.current.scrollIntoView === 'function') {
       ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-  }, [active]);
+  }, [active, index]);
   const evolved = chunk.spokenEvolution;
-  const showTextbook = chunk.textbookForm.length > 0;
+  const surface = chunk.surface.trim();
+  const reading = chunk.reading.trim();
+  const showReading = reading !== '' && reading !== surface;
+  const romaji = showRomaji ? kanaToRomaji(reading || surface) : '';
+  const textbook = chunk.textbookForm.trim();
+  const showTextbook = textbook !== '' && (textbook !== surface || evolved !== undefined);
   const formality = evolved?.formality;
   return (
     <article
@@ -51,7 +70,12 @@ function ChunkCardImpl({ chunk, index, active, vocab, onSelect, t }: ChunkCardPr
         </span>
         <span className="k-chunk-card__role">{chunk.role}</span>
       </header>
-      <div className="k-chunk-card__reading">{chunk.reading}</div>
+      {(showReading || romaji) && (
+        <div className="k-chunk-card__reading" data-testid={`chunk-reading-${chunk.id}`}>
+          {showReading && <span lang="ja">{chunk.reading}</span>}
+          {romaji && <span className="k-chunk-card__romaji">{romaji}</span>}
+        </div>
+      )}
       {showTextbook && (
         <div className="k-chunk-card__row k-chunk-card__textbook">
           <span className="k-chunk-card__emoji" aria-hidden>

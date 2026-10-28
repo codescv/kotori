@@ -3,12 +3,16 @@ import type { ExplainSource, SubtitleCue } from '@kotori/core';
 import { createAnimeFixtures } from '../host/mock/anime';
 import {
   buildTranscriptRows,
+  cueActor,
   cueIndexAt,
+  cueJapaneseText,
   cueOffsetToSentenceIndex,
   formatClock,
   mergeCuesToSentence,
   mergePerCharacterCueGroups,
   sentenceIndexToCueOffset,
+  subtitleExplainContext,
+  toSubtitleContextRows,
 } from './cues';
 
 const cue = (index: number, startMs: number, endMs: number, text: string, extra: Partial<SubtitleCue> = {}): SubtitleCue => ({ index, startMs, endMs, text, rawText: text, ...extra });
@@ -118,5 +122,41 @@ describe('time helpers', () => {
   it('formatClock', () => {
     expect(formatClock(65_000)).toBe('1:05');
     expect(formatClock(3_725_000)).toBe('1:02:05');
+  });
+});
+
+describe('shared subtitle explain context (single click ≡ batch pre-explain)', () => {
+  const markup = (actor?: string): NonNullable<SubtitleCue['markup']> => ({
+    layer: 0, hasMove: false, hasKaraoke: false, isDrawing: false, isComment: false, playResX: 1280, playResY: 720, ...(actor !== undefined ? { actor } : {}),
+  });
+  const cues = [
+    cue(0, 0, 1000, 'おはよう。', { markup: markup('湊') }),
+    cue(1, 1000, 2000, 'うん、おはよう。\n嗯，早上好。', { markup: markup('Default') }),
+    cue(2, 2000, 3000, '今日も早いね。', { markup: markup('ことり') }),
+    cue(3, 3000, 4000, 'そうかな？'),
+  ];
+
+  it('cueActor ignores empty / Default actors', () => {
+    expect(cueActor(cues[0]!)).toBe('湊');
+    expect(cueActor(cues[1]!)).toBeUndefined();
+    expect(cueActor(cues[3]!)).toBeUndefined();
+  });
+
+  it('cueJapaneseText strips bilingual translation lines', () => {
+    expect(cueJapaneseText(cues[1]!)).toBe('うん、おはよう。');
+    expect(cueJapaneseText(cues[2]!)).toBe('今日も早いね。');
+  });
+
+  it('builds [Actor] context lines, the target speaker, and omits empty arrays', () => {
+    const rows = toSubtitleContextRows(cues);
+    expect(subtitleExplainContext(rows, 2)).toEqual({
+      contextBefore: ['[湊] おはよう。', 'うん、おはよう。'],
+      contextAfter: ['そうかな？'],
+      speaker: 'ことり',
+    });
+    expect(subtitleExplainContext(rows, 0)).toEqual({ contextAfter: ['うん、おはよう。', '[ことり] 今日も早いね。'], speaker: '湊' });
+    // Merged range: before the first row, after the last row, no single speaker.
+    expect(subtitleExplainContext(rows, 1, 2)).toEqual({ contextBefore: ['[湊] おはよう。'], contextAfter: ['そうかな？'] });
+    expect(subtitleExplainContext(rows, -1)).toEqual({});
   });
 });

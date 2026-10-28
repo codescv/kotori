@@ -4,7 +4,10 @@
  * click → breakdown, and multi-select (shift-click, select mode, or long-press
  * on touch) → "合并解析" which explains the rows as one sentence via
  * `mergeCuesToSentence`. Rows use `content-visibility: auto` so long tracks
- * stay cheap to render (browser-level virtualisation).
+ * stay cheap to render (browser-level virtualisation). ASS speakers (`Name`)
+ * render as a compact `[Actor]` chip; bilingual fansub cues show the Japanese
+ * line (the part sent to Gemini) with the translation as a subtle, tap-to-expand
+ * sub-line.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { SubtitleCue, TranscriptRow } from '@kotori/core';
@@ -14,7 +17,7 @@ import { cx } from '../../../components/m3/cx';
 import { IconButton } from '../../../components/m3/IconButton';
 import { TextField } from '../../../components/m3/TextField';
 import type { Translate } from '../../../i18n';
-import { formatClock } from '../../../lib/cues';
+import { cueActor, formatClock, splitBilingualCueText } from '../../../lib/cues';
 import type { CueHighlight } from './useSubtitleBreakdown';
 
 export interface TranscriptPanelProps {
@@ -73,6 +76,9 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
     }, 500);
   };
   const cancel = (): void => clearTimeout(timer.current);
+  const actor = cueActor(row.cue);
+  const { primaryJa, secondaryTranslation } = useMemo(() => splitBilingualCueText(row.cue.text), [row.cue.text]);
+  const [secondaryOpen, setSecondaryOpen] = useState(false);
   return (
     <li
       className={cx('k-transcript__row', active && 'is-active', selected && 'is-selected', highlight.explaining && 'is-explaining')}
@@ -100,19 +106,40 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
       >
         {formatClock(row.cue.startMs)}
       </button>
-      <div
-        className="k-transcript__text"
-        onClick={(e) => {
-          // Text clicks open the breakdown unless we are selecting rows.
-          if (!selectMode && !e.shiftKey) e.stopPropagation();
-        }}
-      >
-        <RubyText
-          text={row.cue.text}
-          highlight={highlight.span}
-          focusIndex={highlight.focus}
-          onCharClick={selectMode ? undefined : (i) => onCharClick(row.cue, i)}
-        />
+      <div className="k-transcript__body">
+        {actor && (
+          <span className="k-transcript__actor" title={actor} data-testid="transcript-actor">
+            [{actor}]
+          </span>
+        )}
+        <div
+          className="k-transcript__text"
+          onClick={(e) => {
+            // Text clicks open the breakdown unless we are selecting rows.
+            if (!selectMode && !e.shiftKey) e.stopPropagation();
+          }}
+        >
+          <RubyText
+            text={primaryJa}
+            highlight={highlight.span}
+            focusIndex={highlight.focus}
+            onCharClick={selectMode ? undefined : (i) => onCharClick(row.cue, i)}
+          />
+        </div>
+        {secondaryTranslation && (
+          <button
+            type="button"
+            className={cx('k-transcript__secondary', secondaryOpen && 'is-open')}
+            data-testid="transcript-secondary"
+            aria-expanded={secondaryOpen}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSecondaryOpen((o) => !o);
+            }}
+          >
+            {secondaryTranslation}
+          </button>
+        )}
       </div>
       {!selectMode && cached && (
         <span className="k-transcript__badge k-transcript__badge--cached" title={cachedTitle} data-testid="cue-cached">

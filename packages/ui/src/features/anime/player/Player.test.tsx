@@ -1,10 +1,28 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../../app/default-settings';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
+import { useSnackbarStore } from '../../../stores/snackbar';
 import { glyphAt, renderWithHost, resetStores } from '../../../test/utils';
-import { Player } from './Player';
+import { formatRate, Player } from './Player';
+
+/** Emulate a viewport for `matchMedia` (min/max width/height + orientation). */
+function setViewport(width: number, height: number): void {
+  vi.stubGlobal('matchMedia', (query: string) => {
+    const checks: boolean[] = [];
+    for (const [, kind, px] of query.matchAll(/(min-width|max-width|min-height|max-height):\s*(\d+)px/g)) {
+      const n = Number(px);
+      checks.push(kind === 'min-width' ? width >= n : kind === 'max-width' ? width <= n : kind === 'min-height' ? height >= n : height <= n);
+    }
+    const orient = /orientation:\s*(landscape|portrait)/.exec(query);
+    if (orient) checks.push(orient[1] === 'landscape' ? width >= height : height > width);
+    const matches = checks.length > 0 && checks.every(Boolean) && !/pointer:\s*coarse|hover:\s*none/.test(query);
+    return { matches, media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false };
+  });
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const MERGED = 'ちょっと待ってくれよ、まだ話は終わってないんだから。';
 
@@ -85,13 +103,135 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
     await waitFor(() => expect(screen.getByTestId('overlay-cue').textContent).toBe('え、何の話だっけ？'));
   });
 
-  it('B toggles blind-listening blur', async () => {
+  it('B / button hides the video subtitles entirely (no blur) and shows an indicator', async () => {
     const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
     await screen.findByTestId('overlay-cue');
-    const overlay = container.querySelector('.k-sub-overlay');
-    expect(overlay).not.toHaveClass('is-blind');
+    const toggle = screen.getByTestId('blind-toggle');
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(container.querySelector('.k-sub-overlay')).not.toHaveClass('is-blind');
     fireEvent.keyDown(window, { key: 'b' });
-    expect(overlay).toHaveClass('is-blind');
+    expect(container.querySelector('.k-sub-overlay')).toHaveClass('is-blind');
+    expect(screen.queryByTestId('overlay-cue')).toBeNull();
+    expect(screen.getByTestId('subs-hidden-badge')).toHaveTextContent('已隐藏视频字幕');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(useSnackbarStore.getState().queue.at(-1)?.text).toBe('已隐藏视频字幕');
+    fireEvent.click(toggle);
+    expect(await screen.findByTestId('overlay-cue')).toBeInTheDocument();
+    expect(screen.queryByTestId('subs-hidden-badge')).toBeNull();
+    expect(useSnackbarStore.getState().queue.at(-1)?.text).toBe('已显示视频字幕');
+  });
+
+  it('speed button shows the current playback rate', async () => {
+    renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    await screen.findByTestId('overlay-cue');
+    const speed = screen.getByTestId('speed-button');
+    expect(speed).toHaveTextContent('1×');
+    fireEvent.click(speed);
+    fireEvent.click(screen.getByText('0.75×'));
+    expect(screen.getByTestId('speed-button')).toHaveTextContent('0.75×');
+    expect(formatRate(1.25)).toBe('1.25×');
+  });
+
+  it('transcript rows show the ASS speaker chip; context lines carry [Actor] and the target speaker', async () => {
+    renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    const row = await rowByText('え、何の話だっけ？');
+    expect(within(row).getByTestId('transcript-actor')).toHaveTextContent('[ことり]');
+    const cue = await screen.findByTestId('overlay-cue');
+    fireEvent.click(glyphAt(cue, 2));
+    await waitFor(() => expect(useBreakdownStore.getState().status).toBe('ready'));
+    const req = useBreakdownStore.getState().request;
+    expect(req?.contextBefore?.at(-1)).toBe('[湊] まだ話は終わってないんだから。');
+    expect(req?.contextAfter?.[0]).toBe('[湊] 昨日のケーキ、全部食べたでしょ。');
+  });
+
+  it('transcript char click pauses playback (pauseOnTranscriptClick, default on)', async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause');
+    renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    const row = await rowByText('昨日のケーキ、全部食べたでしょ。');
+    const text = row.querySelector<HTMLElement>('.k-transcript__text');
+    if (!text) throw new Error('no text');
+    pause.mockClear();
+    fireEvent.click(glyphAt(text, 0));
+    expect(pause).toHaveBeenCalled();
+    pause.mockRestore();
+  });
+
+  it('transcript char click keeps playing when pauseOnTranscriptClick is off', async () => {
+    useSettingsStore.setState({ settings: { ...DEFAULT_SETTINGS, anime: { ...DEFAULT_SETTINGS.anime, seekPaddingMs: 0, pauseOnTranscriptClick: false } } });
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause');
+    renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    const row = await rowByText('昨日のケーキ、全部食べたでしょ。');
+    const text = row.querySelector<HTMLElement>('.k-transcript__text');
+    if (!text) throw new Error('no text');
+    pause.mockClear();
+    fireEvent.click(glyphAt(text, 0));
+    expect(pause).not.toHaveBeenCalled();
+    pause.mockRestore();
+  });
+
+  it('single tap toggles play after 240 ms; a double-tap never toggles play/pause', async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play');
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause');
+    const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    await screen.findByTestId('overlay-cue');
+    const video = container.querySelector('video');
+    if (!video) throw new Error('no video');
+    play.mockClear();
+    pause.mockClear();
+    fireEvent.click(video, { detail: 1 });
+    expect(play).not.toHaveBeenCalled(); // deferred
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    play.mockClear();
+    // Double-tap: the deferred single-tap toggle is cancelled, play state untouched.
+    fireEvent.click(video, { detail: 1 });
+    fireEvent.click(video, { detail: 2 });
+    fireEvent.doubleClick(video, { detail: 2 });
+    await sleep(350);
+    expect(play).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+    play.mockRestore();
+    pause.mockRestore();
+  });
+
+  it('centre double-tap requests fullscreen on the whole player (sheet stays visible)', async () => {
+    const calls: Element[] = [];
+    const original = HTMLElement.prototype.requestFullscreen;
+    HTMLElement.prototype.requestFullscreen = function (this: HTMLElement) {
+      calls.push(this);
+      return Promise.resolve();
+    };
+    try {
+      const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      await screen.findByTestId('overlay-cue');
+      const stage = container.querySelector<HTMLElement>('.k-player__stage');
+      if (!stage) throw new Error('no stage');
+      fireEvent.doubleClick(stage);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toBe(screen.getByTestId('player'));
+    } finally {
+      HTMLElement.prototype.requestFullscreen = original;
+    }
+  });
+
+  describe('expanded layout', () => {
+    beforeEach(() => setViewport(1280, 800));
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('合并解析 from the transcript tab while the AI tab was already used switches back to the AI tab', async () => {
+      renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const cue = await screen.findByTestId('overlay-cue');
+      fireEvent.click(glyphAt(cue, 2));
+      await waitFor(() => expect(useBreakdownStore.getState().status).toBe('ready'));
+      expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true');
+      // Back to the transcript tab with the breakdown still open.
+      fireEvent.click(screen.getByRole('tab', { name: /字幕列表/ }));
+      expect(useBreakdownStore.getState().isOpen).toBe(true);
+      fireEvent.click(await rowByText('ちょっと待ってくれよ、'), { shiftKey: true });
+      fireEvent.click(await rowByText('まだ話は終わってないんだから。'), { shiftKey: true });
+      fireEvent.click(screen.getByRole('button', { name: '合并解析' }));
+      await waitFor(() => expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true'));
+      await waitFor(() => expect(useBreakdownStore.getState().request?.sentence).toBe(MERGED));
+    });
   });
 
   it('pre-explain toggle syncs globally and batch-prefetches up to 5 upcoming subtitle lines', async () => {

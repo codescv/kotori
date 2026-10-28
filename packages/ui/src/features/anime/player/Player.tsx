@@ -3,7 +3,12 @@
  * AI-breakdown drawer (docked side sheet ≥ 840 px, bottom sheet on phones).
  *
  * Keyboard: Space play/pause · ←/→ previous/next line · R repeat line ·
- * B blind listening · Esc close breakdown. Progress is saved fire-and-forget.
+ * B hide/show subtitles · Esc close breakdown. Progress is saved fire-and-forget.
+ *
+ * Stage gestures: single tap play/pause (deferred 240 ms so a double-tap can
+ * cancel it) · double-tap left/right 35 % previous/next line · double-tap
+ * centre fullscreen (on the whole `.k-player`, so the breakdown sheet stays
+ * visible) · long-press 2× speed.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AnimeEpisode, SubtitleCue, SubtitleTrack, TranscriptRow } from '@kotori/core';
@@ -31,6 +36,7 @@ import { activeRowIndex, TranscriptPanel } from './TranscriptPanel';
 import { useMediaClock, usePlayerSync } from './usePlayerSync';
 import { useSubtitleBreakdown } from './useSubtitleBreakdown';
 import { useSubtitlePreExplain } from './useSubtitlePreExplain';
+import type { AudioSliceReplay } from '../../../components/breakdown/AiBreakdownPanel';
 import './player.css';
 
 type PanelTab = 'transcript' | 'breakdown';
@@ -46,6 +52,11 @@ export function pickDefaultTrack(episode: AnimeEpisode, preferred: readonly stri
 }
 
 const EMPTY_CUES: readonly SubtitleCue[] = [];
+
+/** `1×`, `0.75×`, `1.25×` — compact playback-rate label for the speed button. */
+export function formatRate(rate: number): string {
+  return `${Number(rate.toFixed(2))}×`;
+}
 
 /** Loads the episode, then mounts the player (so the clock starts at the saved position). */
 export function Player({ seriesId, episodeId }: { readonly seriesId: string; readonly episodeId: string }) {
@@ -85,6 +96,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const clock = useMediaClock(videoRef, { durationHintMs: episode.durationMs, startMs: episode.progress?.positionMs });
+  const clockRef = useRef(clock);
+  clockRef.current = clock;
   const sync = usePlayerSync(cues, clock.currentMs);
   const rows = useMemo(() => buildTranscriptRows(cues, { mergeKaraoke: animeSettings.mergeKaraokeCues, hideSigns: animeSettings.hideSigns }), [cues, animeSettings.mergeKaraokeCues, animeSettings.hideSigns]);
   const activeRaw = useMemo(() => new Set(sync.activeIndexes.map((i) => cues[i]?.index ?? -1)), [sync.activeIndexes, cues]);
@@ -98,6 +111,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const [pauseAt, setPauseAt] = useState<number | undefined>(undefined);
   const repeat = useRepeat(clock.currentMs, clock.seek, animeSettings.seekPaddingMs);
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
+  const breakdownRequest = useBreakdownStore((s) => s.request);
   const closeBreakdown = useBreakdownStore((s) => s.close);
   const sideSheetSwipe = useTabSwipe<PanelTab>(['transcript', 'breakdown'], panelTab, setPanelTab);
 
@@ -111,32 +125,63 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   });
 
   // Opening a breakdown brings its tab forward (expanded) / its sheet up (compact).
+  // Any new request (e.g. 合并解析 from the transcript tab while the panel is
+  // already open) also switches to the AI tab.
   useEffect(() => {
     if (breakdownOpen) {
       setPanelOpen(true);
       setPanelTab('breakdown');
     }
   }, [breakdownOpen]);
+  useEffect(() => {
+    if (breakdownRequest) {
+      setPanelOpen(true);
+      setPanelTab('breakdown');
+    }
+  }, [breakdownRequest]);
   useEffect(() => () => useBreakdownStore.getState().close(), []);
 
-  // Register audio slice replay handler for the AI Breakdown panel (`🔊 原声`).
+  // Register audio slice replay handler for the AI Breakdown panel (`🔊 原声`,
+  // `🐢 0.75×`, `🗣 跟读`). The optional `rate` is applied for the slice only and
+  // the previous playback rate is restored when it pauses at the slice end.
+  const restoreRateRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     const setHandler = useBreakdownStore.getState().setAudioReplayHandler;
-    setHandler((startMs: number, endMs: number) => {
-      clock.seek(Math.max(0, startMs - 80));
+    const replay: AudioSliceReplay = (startMs, endMs, rate) => {
+      const c = clockRef.current;
+      if (rate !== undefined) {
+        if (restoreRateRef.current === undefined) restoreRateRef.current = c.rate;
+        if (rate !== c.rate) c.setRate(rate);
+      }
+      c.seek(Math.max(0, startMs - 80));
       setPauseAt(Math.max(startMs + 250, endMs + 120));
-      clock.play();
-    });
+      c.play();
+    };
+    setHandler(replay);
     return () => setHandler(undefined);
-  }, [clock]);
+  }, []);
 
   // Pause at the end of a line after a jump (AnimeSettings.pauseAfterJump).
   useEffect(() => {
     if (pauseAt !== undefined && clock.currentMs >= pauseAt) {
       clock.pause();
       setPauseAt(undefined);
+      if (restoreRateRef.current !== undefined) {
+        clock.setRate(restoreRateRef.current);
+        restoreRateRef.current = undefined;
+      }
     }
   }, [clock, pauseAt]);
+
+  // Hide-subtitles feedback (skip the initial mount).
+  const blindMountedRef = useRef(false);
+  useEffect(() => {
+    if (!blindMountedRef.current) {
+      blindMountedRef.current = true;
+      return;
+    }
+    showSnackbar(blind ? '已隐藏视频字幕' : '已显示视频字幕');
+  }, [blind]);
 
   // Fire-and-forget progress persistence (every 5 s while playing + on leave).
   const progressRef = useRef({ positionMs: 0, durationMs: 0 });
@@ -214,6 +259,25 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     },
     [clock, sb],
   );
+  // Transcript char click behaves like the overlay (pause) unless disabled in settings.
+  const pauseOnTranscriptClick = animeSettings.pauseOnTranscriptClick !== false;
+  const onTranscriptChar = useCallback(
+    (cue: SubtitleCue, i: number) => {
+      if (pauseOnTranscriptClick) clock.pause();
+      sb.openCue(cue, i);
+    },
+    [clock, sb, pauseOnTranscriptClick],
+  );
+
+  const playerRef = useRef<HTMLDivElement>(null);
+  const toggleFullscreen = useCallback(() => {
+    if (typeof document !== 'undefined' && document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => {});
+      return;
+    }
+    // Whole player (not just the stage) so the breakdown sheet stays visible.
+    void playerRef.current?.requestFullscreen?.().catch(() => {});
+  }, []);
 
   // Touch & pointer precision listening gestures:
   // - Long-press (450 ms) on video stage -> temporary 2.0x speed
@@ -223,6 +287,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const savedRateRef = useRef<number>(1);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const suppressClickRef = useRef(false);
 
   const flashGestureToast = useCallback((label: string) => {
     setGestureToast(label);
@@ -238,8 +304,34 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     if (longPressFast) {
       clock.setRate(savedRateRef.current);
       setLongPressFast(false);
+      // The release of a long-press must not also toggle play/pause.
+      suppressClickRef.current = true;
     }
   }, [clock, longPressFast]);
+
+  const clearTapTimer = useCallback(() => {
+    if (tapTimerRef.current !== undefined) {
+      clearTimeout(tapTimerRef.current);
+      tapTimerRef.current = undefined;
+    }
+  }, []);
+
+  // Single tap → play/pause after 240 ms; a second tap (double-tap / dblclick) cancels it.
+  const onVideoClick = useCallback(
+    (e: React.MouseEvent<HTMLVideoElement>) => {
+      clearTapTimer();
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
+      }
+      if (e.detail >= 2) return;
+      tapTimerRef.current = setTimeout(() => {
+        tapTimerRef.current = undefined;
+        clockRef.current.toggle();
+      }, 240);
+    },
+    [clearTapTimer],
+  );
 
   const onStagePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -260,6 +352,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement | null;
       if (target?.closest('.k-sub-line')) return;
+      clearTapTimer();
       const rect = e.currentTarget.getBoundingClientRect();
       const relX = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
       if (relX < 0.35) {
@@ -269,16 +362,17 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
         nextRow();
         flashGestureToast('⏭ 下一句');
       } else {
-        videoRef.current?.parentElement?.requestFullscreen?.().catch(() => {});
+        toggleFullscreen();
       }
     },
-    [prevRow, nextRow, flashGestureToast],
+    [prevRow, nextRow, flashGestureToast, clearTapTimer, toggleFullscreen],
   );
 
   useEffect(
     () => () => {
       if (longPressTimerRef.current !== undefined) clearTimeout(longPressTimerRef.current);
       if (toastTimerRef.current !== undefined) clearTimeout(toastTimerRef.current);
+      if (tapTimerRef.current !== undefined) clearTimeout(tapTimerRef.current);
     },
     [],
   );
@@ -331,7 +425,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       selected={selected}
       onSelectedChange={setSelected}
       onSeek={jumpToRow}
-      onCharClick={sb.openCue}
+      onCharClick={onTranscriptChar}
       onExplainSelection={(rs) => sb.openMerged(rs.map((r) => r.cue))}
       highlightFor={sb.highlightFor}
       cachedCueIndexes={preExplain.cachedCueIndexes}
@@ -343,7 +437,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const duration = clock.durationMs || episode.durationMs || 0;
 
   return (
-    <div className={cx('k-player', expanded ? 'k-player--expanded' : 'k-player--compact')} data-testid="player">
+    <div ref={playerRef} className={cx('k-player', expanded ? 'k-player--expanded' : 'k-player--compact')} data-testid="player">
       <div className="k-player__main">
         <header className="k-player__header">
           <IconButton icon="back" label={t('common.back')} onClick={() => useRouteStore.getState().goBack()} />
@@ -379,7 +473,12 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
           onPointerLeave={endLongPress}
           onPointerCancel={endLongPress}
         >
-          <video ref={videoRef} className="k-player__video" src={episode.mediaUrl} playsInline preload="metadata" onClick={clock.toggle} />
+          <video ref={videoRef} className="k-player__video" src={episode.mediaUrl} playsInline preload="metadata" onClick={onVideoClick} />
+          {blind && (
+            <div className="k-player__subs-hidden" data-testid="subs-hidden-badge" aria-live="polite">
+              <Icon name="visibilityOff" size={14} /> 已隐藏视频字幕
+            </div>
+          )}
           {longPressFast && (
             <div className="k-player__speed-pill" data-testid="longpress-speed-badge">
               ⏩ 2.0× 倍速播放中
@@ -436,10 +535,28 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               data-testid="pre-explain-toggle"
               onClick={togglePreExplain}
             />
-            <IconButton icon={blind ? 'visibilityOff' : 'visibility'} label={t('player.blind')} selected={blind} onClick={() => setBlind((b) => !b)} />
+            <IconButton
+              icon={blind ? 'visibilityOff' : 'visibility'}
+              label={t('player.blind')}
+              selected={blind}
+              data-testid="blind-toggle"
+              onClick={() => setBlind((b) => !b)}
+            />
             <Menu
               items={[0.5, 0.75, 0.9, 1, 1.25, 1.5].map((r) => ({ key: String(r), label: `${r}×`, selected: clock.rate === r, onSelect: () => clock.setRate(r) }))}
-              trigger={({ toggle }) => <IconButton icon="speed" label={`${t('player.speed')} ${clock.rate}×`} onClick={toggle} />}
+              trigger={({ toggle }) => (
+                <button
+                  type="button"
+                  className={cx('k-player__speed-btn', clock.rate !== 1 && 'is-changed')}
+                  aria-label={`${t('player.speed')} ${clock.rate}×`}
+                  title={`${t('player.speed')} ${clock.rate}×`}
+                  data-testid="speed-button"
+                  onClick={toggle}
+                >
+                  <Icon name="speed" size={18} />
+                  <span className="k-player__speed-label">{formatRate(clock.rate)}</span>
+                </button>
+              )}
             />
           </div>
           {expanded && <p className="k-player__hint k-body-small k-muted">{t('player.keyboardHint')}</p>}
