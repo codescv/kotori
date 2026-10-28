@@ -59,6 +59,18 @@ describe('NyaaSearch', () => {
     expect(batchRows.length).toBe(5);
     expect(batchRows[0]).toHaveTextContent('[Judas] Bocchi the Rock!');
 
+    // Compact viewport: category / trust / sort rows are collapsed behind one toggle chip.
+    expect(screen.queryByRole('button', { name: '仅可信' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '多语/英译' })).toBeNull();
+    const filtersToggle = screen.getByTestId('nyaa-filters-toggle');
+    expect(filtersToggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(filtersToggle);
+    expect(filtersToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: '仅可信' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '多语/英译' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '按体积' }));
+    expect(screen.getByTestId('nyaa-filters-toggle')).toHaveTextContent('筛选与排序 (1)');
+
     // Switch to integrated Jimaku Subtitles tab inside Series Detail
     fireEvent.click(screen.getByRole('button', { name: /日语字幕 Jimaku/ }));
     const subFiles = await screen.findAllByTestId('series-jimaku-file');

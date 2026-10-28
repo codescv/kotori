@@ -460,13 +460,24 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
   border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;
   background: var(--md-sys-color-surface-container-low); box-shadow: var(--md-sys-elevation-1);
   padding-bottom: var(--k-safe-bottom);
-  transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
+  transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized),
+    max-height var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
   animation: k-sheet-up var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate);
 }
-.k-bottom-sheet__handle-area { display: grid; place-items: center; height: 36px; touch-action: none; cursor: grab; flex: none; }
-.k-bottom-sheet__handle { width: 32px; height: 4px; border-radius: 2px; background: var(--md-sys-color-on-surface-variant); opacity: 0.4; }
-.k-bottom-sheet .k-sheet__header { min-height: 48px; padding-top: 0; padding-left: 20px; }
+/* Peek snap: the bubble / video frame above stays visible on first open. */
+.k-bottom-sheet.is-peek { max-height: 52vh; }
+.k-bottom-sheet.is-expanded { max-height: 88vh; }
+.k-bottom-sheet__handle-area { display: grid; place-items: center; height: 28px; touch-action: none; cursor: grab; flex: none; outline: none; }
+.k-bottom-sheet__handle-area:focus-visible .k-bottom-sheet__handle { opacity: 1; background: var(--md-sys-color-primary); }
+.k-bottom-sheet__handle { width: 32px; height: 4px; border-radius: 2px; background: var(--md-sys-color-on-surface-variant); opacity: 0.4; transition: width var(--md-sys-motion-duration-short4); }
+.k-bottom-sheet.is-peek .k-bottom-sheet__handle { width: 40px; }
+.k-bottom-sheet .k-sheet__header { min-height: 40px; padding: 0 12px 4px 16px; }
+.k-bottom-sheet .k-sheet__title { font: var(--md-sys-typescale-title-medium); }
 .k-bottom-sheet .k-sheet__body { padding: 0 16px 16px; }
+/* Tab counters inside sheets are informational, not errors (tonal, not red). */
+.k-sheet__body .k-tabs .k-badge,
+.k-side-sheet .k-tabs .k-badge,
+.k-bottom-sheet .k-tabs .k-badge { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 @keyframes k-sheet-up { from { transform: translateY(100%); } }
 
 /* ---- lists ----------------------------------------------------------------------- */

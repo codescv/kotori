@@ -26,7 +26,8 @@
 .k-reader.is-immersive .k-reader__scrubber-wrap,
 .k-reader.is-immersive .k-reader__jump-back,
 .k-reader.is-immersive .k-reader__next-volume,
-.k-reader.is-immersive .k-reader__edge {
+.k-reader.is-immersive .k-reader__edge,
+.k-reader.is-immersive .k-bubble-step--floating {
   display: none !important;
 }
 .k-reader--bg-black .k-reader__stage-wrap { background: #000; }
@@ -88,6 +89,32 @@
   background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
   font: var(--md-sys-typescale-label-large); box-shadow: var(--md-sys-elevation-3);
 }
+
+/* ⚡ badge so the silent pre-explain toggle never looks like ✨ 陪读本页. */
+.k-reader__pre-explain { position: relative; }
+.k-reader__pre-explain::after {
+  content: '⚡'; position: absolute; right: 2px; bottom: 2px; font-size: 10px; line-height: 1; pointer-events: none;
+}
+
+/* Immersive page HUD: subtle, non-interactive current / total pill. */
+.k-reader__hud {
+  position: absolute; right: calc(12px + var(--k-safe-right)); bottom: calc(12px + var(--k-safe-bottom)); z-index: 4;
+  padding: 2px 10px; border-radius: 999px; pointer-events: none; user-select: none;
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent); color: #fff;
+  font: var(--md-sys-typescale-label-medium); font-variant-numeric: tabular-nums; opacity: 0.75;
+}
+
+/* Sequential bubble stepper (气泡顺读): ◀ k/N ▶ */
+.k-bubble-step { display: inline-flex; align-items: center; gap: 2px; }
+.k-bubble-step__count { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.k-bubble-step--floating {
+  position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); z-index: 5;
+  padding: 2px 4px; border-radius: 999px;
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 88%, transparent);
+  color: var(--md-sys-color-on-surface); box-shadow: var(--md-sys-elevation-2);
+}
+.k-bubble-step--floating.is-raised { bottom: 100px; }
+.k-bubble-step--header { margin-right: 4px; color: var(--md-sys-color-on-surface-variant); }
 
 /* ---- zoom / spread / page ----------------------------------------------------------- */
 .k-zoompan { position: absolute; inset: 0; overflow: hidden; touch-action: none; display: flex; }

@@ -37,6 +37,8 @@ export interface BreakdownOpenInput {
   readonly contextBefore?: readonly string[] | undefined;
   readonly contextAfter?: readonly string[] | undefined;
   readonly sceneHint?: string | undefined;
+  /** Who says the line (subtitle actor / manga guide speaker); forwarded to the prompt. */
+  readonly speaker?: string | undefined;
   readonly force?: boolean | undefined;
   readonly bubblePreview?: BubbleCropPreview | undefined;
 }
@@ -98,6 +100,7 @@ function buildRequest(input: BreakdownOpenInput): ExplainRequest {
     ...(input.contextBefore ? { contextBefore: input.contextBefore } : {}),
     ...(input.contextAfter ? { contextAfter: input.contextAfter } : {}),
     ...(input.sceneHint ? { sceneHint: input.sceneHint } : {}),
+    ...(input.speaker ? { speaker: input.speaker } : {}),
     ...(input.force ? { force: true } : {}),
   };
 }

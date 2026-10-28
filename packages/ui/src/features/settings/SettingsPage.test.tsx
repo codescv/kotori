@@ -65,6 +65,24 @@ describe('SettingsPage', () => {
     });
   });
 
+  it('anime learning display preferences: furigana mode, romaji and pause-on-transcript-click', async () => {
+    const host = await setup();
+    const anime = within(screen.getByTestId('settings-anime'));
+    expect(anime.getByRole('radio', { name: '全部显示' })).toHaveAttribute('aria-checked', 'true');
+    expect(anime.getByRole('switch', { name: '点击字幕列表时自动暂停视频' })).toHaveAttribute('aria-checked', 'true');
+    expect(anime.getByRole('switch', { name: '显示罗马音' })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(anime.getByRole('radio', { name: '点按揭示' }));
+    fireEvent.click(anime.getByRole('switch', { name: '显示罗马音' }));
+    fireEvent.click(anime.getByRole('switch', { name: '点击字幕列表时自动暂停视频' }));
+    await waitFor(async () => {
+      const a = (await host.settings.get()).anime;
+      expect(a.furiganaMode).toBe('tap');
+      expect(a.showRomaji).toBe(true);
+      expect(a.pauseOnTranscriptClick).toBe(false);
+    });
+    expect(anime.getByRole('radio', { name: '点按揭示' })).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('library: add a folder through the path browser and remove it', async () => {
     const host = await setup();
     const lib = within(screen.getByTestId('roots-animeRoots'));

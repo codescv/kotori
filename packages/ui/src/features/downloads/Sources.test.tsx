@@ -79,6 +79,9 @@ describe('MokuroCatalogBrowser', () => {
     expect(houkago).toHaveTextContent('720 页');
     expect(houkago).toHaveTextContent('5.8万字');
     expect(houkago).toHaveTextContent('Slice of Life');
+    // The library already holds 放課後ノート 第1巻 → series card shows an owned badge.
+    await waitFor(() => expect(houkago).toHaveTextContent('已入库 1 卷'));
+    expect(screen.getAllByTestId('mokuro-series-owned')).toHaveLength(1);
     fireEvent.click(houkago);
     const dl = await screen.findAllByRole('button', { name: '下载并导入' });
     expect(dl).toHaveLength(4);

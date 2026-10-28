@@ -10,7 +10,7 @@
  * sentence ⇄ chunk highlight is visible on the page as well.
  */
 import { memo, useMemo, useRef, type KeyboardEvent, type MouseEvent, type TouchEvent } from 'react';
-import type { CharSpan, MangaBlock, MangaPage } from '@kotori/core';
+import { sortBlocksInReadingOrder, type CharSpan, type MangaBlock, type MangaPage, type PlatformHost } from '@kotori/core';
 import { deriveSelection } from '../../../components/breakdown/useBreakdownSelection';
 import { cx } from '../../../components/m3/cx';
 import { useHost } from '../../../host/HostContext';
@@ -26,13 +26,46 @@ export interface BlockOverlayProps {
   readonly sceneHint?: string | undefined;
 }
 
-/** Neighbouring bubble texts used as prompt context (reading order = block order). */
+/**
+ * Page blocks in Japanese RTL reading order (top-right → bottom-left), via
+ * core `sortBlocksInReadingOrder`. OCR array order is arbitrary (mokuro emits
+ * blocks in detector order), so context and the bubble stepper use this order.
+ * Memoised per `page.blocks` array.
+ */
+const orderCache = new WeakMap<readonly MangaBlock[], readonly MangaBlock[]>();
+export function blocksInReadingOrder(page: MangaPage): readonly MangaBlock[] {
+  const cached = orderCache.get(page.blocks);
+  if (cached) return cached;
+  const ordered = sortBlocksInReadingOrder(page.blocks, page.width > 0 ? page.width : undefined, page.height > 0 ? page.height : undefined);
+  orderCache.set(page.blocks, ordered);
+  return ordered;
+}
+
+/** Neighbouring bubble texts used as prompt context (−3 / +2 bubbles in RTL reading order). */
 export function blockContext(page: MangaPage, blockIndex: number): { contextBefore: string[]; contextAfter: string[] } {
-  const i = page.blocks.findIndex((b) => b.index === blockIndex);
+  const ordered = blocksInReadingOrder(page);
+  const i = ordered.findIndex((b) => b.index === blockIndex);
   return {
-    contextBefore: page.blocks.slice(Math.max(0, i - 3), Math.max(0, i)).map((b) => b.text),
-    contextAfter: i < 0 ? [] : page.blocks.slice(i + 1, i + 3).map((b) => b.text),
+    contextBefore: ordered.slice(Math.max(0, i - 3), Math.max(0, i)).map((b) => b.text),
+    contextAfter: i < 0 ? [] : ordered.slice(i + 1, i + 3).map((b) => b.text),
   };
+}
+
+/** Opens the AI breakdown for one OCR bubble (shared by bubble taps and the ◀/▶ bubble stepper). */
+export function openBlockBreakdown(host: PlatformHost, volumeId: string, page: MangaPage, block: MangaBlock, charIndex: number, sceneHint: string | undefined): void {
+  void useBreakdownStore.getState().open(host, {
+    sentence: block.text,
+    source: { kind: 'manga', volumeId, pageIndex: page.index, blockIndex: block.index },
+    focusCharIndex: charIndex,
+    ...blockContext(page, block.index),
+    sceneHint,
+    bubblePreview: {
+      imageUrl: page.imageUrl,
+      pageWidth: page.width > 0 ? page.width : 800,
+      pageHeight: page.height > 0 ? page.height : 1200,
+      rect: block.rect,
+    },
+  });
 }
 
 const attrInt = (el: Element | null, name: string): number | undefined => {
@@ -185,21 +218,7 @@ export function BlockOverlay({ volumeId, page, showOutlines, sceneHint }: BlockO
     [activeBlock, explanation, focusCharIndex],
   );
 
-  const onPick = (block: MangaBlock, charIndex: number): void => {
-    void useBreakdownStore.getState().open(host, {
-      sentence: block.text,
-      source: { kind: 'manga', volumeId, pageIndex: page.index, blockIndex: block.index },
-      focusCharIndex: charIndex,
-      ...blockContext(page, block.index),
-      sceneHint,
-      bubblePreview: {
-        imageUrl: page.imageUrl,
-        pageWidth: page.width > 0 ? page.width : 800,
-        pageHeight: page.height > 0 ? page.height : 1200,
-        rect: block.rect,
-      },
-    });
-  };
+  const onPick = (block: MangaBlock, charIndex: number): void => openBlockBreakdown(host, volumeId, page, block, charIndex, sceneHint);
 
   if (page.blocks.length === 0) return null;
   return (
