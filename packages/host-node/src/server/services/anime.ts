@@ -140,14 +140,7 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
   }
 
   function isExcludedPath(p: string): boolean {
-    const abs = resolveAnimePath(p);
-    const excluded = getExcludedPaths();
-    if (excluded.has(abs)) return true;
-    for (const ex of excluded) {
-      const prefix = ex === '/' ? '/' : `${ex}/`;
-      if (abs.startsWith(prefix)) return true;
-    }
-    return false;
+    return getExcludedPaths().has(resolveAnimePath(p));
   }
 
   async function purgeSeriesRecord(series: AnimeSeries): Promise<void> {

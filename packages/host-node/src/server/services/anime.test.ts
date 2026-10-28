@@ -124,6 +124,13 @@ describe('NodeAnimeService — animeRoots folder detection, split consolidation 
     await ctx.host.anime.scanRoots([nogiDir]);
     expect(await ctx.host.anime.listSeries()).toEqual([]);
 
+    // Explicit importSeries on a child file inside an excluded folder still succeeds, and can also be removed cleanly.
+    const { files: nogiFiles } = await makeNogiFolder();
+    const childImported = await ctx.host.anime.importSeries({ path: nogiFiles[0]! });
+    expect(childImported.episodeCount).toBe(1);
+    await ctx.host.anime.removeSeries(childImported.id);
+    expect(await ctx.host.anime.listSeries()).toEqual([]);
+
     // Re-adding nogiDir in settings.update unexcludes it and imports it cleanly again.
     await ctx.host.settings.update({ library: { animeRoots: [nogiDir] } });
     const reAdded = await ctx.host.anime.listSeries();
