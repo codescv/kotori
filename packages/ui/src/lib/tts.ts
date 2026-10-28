@@ -59,8 +59,11 @@ function speakWithAudio(text: string, rate: number): boolean {
 /**
  * Speak `text` in Japanese. Returns `true` when playback was started by one
  * of the backends (native plugin → Web Speech → `<audio>` fallback).
+ *
+ * Defaults to `rate = 1` so Android `MediaPlayer` uses direct PCM output
+ * without routing short single-word MP3s through the Sonic time-stretch buffer.
  */
-export function speakJapanese(text: string, rate = 0.95): boolean {
+export function speakJapanese(text: string, rate = 1): boolean {
   const cleaned = text.trim();
   if (!cleaned) return false;
   if (typeof window === 'undefined') return false;
@@ -70,10 +73,20 @@ export function speakJapanese(text: string, rate = 0.95): boolean {
   if (plugin?.speakText) {
     try {
       const r = plugin.speakText({ text: cleaned, lang: 'ja-JP', rate });
-      if (r && typeof (r as Promise<unknown>).catch === 'function') {
-        (r as Promise<unknown>).catch(() => {
-          speakWithAudio(cleaned, rate);
-        });
+      if (r && typeof (r as Promise<unknown>).then === 'function') {
+        (r as Promise<unknown>).then(
+          (res) => {
+            if (res && typeof res === 'object' && 'ok' in res && (res as { ok?: unknown }).ok === false) {
+              const reason = (res as { reason?: unknown }).reason;
+              if (reason !== 'superseded') {
+                speakWithAudio(cleaned, rate);
+              }
+            }
+          },
+          () => {
+            speakWithAudio(cleaned, rate);
+          },
+        );
       }
       return true;
     } catch {

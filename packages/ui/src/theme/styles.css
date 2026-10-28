@@ -610,8 +610,11 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-breakdown__cultural-label { font: var(--md-sys-typescale-label-small); font-weight: 700; opacity: 0.9; }
 .k-breakdown__cultural-text { margin: 0; font: var(--md-sys-typescale-body-small); }
 .k-vocab__tts {
-  margin-left: auto; border: 0; background: transparent; padding: 2px 6px;
-  border-radius: 999px; cursor: pointer; font-size: 14px; line-height: 1; opacity: 0.78;
+  margin-left: 0; border: 0; background: transparent;
+  min-width: 32px; min-height: 32px; padding: 4px 8px;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  position: relative; z-index: 2; touch-action: manipulation;
+  border-radius: 999px; cursor: pointer; font-size: 15px; line-height: 1; opacity: 0.85;
 }
 .k-vocab__tts:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
 .k-breakdown__section { display: flex; flex-direction: column; gap: 8px; }
@@ -672,7 +675,8 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-chunk-card__meaning { margin: 8px 0 0; font: var(--md-sys-typescale-body-large); }
 .k-chunk-card__nuance { margin: 4px 0 0; font: var(--md-sys-typescale-body-medium); opacity: 0.85; }
 .k-chunk-card__warn { margin: 4px 0 0; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-error); }
-.k-chunk-card__vocab { margin: 8px 0 0; padding: 8px 0 0; list-style: none; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); display: flex; flex-wrap: wrap; gap: 4px 16px; font: var(--md-sys-typescale-body-medium); }
+.k-chunk-card__vocab { margin: 8px 0 0; padding: 8px 0 0; list-style: none; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font: var(--md-sys-typescale-body-medium); }
+.k-chunk-card__vocab-item { display: inline-flex; align-items: center; gap: 4px; }
 .k-chunk-card.is-active .k-muted { color: inherit; opacity: 0.75; }
 
 .k-vocab-list, .k-grammar-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -683,7 +687,8 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 }
 .k-vocab:hover, .k-grammar:hover { background: var(--md-sys-color-surface-container-high); }
 .k-vocab.is-linked, .k-grammar.is-linked { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: var(--md-sys-color-secondary); }
-.k-vocab__head, .k-grammar__head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.k-vocab__head { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.k-grammar__head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .k-vocab__lemma { font-size: 18px; line-height: 1.9; font-weight: 600; }
 .k-vocab__pitch { font-size: 16px; color: var(--md-sys-color-tertiary); }
 .k-vocab.is-linked .k-vocab__pitch { color: inherit; }

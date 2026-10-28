@@ -12,9 +12,11 @@ import { memo, useEffect, useRef } from 'react';
 import type { SemanticChunk, VocabEntry } from '@kotori/core';
 import type { Translate } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
+import { speakJapanese } from '../../lib/tts';
 import { cx } from '../m3/cx';
 import { kanaToRomaji } from './romaji';
 import { RubyText } from './RubyText';
+import { vocabSpeechText } from './VocabList';
 
 export interface ChunkCardProps {
   readonly chunk: SemanticChunk;
@@ -115,8 +117,23 @@ function ChunkCardImpl({ chunk, index, active, vocab, onSelect, t }: ChunkCardPr
       {active && vocab.length > 0 && (
         <ul className="k-chunk-card__vocab">
           {vocab.map((v) => (
-            <li key={v.id}>
-              <span lang="ja">{v.lemma}</span> <span className="k-muted">{v.meaning}</span>
+            <li key={v.id} className="k-chunk-card__vocab-item">
+              <span lang="ja">{v.lemma}</span>
+              <button
+                type="button"
+                className="k-vocab__tts k-chunk-card__tts"
+                title={t('dict.tts')}
+                data-testid={`chunk-vocab-tts-${v.id}`}
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onTouchStart={(ev) => ev.stopPropagation()}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  speakJapanese(vocabSpeechText(v));
+                }}
+              >
+                🔊
+              </button>{' '}
+              <span className="k-muted">{v.meaning}</span>
             </li>
           ))}
         </ul>

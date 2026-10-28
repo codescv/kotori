@@ -19,7 +19,7 @@ import { useDictStore } from '../../stores/dict';
 import { cx } from '../m3/cx';
 import { DictSenses } from './DictSenses';
 import { FreqBadge, formatRank, pickFrequencies, PitchAccentBadge } from './PitchAccentBadge';
-import { RubyText } from './RubyText';
+import { RubyText, tileSegments } from './RubyText';
 
 export interface VocabListProps {
   readonly vocab: readonly VocabEntry[];
@@ -31,6 +31,32 @@ export interface VocabListProps {
 }
 
 const KANA_ONLY = /^[\u3040-\u30ffー・\s]+$/u;
+const HAS_KANA = /[\u3040-\u30ff]/u;
+const HAS_KANJI = /[\u4e00-\u9fff\u3400-\u4dbf々]/u;
+
+/**
+ * Resolve the disambiguated Japanese reading to speak for a vocabulary item.
+ *
+ * Pure-Kanzi strings with zero kana (e.g. `女子`, `全部`, `今日`) are classified
+ * as Chinese on many Android OEM / multilingual TTS engines and produce silent
+ * output under `Locale.JAPAN`, and bare kanji lemmas misread homographs.
+ */
+export function vocabSpeechText(v: VocabEntry, e?: VocabEnrichment): string {
+  const direct = v.lemmaReading?.trim();
+  if (direct && !HAS_KANJI.test(direct)) return direct;
+  if (v.lemmaRuby && v.lemmaRuby.length > 0) {
+    const fromRuby = tileSegments(v.lemma, v.lemmaRuby)
+      .map((seg) => seg.ruby || seg.base)
+      .join('')
+      .trim();
+    if (fromRuby && HAS_KANA.test(fromRuby) && (!HAS_KANJI.test(fromRuby) || fromRuby !== v.lemma)) {
+      return fromRuby;
+    }
+  }
+  const dictReading = e?.pitches[0]?.reading?.trim() || e?.senseGroups[0]?.reading?.trim() || e?.reading?.trim();
+  if (dictReading) return dictReading;
+  return direct || v.lemma || v.surface;
+}
 
 /**
  * Render-time dictionary enrichment for `vocab` (LRU-cached in `useDictStore`,
@@ -122,6 +148,20 @@ function UncertainCandidates({ candidates, t }: { readonly candidates: readonly 
                   {c.expression}
                   {c.reading && c.reading !== c.expression ? `（${c.reading}）` : ''}
                 </span>
+                <button
+                  type="button"
+                  className="k-vocab__tts"
+                  title={t('dict.tts')}
+                  data-testid={`vocab-candidate-tts-${i}`}
+                  onPointerDown={stop}
+                  onTouchStart={stop}
+                  onClick={(ev) => {
+                    stop(ev);
+                    speakJapanese(c.reading || c.expression);
+                  }}
+                >
+                  🔊
+                </button>
                 <PitchAccentBadge pitches={c.pitches} testId="candidate-pitch-badge" />
                 {pickFrequencies(c.frequencies, false).map((f) => (
                   <FreqBadge key={f.dictId} badge={f} kanaLabel={c.reading} testId="candidate-freq-badge" />
@@ -160,9 +200,11 @@ function VocabItem({ v, linked, onSelect, t, e }: { readonly v: VocabEntry; read
           className="k-vocab__tts"
           title={t('dict.tts')}
           data-testid={`vocab-tts-${v.id}`}
+          onPointerDown={stop}
+          onTouchStart={stop}
           onClick={(ev) => {
             stop(ev);
-            speakJapanese(v.lemma || v.surface);
+            speakJapanese(vocabSpeechText(v, e));
           }}
         >
           🔊

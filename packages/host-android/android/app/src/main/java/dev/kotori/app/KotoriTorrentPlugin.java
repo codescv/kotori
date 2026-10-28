@@ -12,6 +12,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -115,10 +117,12 @@ public class KotoriTorrentPlugin extends Plugin {
     private volatile boolean ttsJapaneseSupported = false;
     /** Language the engine is currently set to (main thread only). */
     private String ttsCurrentLang;
-    /** Reused player for the online fallback (main thread only). */
+    /** Player for the online fallback (main thread only; freshly created per segment). */
     private MediaPlayer ttsMediaPlayer;
     /** Request queued while the TTS engine binds (main thread only; newest wins). */
     private PendingSpeech pendingSpeech;
+    /** Active system TTS utterance so async `onError` can fall back to `speakOnline`. */
+    private volatile ActiveSystemSpeech activeSystemSpeech;
     /** Bumped by every speak / stop so stale online downloads never start playing. */
     private final AtomicInteger ttsToken = new AtomicInteger();
 
@@ -131,6 +135,22 @@ public class KotoriTorrentPlugin extends Plugin {
 
         PendingSpeech(PluginCall call, String text, String lang, float rate, int token) {
             this.call = call;
+            this.text = text;
+            this.lang = lang;
+            this.rate = rate;
+            this.token = token;
+        }
+    }
+
+    private static final class ActiveSystemSpeech {
+        final String utteranceId;
+        final String text;
+        final String lang;
+        final float rate;
+        final int token;
+
+        ActiveSystemSpeech(String utteranceId, String text, String lang, float rate, int token) {
+            this.utteranceId = utteranceId;
             this.text = text;
             this.lang = lang;
             this.rate = rate;
@@ -230,11 +250,12 @@ public class KotoriTorrentPlugin extends Plugin {
     }
 
     /**
-     * Speak `text` (`lang` default `ja-JP`, `rate` default 0.95). Uses the system
-     * `TextToSpeech` engine when it has Japanese voice data, otherwise (engine
-     * missing / failed to bind / `LANG_MISSING_DATA` / `speak` error) downloads
-     * the phrase from the online Google TTS endpoint (cached in
-     * `cacheDir/tts_cache`) and plays it with `MediaPlayer`.
+     * Speak `text` (`lang` default `ja-JP`, `rate` default 1.0). Uses the system
+     * `TextToSpeech` engine when it has an installed Japanese `Voice`, otherwise
+     * (engine missing / failed to bind / no installed `ja` voice / `speak` or
+     * async `UtteranceProgressListener.onError`) downloads the phrase from the
+     * online Google TTS endpoint (cached in `cacheDir/tts_cache`) and plays it
+     * with a fresh `MediaPlayer`.
      * Resolves `{ ok, engine: "system" | "online" }` once playback has started.
      */
     @PluginMethod
@@ -248,12 +269,13 @@ public class KotoriTorrentPlugin extends Plugin {
         if (text.length() > TTS_MAX_TEXT_CHARS) text = text.substring(0, TTS_MAX_TEXT_CHARS);
         String langArg = call.getString("lang", "ja-JP");
         final String lang = langArg == null || langArg.trim().isEmpty() ? "ja-JP" : langArg.trim();
-        Float rateArg = call.getFloat("rate", 0.95f);
-        float r = rateArg == null || rateArg.isNaN() ? 0.95f : rateArg;
+        Float rateArg = call.getFloat("rate", 1.0f);
+        float r = rateArg == null || rateArg.isNaN() ? 1.0f : rateArg;
         final float rate = Math.max(0.25f, Math.min(4.0f, r));
         final String finalText = text;
         final int token = ttsToken.incrementAndGet();
         mainHandler.post(() -> {
+            activeSystemSpeech = null;
             stopTtsMediaPlayer();
             if (!ttsInitDone) {
                 // First call (or engine still binding): queue the newest request and flush it from OnInitListener.
@@ -270,6 +292,7 @@ public class KotoriTorrentPlugin extends Plugin {
     public void stopSpeech(PluginCall call) {
         ttsToken.incrementAndGet();
         mainHandler.post(() -> {
+            activeSystemSpeech = null;
             supersedePending();
             try {
                 if (tts != null) tts.stop();
@@ -278,6 +301,65 @@ public class KotoriTorrentPlugin extends Plugin {
             }
             stopTtsMediaPlayer();
             call.resolve();
+        });
+    }
+
+    private static boolean isUsableJapaneseVoice(Voice v) {
+        if (v == null || v.getLocale() == null) return false;
+        String lang = v.getLocale().getLanguage();
+        if (!"ja".equalsIgnoreCase(lang) && !"jpn".equalsIgnoreCase(lang)) return false;
+        Set<String> features = v.getFeatures();
+        return features == null || !features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED);
+    }
+
+    /**
+     * Verify that the bound `TextToSpeech` engine genuinely has an installed
+     * Japanese `Voice` (and select it if the default voice is non-`ja` or
+     * uninstalled). Many Android OEM engines return `LANG_AVAILABLE` from
+     * `setLanguage(Locale.JAPAN)` even when `KEY_FEATURE_NOT_INSTALLED` is set
+     * or no `ja` voice exists at all.
+     */
+    private static boolean isJapaneseVoiceInstalled(TextToSpeech engine) {
+        if (engine == null) return false;
+        try {
+            if (isUsableJapaneseVoice(engine.getVoice())) return true;
+            Set<Voice> voices = engine.getVoices();
+            if (voices == null || voices.isEmpty()) return false;
+            Voice bestJaVoice = null;
+            for (Voice v : voices) {
+                if (!isUsableJapaneseVoice(v)) continue;
+                if (bestJaVoice == null) {
+                    bestJaVoice = v;
+                    continue;
+                }
+                boolean curLocal = !bestJaVoice.isNetworkConnectionRequired();
+                boolean candLocal = !v.isNetworkConnectionRequired();
+                if (candLocal && !curLocal) {
+                    bestJaVoice = v;
+                } else if (candLocal == curLocal && v.getQuality() > bestJaVoice.getQuality()) {
+                    bestJaVoice = v;
+                }
+            }
+            if (bestJaVoice == null) return false;
+            return engine.setVoice(bestJaVoice) == TextToSpeech.SUCCESS;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void onSystemUtteranceError(String utteranceId) {
+        mainHandler.post(() -> {
+            ActiveSystemSpeech cur = activeSystemSpeech;
+            if (cur == null) return;
+            if (utteranceId != null && !cur.utteranceId.equals(utteranceId)) return;
+            activeSystemSpeech = null;
+            if (cur.token != ttsToken.get()) return;
+            try {
+                if (tts != null) tts.stop();
+            } catch (Exception ignored) {
+                // ignore
+            }
+            speakOnline(null, cur.text, cur.lang, cur.rate, cur.token);
         });
     }
 
@@ -302,7 +384,8 @@ public class KotoriTorrentPlugin extends Plugin {
             } catch (Exception e) {
                 res = TextToSpeech.LANG_NOT_SUPPORTED;
             }
-            ttsJapaneseSupported = res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED;
+            boolean langOk = res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED;
+            ttsJapaneseSupported = langOk && isJapaneseVoiceInstalled(tts);
             ttsCurrentLang = ttsJapaneseSupported ? "ja" : null;
             try {
                 tts.setAudioAttributes(
@@ -313,6 +396,35 @@ public class KotoriTorrentPlugin extends Plugin {
                 );
             } catch (Exception ignored) {
                 // older engines: default stream is fine
+            }
+            try {
+                tts.setOnUtteranceProgressListener(
+                    new UtteranceProgressListener() {
+                        @Override
+                        public void onStart(String utteranceId) {}
+
+                        @Override
+                        public void onDone(String utteranceId) {
+                            ActiveSystemSpeech cur = activeSystemSpeech;
+                            if (cur != null && cur.utteranceId.equals(utteranceId)) {
+                                activeSystemSpeech = null;
+                            }
+                        }
+
+                        @Override
+                        @SuppressWarnings("deprecation")
+                        public void onError(String utteranceId) {
+                            onSystemUtteranceError(utteranceId);
+                        }
+
+                        @Override
+                        public void onError(String utteranceId, int errorCode) {
+                            onSystemUtteranceError(utteranceId);
+                        }
+                    }
+                );
+            } catch (Exception ignored) {
+                // listener registration failure is non-fatal
             }
         } else {
             ttsInitFailed = true;
@@ -350,6 +462,7 @@ public class KotoriTorrentPlugin extends Plugin {
     }
 
     private static void resolveSuperseded(PluginCall call) {
+        if (call == null) return;
         JSObject out = new JSObject();
         out.put("ok", false);
         out.put("reason", "superseded");
@@ -369,8 +482,11 @@ public class KotoriTorrentPlugin extends Plugin {
                 supported = ttsJapaneseSupported;
                 if (supported && !"ja".equals(ttsCurrentLang)) {
                     try {
-                        tts.setLanguage(Locale.JAPAN);
-                        ttsCurrentLang = "ja";
+                        int res = tts.setLanguage(Locale.JAPAN);
+                        supported = res != TextToSpeech.LANG_MISSING_DATA
+                            && res != TextToSpeech.LANG_NOT_SUPPORTED
+                            && isJapaneseVoiceInstalled(tts);
+                        ttsCurrentLang = supported ? "ja" : null;
                     } catch (Exception e) {
                         supported = false;
                     }
@@ -388,15 +504,21 @@ public class KotoriTorrentPlugin extends Plugin {
             if (supported) {
                 try {
                     tts.setSpeechRate(rate);
-                    int r = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "kotori_tts_" + System.currentTimeMillis());
+                    String utteranceId = "kotori_tts_" + token;
+                    activeSystemSpeech = new ActiveSystemSpeech(utteranceId, text, lang, rate, token);
+                    int r = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId);
                     if (r == TextToSpeech.SUCCESS) {
-                        JSObject out = new JSObject();
-                        out.put("ok", true);
-                        out.put("engine", "system");
-                        call.resolve(out);
+                        if (call != null) {
+                            JSObject out = new JSObject();
+                            out.put("ok", true);
+                            out.put("engine", "system");
+                            call.resolve(out);
+                        }
                         return;
                     }
+                    activeSystemSpeech = null;
                 } catch (Exception ignored) {
+                    activeSystemSpeech = null;
                     // fall through to the online engine
                 }
             }
@@ -427,7 +549,9 @@ public class KotoriTorrentPlugin extends Plugin {
                 }
                 pruneTtsCache(cacheDir);
             } catch (Exception e) {
-                call.reject("Japanese TTS unavailable: no system voice data and online speech failed (" + e.getMessage() + ")", e);
+                if (call != null) {
+                    call.reject("Japanese TTS unavailable: no system voice data and online speech failed (" + e.getMessage() + ")", e);
+                }
                 return;
             }
             mainHandler.post(() -> {
@@ -437,13 +561,17 @@ public class KotoriTorrentPlugin extends Plugin {
                 }
                 try {
                     playTtsFiles(files, 0, rate, token);
-                    JSObject out = new JSObject();
-                    out.put("ok", true);
-                    out.put("engine", "online");
-                    call.resolve(out);
+                    if (call != null) {
+                        JSObject out = new JSObject();
+                        out.put("ok", true);
+                        out.put("engine", "online");
+                        call.resolve(out);
+                    }
                 } catch (Exception e) {
                     stopTtsMediaPlayer();
-                    call.reject("Failed to play online TTS audio: " + e.getMessage(), e);
+                    if (call != null) {
+                        call.reject("Failed to play online TTS audio: " + e.getMessage(), e);
+                    }
                 }
             });
         });
@@ -525,50 +653,71 @@ public class KotoriTorrentPlugin extends Plugin {
         }
     }
 
-    /** Main thread: play `files[index..]` back to back on the reusable player. */
+    /** Main thread: play `files[index..]` back to back using a fresh MediaPlayer per segment. */
     private void playTtsFiles(List<File> files, int index, float rate, int token) throws IOException {
-        if (index >= files.size() || token != ttsToken.get()) return;
-        if (ttsMediaPlayer == null) ttsMediaPlayer = new MediaPlayer();
-        else ttsMediaPlayer.reset();
-        ttsMediaPlayer.setAudioAttributes(
+        if (index >= files.size() || token != ttsToken.get()) {
+            stopTtsMediaPlayer();
+            return;
+        }
+        stopTtsMediaPlayer();
+        MediaPlayer mp = new MediaPlayer();
+        ttsMediaPlayer = mp;
+        mp.setAudioAttributes(
             new AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .build()
         );
-        ttsMediaPlayer.setDataSource(files.get(index).getAbsolutePath());
-        ttsMediaPlayer.prepare();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                ttsMediaPlayer.setPlaybackParams(ttsMediaPlayer.getPlaybackParams().setSpeed(rate));
-            } catch (Exception ignored) {
-                // some decoders reject speed changes; play at 1.0×
-            }
+        try (FileInputStream fis = new FileInputStream(files.get(index))) {
+            mp.setDataSource(fis.getFD());
         }
-        ttsMediaPlayer.setOnCompletionListener(mp -> {
+        mp.prepare();
+        mp.setOnCompletionListener(completed -> {
+            if (index + 1 >= files.size() || token != ttsToken.get()) {
+                stopTtsMediaPlayer();
+                return;
+            }
             try {
                 playTtsFiles(files, index + 1, rate, token);
             } catch (Exception ignored) {
                 stopTtsMediaPlayer();
             }
         });
-        ttsMediaPlayer.start();
+        mp.setOnErrorListener((errored, what, extra) -> {
+            stopTtsMediaPlayer();
+            return true;
+        });
+        mp.start();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Math.abs(rate - 1.0f) > 0.06f) {
+            try {
+                mp.setPlaybackParams(mp.getPlaybackParams().setSpeed(rate));
+            } catch (Exception ignored) {
+                // some decoders reject speed changes; play at 1.0×
+            }
+        }
     }
 
-    /** Main thread. */
+    /** Main thread: stop, reset, release and null out the current MediaPlayer. */
     private void stopTtsMediaPlayer() {
-        if (ttsMediaPlayer == null) return;
+        MediaPlayer mp = ttsMediaPlayer;
+        ttsMediaPlayer = null;
+        if (mp == null) return;
         try {
-            ttsMediaPlayer.setOnCompletionListener(null);
-            if (ttsMediaPlayer.isPlaying()) ttsMediaPlayer.stop();
-            ttsMediaPlayer.reset();
-        } catch (Exception e) {
-            try {
-                ttsMediaPlayer.release();
-            } catch (Exception ignored) {
-                // ignore
-            }
-            ttsMediaPlayer = null;
+            mp.setOnCompletionListener(null);
+            mp.setOnErrorListener(null);
+            if (mp.isPlaying()) mp.stop();
+        } catch (Exception ignored) {
+            // ignore illegal state
+        }
+        try {
+            mp.reset();
+        } catch (Exception ignored) {
+            // ignore
+        }
+        try {
+            mp.release();
+        } catch (Exception ignored) {
+            // ignore
         }
     }
 
@@ -576,6 +725,7 @@ public class KotoriTorrentPlugin extends Plugin {
     protected void handleOnDestroy() {
         ttsToken.incrementAndGet();
         pendingSpeech = null;
+        activeSystemSpeech = null;
         if (tts != null) {
             try {
                 tts.stop();
@@ -585,14 +735,7 @@ public class KotoriTorrentPlugin extends Plugin {
             }
             tts = null;
         }
-        if (ttsMediaPlayer != null) {
-            try {
-                ttsMediaPlayer.release();
-            } catch (Exception ignored) {
-                // ignore
-            }
-            ttsMediaPlayer = null;
-        }
+        stopTtsMediaPlayer();
         ttsInitDone = false;
         ttsInitFailed = false;
         ttsJapaneseSupported = false;

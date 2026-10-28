@@ -76,7 +76,12 @@
 /* Dictionary enrichment (VocabList three states, badges, senses).     */
 /* Kotori sage-green M3 palette: `--k-primary` falls back to primary.  */
 /* ------------------------------------------------------------------ */
-.k-vocab-list .k-vocab__tts { margin-left: 0; }
+.k-vocab-list .k-vocab__tts,
+.k-breakdown .k-vocab__tts {
+  margin-left: 0; min-width: 32px; min-height: 32px; padding: 4px 8px;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  position: relative; z-index: 2; touch-action: manipulation;
+}
 .k-vocab__label { font: var(--md-sys-typescale-label-medium); font-weight: 600; color: var(--md-sys-color-on-surface-variant); }
 .k-vocab.is-linked .k-vocab__label { color: inherit; opacity: 0.85; }
 .k-vocab__ctx { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 2px; }
@@ -146,7 +151,10 @@
 .k-instant-dict__surface { color: var(--md-sys-color-on-surface-variant); }
 .k-instant-dict__reading { color: var(--md-sys-color-on-surface-variant); font-size: 13px; }
 .k-instant-dict__btn {
-  border: 0; background: transparent; cursor: pointer; padding: 2px 6px; border-radius: 999px; line-height: 1;
+  border: 0; background: transparent; cursor: pointer;
+  min-width: 32px; min-height: 32px; padding: 4px 8px;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  touch-action: manipulation; border-radius: 999px; line-height: 1;
   color: var(--md-sys-color-on-surface-variant); margin-left: 0;
 }
 .k-instant-dict__btn:hover { background: color-mix(in srgb, currentColor 12%, transparent); }

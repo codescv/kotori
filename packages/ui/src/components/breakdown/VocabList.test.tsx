@@ -1,18 +1,20 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
-import type { PlatformHost, SentenceExplanation, VocabEnrichment } from '@kotori/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlatformHost, SentenceExplanation, VocabEnrichment, VocabEntry } from '@kotori/core';
 import { HostProvider } from '../../host/HostContext';
 import { createMockPlatformHost, type MockHostOptions } from '../../host/mock-host';
 import { explanationFor } from '../../host/mock/explanations';
 import { createTranslator } from '../../i18n';
+import * as tts from '../../lib/tts';
 import { useBreakdownStore } from '../../stores/breakdown';
 import { enrichmentCacheKey, LruCache, useDictStore } from '../../stores/dict';
 import { glyphAt, resetStores } from '../../test/utils';
 import { BreakdownPanel } from './AiBreakdownPanel';
+import { ChunkCard } from './ChunkCard';
 import { InstantDictPopup, useInstantLookup } from './InstantDictPopup';
 import { formatRank, freqDictLabel, pickFrequencies, pitchLevels, splitMorae } from './PitchAccentBadge';
-import { VocabList } from './VocabList';
+import { VocabList, vocabSpeechText } from './VocabList';
 
 const t = createTranslator('zh-CN');
 const BET = explanationFor('人生を賭けた勝負だって、わかってる。', 'zh-CN');
@@ -292,5 +294,116 @@ describe('InstantDictPopup — P2 click-to-lookup', () => {
     // Tapping another word in the sticky sentence header looks it up.
     fireEvent.click(glyphAt(screen.getByTestId('breakdown-sentence'), sentence.indexOf('バ')));
     await waitFor(() => expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('バンド'));
+  });
+});
+
+describe('Vocabulary TTS — disambiguated kana reading & touch propagation', () => {
+  beforeEach(resetStores);
+  afterEach(() => vi.restoreAllMocks());
+
+  it('vocabSpeechText resolves kana reading across all 4 priorities instead of bare kanji', () => {
+    const base: VocabEntry = {
+      id: 'v0',
+      charSpan: [0, 2],
+      alignment: 'exact',
+      surface: '女子',
+      lemma: '女子',
+      lemmaReading: 'じょし',
+      lemmaRuby: [{ base: '女子', ruby: 'じょし', charSpan: [0, 2] }],
+      partOfSpeech: 'noun',
+      meaning: '女生',
+    };
+    // Priority 1: non-kanji lemmaReading
+    expect(vocabSpeechText(base)).toBe('じょし');
+
+    // Priority 2: reconstructed kana from lemma + lemmaRuby when lemmaReading is empty
+    const rubyOnly: VocabEntry = {
+      ...base,
+      lemma: '賭ける',
+      surface: '賭けた',
+      lemmaReading: '',
+      lemmaRuby: [
+        { base: '賭', ruby: 'か', charSpan: [0, 1] },
+        { base: 'ける', charSpan: [1, 3] },
+      ],
+    };
+    expect(vocabSpeechText(rubyOnly)).toBe('かける');
+
+    // Priority 3: dictionary enrichment reading when neither lemmaReading nor ruby furigana exist
+    const noReading: VocabEntry = {
+      ...base,
+      lemma: '食べる',
+      surface: '食べた',
+      lemmaReading: '',
+      lemmaRuby: [{ base: '食べる', charSpan: [0, 3] }],
+    };
+    const enriched: VocabEnrichment = {
+      status: 'matched',
+      pitches: [{ reading: 'たべる', position: 2, sources: ['Kanjium'] }],
+      frequencies: [],
+      senseGroups: [],
+    };
+    expect(vocabSpeechText(noReading, enriched)).toBe('たべる');
+
+    // Priority 4: fallback to lemma / surface
+    expect(vocabSpeechText({ ...noReading, lemmaRuby: [] })).toBe('食べる');
+  });
+
+  it('clicking vocab-tts-* speaks kana reading ("じょし", "かける") and does not select the parent card', async () => {
+    const speakSpy = vi.spyOn(tts, 'speakJapanese').mockReturnValue(true);
+    const onSelect = vi.fn();
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const first = render(
+      <HostProvider host={host}>
+        <VocabList vocab={BAND.vocab} linkedIds={new Set()} onSelect={onSelect} t={t} />
+      </HostProvider>,
+    );
+    const joshi = vocabByLemma(BAND, '女子');
+    fireEvent.pointerDown(screen.getByTestId(`vocab-tts-${joshi.id}`));
+    fireEvent.touchStart(screen.getByTestId(`vocab-tts-${joshi.id}`));
+    fireEvent.click(screen.getByTestId(`vocab-tts-${joshi.id}`));
+    expect(speakSpy).toHaveBeenCalledWith('じょし');
+    expect(onSelect).not.toHaveBeenCalled();
+    first.unmount();
+
+    speakSpy.mockClear();
+    renderVocab(KAKERU);
+    const kakeru = vocabByLemma(KAKERU, 'かける');
+    const item = screen.getByTestId(`vocab-${kakeru.id}`);
+    const toggle = await within(item).findByTestId('vocab-uncertain-candidates');
+    fireEvent.click(screen.getByTestId(`vocab-tts-${kakeru.id}`));
+    expect(speakSpy).toHaveBeenCalledWith('かける');
+
+    // Candidate TTS inside UncertainCandidates
+    speakSpy.mockClear();
+    fireEvent.click(toggle);
+    fireEvent.click(within(item).getByTestId('vocab-candidate-tts-0'));
+    expect(speakSpy).toHaveBeenCalledWith('かける');
+  });
+
+  it('InstantDictPopup instant-dict-tts and ChunkCard chunk-vocab-tts-* speak kana readings', async () => {
+    const speakSpy = vi.spyOn(tts, 'speakJapanese').mockReturnValue(true);
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const sentence = BAND.sentence;
+    const popupView = render(
+      <HostProvider host={host}>
+        <InstantHarness sentence={sentence} index={sentence.indexOf('食')} />
+      </HostProvider>,
+    );
+    const popup = await screen.findByTestId('instant-dict-popup');
+    await waitFor(() => expect(within(popup).getByTestId('instant-dict-headline').textContent).toContain('食べる'));
+    fireEvent.click(within(popup).getByTestId('instant-dict-tts'));
+    expect(speakSpy).toHaveBeenCalledWith('たべる');
+    popupView.unmount();
+
+    speakSpy.mockClear();
+    const onSelectChunk = vi.fn();
+    const joshi = vocabByLemma(BAND, '女子');
+    const joshiChunk = BAND.chunks.find((c) => c.vocabIds.includes(joshi.id))!;
+    const chunkVocab = BAND.vocab.filter((v) => joshiChunk.vocabIds.includes(v.id));
+    render(<ChunkCard chunk={joshiChunk} index={1} active vocab={chunkVocab} onSelect={onSelectChunk} t={t} />);
+    fireEvent.click(screen.getByTestId(`chunk-vocab-tts-${joshi.id}`));
+    expect(speakSpy).toHaveBeenCalledWith('じょし');
+    expect(onSelectChunk).not.toHaveBeenCalled();
   });
 });

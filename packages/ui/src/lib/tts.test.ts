@@ -10,11 +10,53 @@ afterEach(() => {
 });
 
 describe('speakJapanese', () => {
-  it('prefers the native Android KotoriTorrent.speakText bridge', () => {
-    const speakText = vi.fn().mockResolvedValue(undefined);
+  it('prefers the native Android KotoriTorrent.speakText bridge (default rate = 1)', () => {
+    const speakText = vi.fn().mockResolvedValue({ ok: true, engine: 'system' });
     (window as W).Capacitor = { isNativePlatform: () => true, Plugins: { KotoriTorrent: { speakText, stopSpeech: vi.fn() } } };
-    expect(speakJapanese('  賭ける ', 0.8)).toBe(true);
-    expect(speakText).toHaveBeenCalledWith({ text: '賭ける', lang: 'ja-JP', rate: 0.8 });
+    expect(speakJapanese('  じょし ')).toBe(true);
+    expect(speakText).toHaveBeenCalledWith({ text: 'じょし', lang: 'ja-JP', rate: 1 });
+  });
+
+  it('falls back to HTML5 <audio> when KotoriTorrent.speakText resolves ok:false (non-superseded)', async () => {
+    const speakText = vi.fn().mockResolvedValue({ ok: false, reason: 'no-voice' });
+    (window as W).Capacitor = { isNativePlatform: () => true, Plugins: { KotoriTorrent: { speakText, stopSpeech: vi.fn() } } };
+    const play = vi.fn().mockResolvedValue(undefined);
+    const urls: string[] = [];
+    vi.stubGlobal(
+      'Audio',
+      class {
+        playbackRate = 1;
+        constructor(public src: string) {
+          urls.push(src);
+        }
+        play = play;
+        pause = vi.fn();
+      },
+    );
+    expect(speakJapanese('じょし')).toBe(true);
+    await Promise.resolve();
+    expect(urls).toEqual([FALLBACK_TTS_URL + encodeURIComponent('じょし')]);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fall back to HTML5 <audio> when KotoriTorrent.speakText was superseded', async () => {
+    const speakText = vi.fn().mockResolvedValue({ ok: false, reason: 'superseded' });
+    (window as W).Capacitor = { isNativePlatform: () => true, Plugins: { KotoriTorrent: { speakText, stopSpeech: vi.fn() } } };
+    const urls: string[] = [];
+    vi.stubGlobal(
+      'Audio',
+      class {
+        playbackRate = 1;
+        constructor(public src: string) {
+          urls.push(src);
+        }
+        play = vi.fn().mockResolvedValue(undefined);
+        pause = vi.fn();
+      },
+    );
+    expect(speakJapanese('じょし')).toBe(true);
+    await Promise.resolve();
+    expect(urls).toEqual([]);
   });
 
   it('uses Web Speech when available (desktop browsers)', () => {
@@ -34,7 +76,7 @@ describe('speakJapanese', () => {
     Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: { speak, cancel: vi.fn(), getVoices: () => [{ lang: 'ja-JP' }] } });
     expect(speakJapanese('食べる')).toBe(true);
     expect(speak).toHaveBeenCalledTimes(1);
-    expect(utterances[0]).toMatchObject({ text: '食べる', lang: 'ja-JP', rate: 0.95 });
+    expect(utterances[0]).toMatchObject({ text: '食べる', lang: 'ja-JP', rate: 1 });
     delete (window as { speechSynthesis?: unknown }).speechSynthesis;
   });
 

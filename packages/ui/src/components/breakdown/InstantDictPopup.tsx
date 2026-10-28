@@ -78,6 +78,10 @@ export interface InstantDictPopupProps {
 
 const KANA_ONLY = /^[\u3040-\u30ffー]+$/u;
 
+function stop(e: { stopPropagation(): void }): void {
+  e.stopPropagation();
+}
+
 export function InstantDictPopup({ state, collapsible = false, defaultCollapsed = false, className }: InstantDictPopupProps) {
   const t = useT();
   const rootRef = useRef<HTMLElement>(null);
@@ -132,7 +136,18 @@ export function InstantDictPopup({ state, collapsible = false, defaultCollapsed 
         {state.loading && !match && <span className="k-muted k-instant-dict__loading">{t('dict.instant.loading')}</span>}
         <span className="k-spacer" />
         {match && (
-          <button type="button" className="k-vocab__tts k-instant-dict__btn" title={t('dict.tts')} data-testid="instant-dict-tts" onClick={() => speakJapanese(match.lemma)}>
+          <button
+            type="button"
+            className="k-vocab__tts k-instant-dict__btn"
+            title={t('dict.tts')}
+            data-testid="instant-dict-tts"
+            onPointerDown={stop}
+            onTouchStart={stop}
+            onClick={(ev) => {
+              stop(ev);
+              speakJapanese(match.reading || match.lemma);
+            }}
+          >
             🔊
           </button>
         )}

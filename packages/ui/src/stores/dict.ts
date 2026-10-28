@@ -9,7 +9,7 @@
  * stale cache entries are simply never addressed again.
  */
 import { create } from 'zustand';
-import type { DictionaryInfo, HostEvent, PlatformHost, VocabEnrichment, VocabEntry } from '@kotori/core';
+import { RECOMMENDED_DICT_PRESETS, type DictionaryInfo, type HostEvent, type PlatformHost, type VocabEnrichment, type VocabEntry } from '@kotori/core';
 
 export interface DictImportProgress {
   readonly title: string;
@@ -70,6 +70,8 @@ export interface DictState {
   readonly loaded: boolean;
   readonly dictSetRevision: number;
   readonly importProgress: Readonly<Record<string, DictImportProgress>>;
+  /** `true` while `importAllPresets` is sequentially downloading/importing presets. */
+  readonly installingAllPresets: boolean;
   /** Number of cached enrichments (diagnostics + tests). */
   readonly cacheSize: number;
 
@@ -77,6 +79,7 @@ export interface DictState {
   /** Load once per host (concurrent callers share the request). */
   ensureLoaded(host: PlatformHost): Promise<void>;
   importPreset(host: PlatformHost, presetId: string): Promise<DictionaryInfo | undefined>;
+  importAllPresets(host: PlatformHost): Promise<readonly DictionaryInfo[]>;
   importZipBytes(host: PlatformHost, fileName: string, bytes: Uint8Array): Promise<DictionaryInfo | undefined>;
   importFilePath(host: PlatformHost, filePath: string): Promise<DictionaryInfo | undefined>;
   toggleEnabled(host: PlatformHost, id: string, enabled: boolean): Promise<void>;
@@ -97,6 +100,7 @@ const initial = {
   loaded: false,
   dictSetRevision: 0,
   importProgress: {} as Readonly<Record<string, DictImportProgress>>,
+  installingAllPresets: false,
   cacheSize: 0,
 };
 
@@ -111,7 +115,7 @@ export const useDictStore = create<DictState>()((set, get) => {
     boundHost = host;
     loading = undefined;
     cache.clear();
-    set({ dictionaries: [], loaded: false, importProgress: {}, cacheSize: 0, dictSetRevision: get().dictSetRevision + 1 });
+    set({ dictionaries: [], loaded: false, importProgress: {}, installingAllPresets: false, cacheSize: 0, dictSetRevision: get().dictSetRevision + 1 });
   };
 
   const setProgress = (id: string, p: DictImportProgress): void => set((s) => ({ importProgress: { ...s.importProgress, [id]: p } }));
@@ -167,7 +171,33 @@ export const useDictStore = create<DictState>()((set, get) => {
     importPreset(host, presetId) {
       if (!host.dict) return Promise.resolve(undefined);
       const dict = host.dict;
-      return runImport(host, presetId, presetId, () => dict.importZip({ presetId }));
+      const preset = RECOMMENDED_DICT_PRESETS.find((p) => p.id === presetId);
+      return runImport(host, presetId, preset?.title ?? presetId, () => dict.importZip({ presetId }));
+    },
+
+    async importAllPresets(host) {
+      if (!host.dict || get().installingAllPresets) return [];
+      bind(host);
+      await get().ensureLoaded(host);
+      const readyIds = new Set(
+        get()
+          .dictionaries.filter((d) => d.status === 'ready')
+          .map((d) => d.id),
+      );
+      const missing = RECOMMENDED_DICT_PRESETS.filter((p) => !readyIds.has(p.id));
+      const targets = missing.length > 0 ? missing : RECOMMENDED_DICT_PRESETS;
+      set({ installingAllPresets: true });
+      const imported: DictionaryInfo[] = [];
+      try {
+        for (const preset of targets) {
+          if (boundHost !== host) break;
+          const info = await get().importPreset(host, preset.id);
+          if (info) imported.push(info);
+        }
+        return imported;
+      } finally {
+        if (boundHost === host) set({ installingAllPresets: false });
+      }
     },
 
     importZipBytes(host, fileName, bytes) {
