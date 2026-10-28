@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HostProvider } from '../../../host/HostContext';
 import { createMockPlatformHost, type MockPlatformHost } from '../../../host/mock-host';
 import { useBreakdownStore } from '../../../stores/breakdown';
@@ -357,5 +357,89 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     expect(spread().dataset['pageIndexes']).toBe('2');
     // Turning the page resets zoom to 1.00x
     expect(zp.dataset['scale']).toBe('1.00');
+  });
+});
+
+describe('Reader — sequential bubble reading (气泡顺读), guide context & HUD', () => {
+  const sentence = (): string | undefined => useBreakdownStore.getState().request?.sentence;
+  // jsdom never loads images: fire `load` asynchronously so the page-guide downscale proceeds.
+  const origSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+  const origGetContext = HTMLCanvasElement.prototype.getContext;
+  beforeAll(() => {
+    HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      configurable: true,
+      get(this: HTMLImageElement) {
+        return this.getAttribute('src') ?? '';
+      },
+      set(this: HTMLImageElement, v: string) {
+        this.setAttribute('src', v);
+        setTimeout(() => this.onload?.(new Event('load')), 0);
+      },
+    });
+  });
+  afterAll(() => {
+    HTMLCanvasElement.prototype.getContext = origGetContext;
+    if (origSrc) Object.defineProperty(HTMLImageElement.prototype, 'src', origSrc);
+  });
+
+  it('steps through the spread bubbles in RTL reading order with ◀/▶ and [ / ], crossing into the next spread', async () => {
+    setup();
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
+    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('–/6');
+
+    fireEvent.click(screen.getByTestId('bubble-step-next'));
+    await waitFor(() => expect(sentence()).toBe('おはよう、ことり。'));
+    expect(useBreakdownStore.getState().request?.contextAfter).toEqual(['今日も早いね。', '朝の空気が好きなんだ。']);
+    // The breakdown sheet hosts the stepper while it is open.
+    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('1/6');
+
+    fireEvent.click(screen.getByTestId('bubble-step-next'));
+    await waitFor(() => expect(sentence()).toBe('今日も早いね。'));
+    key(']');
+    await waitFor(() => expect(sentence()).toBe('朝の空気が好きなんだ。'));
+    key(']');
+    // Page 2 (left page of the RTL spread) starts at its top-right bubble.
+    await waitFor(() => expect(sentence()).toBe('ちょっと待ってくれよ、'));
+    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('4/6');
+    key('[');
+    await waitFor(() => expect(sentence()).toBe('朝の空気が好きなんだ。'));
+
+    // Past the last bubble of the spread → next spread, first bubble.
+    key(']');
+    key(']');
+    key(']');
+    await waitFor(() => expect(sentence()).toBe('え、何の話だっけ？'));
+    key(']');
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('3,4'));
+    await waitFor(() => expect(sentence()).toBe('食べてんじゃねぇよ！'));
+    expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('1/4');
+  });
+
+  it('passes the guide speaker and neighbouring guide bubbles as context when picking a ✨ 陪读本页 bubble', async () => {
+    setup();
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
+    fireEvent.click(screen.getByTestId('guide-toggle'));
+    fireEvent.click(await screen.findByTestId('guide-item-1-2'));
+    await waitFor(() => expect(useBreakdownStore.getState().request?.sentence).toBe('今日も早いね。'));
+    const req = useBreakdownStore.getState().request;
+    expect(req?.speaker).toBe('湊');
+    expect(req?.contextBefore).toEqual(['[湊] おはよう、ことり。']);
+    expect(req?.contextAfter).toEqual(['[ことり] 朝の空気が好きなんだ。']);
+  });
+
+  it('gives the silent pre-explain toggle a ⚡ icon distinct from ✨ 陪读本页, and shows a page HUD in immersive mode', async () => {
+    setup();
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
+    const pre = screen.getByTestId('manga-pre-explain-toggle');
+    const guide = screen.getByTestId('guide-toggle');
+    expect(pre).toHaveClass('k-reader__pre-explain');
+    expect(pre.querySelector('svg')?.innerHTML).not.toBe(guide.querySelector('svg')?.innerHTML);
+
+    expect(screen.queryByTestId('immersive-page-hud')).toBeNull();
+    key('f');
+    expect(screen.getByTestId('immersive-page-hud')).toHaveTextContent('2–3 / 10');
+    key('f');
+    expect(screen.queryByTestId('immersive-page-hud')).toBeNull();
   });
 });

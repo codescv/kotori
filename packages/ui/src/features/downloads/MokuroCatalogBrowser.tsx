@@ -92,6 +92,36 @@ export function MokuroCatalogBrowser() {
     [libraryByKey],
   );
 
+  /** Library volumes grouped by normalised series title (`seriesTitle` or parsed from the volume title). */
+  const libraryBySeries = useMemo(() => {
+    const map = new Map<string, MangaVolume[]>();
+    for (const v of libraryVolumes) {
+      const key = normaliseVolumeKey(v.seriesTitle ?? parseVolumeName(v.title).seriesTitle);
+      if (!key) continue;
+      const list = map.get(key);
+      if (list) list.push(v);
+      else map.set(key, [v]);
+    }
+    return map;
+  }, [libraryVolumes]);
+
+  /** Number of distinct library volumes belonging to a catalog series card (matched on any title alias). */
+  const ownedCountForSeries = useCallback(
+    (d: MokuroCatalogEntry): number => {
+      if (libraryVolumes.length === 0) return 0;
+      const keys = new Set(
+        [d.name, d.nativeTitle, d.romajiTitle, d.englishTitle]
+          .filter((x): x is string => Boolean(x && x.trim()))
+          .map(normaliseVolumeKey)
+          .filter(Boolean),
+      );
+      const ids = new Set<string>();
+      for (const k of keys) for (const v of libraryBySeries.get(k) ?? []) ids.add(v.id);
+      return ids.size;
+    },
+    [libraryBySeries, libraryVolumes.length],
+  );
+
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [filter, sort, url]);
@@ -340,6 +370,7 @@ export function MokuroCatalogBrowser() {
             const chips = [...(d.genres ?? []).slice(0, 3), ...(d.tags ?? []).slice(0, 2)];
             const charLabel = formatCharCount(d.totalChars);
             const hasRichMeta = d.score !== undefined || d.volumeCount !== undefined || d.totalPages !== undefined || Boolean(charLabel);
+            const ownedCount = ownedCountForSeries(d);
 
             return (
               <button key={d.url} type="button" className="k-dl-media-card" onClick={() => setUrl(d.url)}>
@@ -348,6 +379,11 @@ export function MokuroCatalogBrowser() {
                   <div className="k-dl-media-card__title">{primaryTitle}</div>
                   {subTitles.length > 0 && <div className="k-dl-media-card__subtitle">{subTitles.join(' · ')}</div>}
                   <div className="k-dl-media-card__badges">
+                    {ownedCount > 0 && (
+                      <span className="k-tag k-tag--tone" data-testid="mokuro-series-owned">
+                        {`已入库 ${ownedCount} 卷`}
+                      </span>
+                    )}
                     {d.score !== undefined && <span className="k-tag k-tag--tone">★ {d.score}%</span>}
                     {d.volumeCount !== undefined && <span className="k-tag">{d.volumeCount} 卷</span>}
                     {d.totalPages !== undefined && <span className="k-tag k-tag--muted">{d.totalPages.toLocaleString()} 页</span>}

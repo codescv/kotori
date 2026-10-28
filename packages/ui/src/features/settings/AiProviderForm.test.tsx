@@ -122,6 +122,8 @@ describe('AiProviderForm — Vertex AI', () => {
 
   it('supports selecting models from dropdown menu, manual input, and editing API timeout', async () => {
     const host = await setup();
+    // No duplicate preset chip row: presets live only in the dropdown menu.
+    expect(screen.queryByRole('button', { name: 'gemini-3.8-flash' })).toBeNull();
     // Open dropdown menu on explainModel and select gemini-3.8-flash
     fireEvent.click(screen.getByRole('button', { name: '解析模型 options' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.8-flash' }));

@@ -14,8 +14,12 @@ export function useMediaQuery(query: string): boolean {
   );
 }
 
-/** M3 window size classes: compact < 600 ≤ medium < 840 ≤ expanded. */
-export const EXPANDED_QUERY = '(min-width: 840px)';
+/**
+ * M3 window size classes: compact < 600 ≤ medium < 840 ≤ expanded. A phone
+ * held in landscape (e.g. 915×412, 844×390) is wide but short, so the expanded
+ * layout (NavRail + docked 440 px SideSheet) also requires ≥ 500 px height.
+ */
+export const EXPANDED_QUERY = '(min-width: 840px) and (min-height: 500px)';
 
 export function useIsExpanded(): boolean {
   return useMediaQuery(EXPANDED_QUERY);

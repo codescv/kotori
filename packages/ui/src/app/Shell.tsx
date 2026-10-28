@@ -1,6 +1,7 @@
 /**
- * Navigation shell: M3 navigation rail on expanded windows (≥ 840 px) and a
- * bottom navigation bar on phones, with the four tabs
+ * Navigation shell: M3 navigation rail on expanded windows (≥ 840 × 500 px) and a
+ * bottom navigation bar on phones (hidden inside the player and the manga reader),
+ * with the four tabs
  * 🎬 Anime · 📖 Manga · ⬇️ Downloads · ⚙️ Settings.
  */
 import { useEffect, useState } from 'react';
@@ -59,12 +60,18 @@ export function Shell() {
   const tab = useRouteStore((s) => s.tab);
   const setTab = useRouteStore((s) => s.setTab);
   const mangaView = useRouteStore((s) => s.manga);
+  const animeView = useRouteStore((s) => s.anime);
   const readerImmersive = useRouteStore((s) => s.readerImmersive);
   const personaOpen = useRouteStore((s) => s.personaOpen);
   const setPersonaOpen = useRouteStore((s) => s.setPersonaOpen);
   const expanded = useIsExpanded();
   const activeDownloads = useActiveDownloads();
-  const hideCompactChrome = !expanded && tab === 'manga' && mangaView.kind === 'reader' && readerImmersive;
+  const inReader = tab === 'manga' && mangaView.kind === 'reader';
+  const inPlayer = tab === 'anime' && animeView.kind === 'player';
+  const hideCompactChrome = !expanded && inReader && readerImmersive;
+  // Immersive player / reader on phones: the bottom NavBar would eat ~17% of the
+  // viewport height, and both views have their own back button.
+  const hideCompactNav = !expanded && (inReader || inPlayer);
   const nav = (
     <nav className={expanded ? 'k-nav-rail' : 'k-nav-bar'} aria-label={t('app.name')}>
       {expanded && (
@@ -108,7 +115,7 @@ export function Shell() {
         {tab === 'downloads' && <DownloadsPage />}
         {tab === 'settings' && <SettingsPage />}
       </main>
-      {!expanded && !hideCompactChrome && nav}
+      {!expanded && !hideCompactNav && nav}
       <PersonaDialog open={personaOpen} onClose={() => setPersonaOpen(false)} />
     </div>
   );

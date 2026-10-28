@@ -4,11 +4,17 @@ import { createMockPlatformHost } from '../host/mock-host';
 import { resetStores } from '../test/utils';
 import { App } from './App';
 
-/** Emulate a viewport width for `matchMedia('(min-width: Npx)')` queries. */
-function setViewport(width: number, dark = true): void {
+/** Emulate a viewport for `matchMedia('(min-width: Npx) and (min-height: Mpx)')` queries. */
+function setViewport(width: number, dark = true, height = 900): void {
   vi.stubGlobal('matchMedia', (query: string) => {
-    const min = /min-width:\s*(\d+)px/.exec(query);
-    const matches = min ? width >= Number(min[1]) : query.includes('prefers-color-scheme: dark') ? dark : false;
+    const minW = /min-width:\s*(\d+)px/.exec(query);
+    const minH = /min-height:\s*(\d+)px/.exec(query);
+    const matches =
+      minW || minH
+        ? (!minW || width >= Number(minW[1])) && (!minH || height >= Number(minH[1]))
+        : query.includes('prefers-color-scheme: dark')
+          ? dark
+          : false;
     return { matches, media: query, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false };
   });
 }
@@ -20,10 +26,11 @@ describe('App shell', () => {
   });
 
   it.each([
-    ['phone 360×800 → bottom navigation bar', 360, 'k-nav-bar'],
-    ['desktop 1440×900 → navigation rail', 1440, 'k-nav-rail'],
-  ])('%s; all four tabs navigable', async (_label, width, navClass) => {
-    setViewport(width);
+    ['phone 360×800 → bottom navigation bar', 360, 800, 'k-nav-bar'],
+    ['phone landscape 915×412 → bottom navigation bar (compact)', 915, 412, 'k-nav-bar'],
+    ['desktop 1440×900 → navigation rail', 1440, 900, 'k-nav-rail'],
+  ])('%s; all four tabs navigable', async (_label, width, height, navClass) => {
+    setViewport(width, true, height);
     const host = createMockPlatformHost({ latencyMs: 0 });
     const { container } = render(<App host={host} />);
     expect(container.querySelector(`.${navClass}`)).not.toBeNull();
@@ -121,6 +128,38 @@ describe('App shell', () => {
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('AI 助手形态设置');
+    await act(async () => {
+      await host.dispose();
+    });
+  });
+
+  it('hides the compact bottom NavBar inside the episode player and the manga reader (immersive phone views)', async () => {
+    setViewport(390, true, 844);
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const { container } = render(<App host={host} />);
+    await screen.findByTestId('series-series-kotori');
+    expect(container.querySelector('.k-nav-bar')).not.toBeNull();
+
+    // Anime: library → series keeps the NavBar; the player hides it.
+    fireEvent.click(screen.getByTestId('series-series-kotori'));
+    fireEvent.click(await screen.findByText('放課後の本屋'));
+    expect(await screen.findByTestId('player')).toBeInTheDocument();
+    expect(container.querySelector('.k-nav-bar')).toBeNull();
+    act(() => {
+      window.__kotoriHandleBack?.();
+    });
+    expect(await screen.findByText('放課後の本屋')).toBeInTheDocument();
+    expect(container.querySelector('.k-nav-bar')).not.toBeNull();
+
+    // Manga: library keeps the NavBar; the reader hides it.
+    fireEvent.click(screen.getByRole('button', { name: '漫画' }));
+    fireEvent.click(await screen.findByTestId('volume-vol-houkago-1'));
+    expect(await screen.findByTestId('manga-reader')).toBeInTheDocument();
+    expect(container.querySelector('.k-nav-bar')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '返回' }));
+    await screen.findByTestId('volume-vol-houkago-1');
+    expect(container.querySelector('.k-nav-bar')).not.toBeNull();
+
     await act(async () => {
       await host.dispose();
     });

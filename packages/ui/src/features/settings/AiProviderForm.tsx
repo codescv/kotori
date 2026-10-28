@@ -11,7 +11,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AiConnectionTestResult, AiProviderSettings, AiSettings, HostCapabilities, TargetLanguage, VertexAuth } from '@kotori/core';
 import { Button } from '../../components/m3/Button';
-import { Chip } from '../../components/m3/Chip';
 import { IconButton } from '../../components/m3/IconButton';
 import { Menu } from '../../components/m3/Menu';
 import { CircularProgress } from '../../components/m3/Progress';
@@ -396,18 +395,6 @@ export function AiProviderForm() {
             <option key={m} value={m} />
           ))}
         </datalist>
-        <div className="k-ai-form__inline" style={{ flexWrap: 'wrap', gap: 8 }}>
-          {MODEL_PRESETS.map((m) => (
-            <Chip
-              key={m}
-              kind="filter"
-              selected={draft.explainModel === m && draft.visionModel === m}
-              onClick={() => edit({ explainModel: m, visionModel: m })}
-            >
-              {m}
-            </Chip>
-          ))}
-        </div>
         <div className="k-ai-form__inline">
           <span className="k-label-large">{t('settings.ai.targetLanguage')}</span>
           <SegmentedButton<TargetLanguage> dense label={t('settings.ai.targetLanguage')} value={draft.targetLanguage} onChange={(targetLanguage) => edit({ targetLanguage })} segments={LANGS} />

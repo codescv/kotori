@@ -6,7 +6,7 @@ import { createMockPlatformHost } from '../../../host/mock-host';
 import { charIndexAt, deriveCharRegions } from '../../../lib/manga';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
-import { BlockOverlay, blockContext } from './BlockOverlay';
+import { BlockOverlay, blockContext, blocksInReadingOrder } from './BlockOverlay';
 
 const VOL = 'vol-houkago-1';
 
@@ -114,5 +114,15 @@ describe('BlockOverlay', () => {
     const { page } = await setup(2);
     expect(blockContext(page, 0)).toEqual({ contextBefore: [], contextAfter: [page.blocks[1]!.text, page.blocks[2]!.text] });
     expect(blockContext(page, 2).contextBefore).toEqual([page.blocks[0]!.text, page.blocks[1]!.text]);
+  });
+
+  it('blockContext follows RTL geometric reading order (top-right → bottom-left), not OCR array order', async () => {
+    const { page } = await setup(2);
+    // Shuffle the OCR array: bottom bubble first, then left, then right.
+    const [right, left, bottom] = page.blocks as [MangaPage['blocks'][number], MangaPage['blocks'][number], MangaPage['blocks'][number]];
+    const shuffled: MangaPage = { ...page, blocks: [bottom, left, right] };
+    expect(blocksInReadingOrder(shuffled).map((b) => b.text)).toEqual([right.text, left.text, bottom.text]);
+    expect(blockContext(shuffled, right.index)).toEqual({ contextBefore: [], contextAfter: [left.text, bottom.text] });
+    expect(blockContext(shuffled, bottom.index)).toEqual({ contextBefore: [right.text, left.text], contextAfter: [] });
   });
 });

@@ -28,6 +28,7 @@ import { LinearProgress } from '../../components/m3/Progress';
 import { TextField } from '../../components/m3/TextField';
 import { useBackInterceptor } from '../../app/routes';
 import { useHost } from '../../host/HostContext';
+import { useIsExpanded } from '../../hooks/useMediaQuery';
 import { useT } from '../../i18n';
 import { showSnackbar } from '../../stores/snackbar';
 import {
@@ -109,6 +110,8 @@ export function NyaaSearch() {
   const [detailTab, setDetailTab] = useState<DetailTab>('torrents');
   const [activeAlias, setActiveAlias] = useState<string>('__auto__');
   const [keywordFilter, setKeywordFilter] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const isExpanded = useIsExpanded();
 
   useBackInterceptor(
     () => {
@@ -402,6 +405,24 @@ export function NyaaSearch() {
 
   const activeCoverUrl = selectedSeries?.coverUrl ?? directAniInfo?.coverUrl;
 
+  // On phones the Series Detail collapses the category / trust / sort rows behind
+  // one "筛选与排序 ▾" chip so the first torrents are visible on the first screen.
+  const collapseFilters = Boolean(selectedSeries) && !isExpanded;
+  const activeFilterCount = (category !== '1_0' ? 1 : 0) + (filter !== 'none' ? 1 : 0) + (sort !== 'seeders' ? 1 : 0) + (keywordFilter.trim() ? 1 : 0);
+  const packScopeChips = (
+    <>
+      <Chip kind="filter" selected={packScope === 'all'} onClick={() => setPackScope('all')}>
+        全部集数
+      </Chip>
+      <Chip kind="filter" selected={packScope === 'batch'} onClick={() => setPackScope('batch')}>
+        仅合集 Batch
+      </Chip>
+      <Chip kind="filter" selected={packScope === 'episode'} onClick={() => setPackScope('episode')}>
+        仅单集
+      </Chip>
+    </>
+  );
+
   return (
     <section className="k-dl-search">
       {/* Top Search Bar */}
@@ -691,55 +712,71 @@ export function NyaaSearch() {
           ===================================================================== */}
       {(searchMode === 'direct' || (selectedSeries && detailTab === 'torrents')) && (
         <>
-          <div className="k-row k-dl-sort-bar">
-            <Chip kind="filter" selected={category === '1_0'} onClick={() => changeCategory('1_0')}>
-              全部动画
-            </Chip>
-            <Chip kind="filter" selected={category === '1_2'} onClick={() => changeCategory('1_2')}>
-              多语/英译
-            </Chip>
-            <Chip kind="filter" selected={category === '1_3'} onClick={() => changeCategory('1_3')}>
-              中字/非英
-            </Chip>
-            <Chip kind="filter" selected={category === '1_4'} onClick={() => changeCategory('1_4')}>
-              生肉 Raw
-            </Chip>
-            <span className="k-dl-sort-divider" aria-hidden="true" />
-            <Chip kind="filter" selected={packScope === 'all'} onClick={() => setPackScope('all')}>
-              全部集数
-            </Chip>
-            <Chip kind="filter" selected={packScope === 'batch'} onClick={() => setPackScope('batch')}>
-              仅合集 Batch
-            </Chip>
-            <Chip kind="filter" selected={packScope === 'episode'} onClick={() => setPackScope('episode')}>
-              仅单集
-            </Chip>
-          </div>
+          {collapseFilters && (
+            <div className="k-row k-dl-sort-bar k-dl-filter-summary">
+              {packScopeChips}
+              <Chip
+                kind="filter"
+                selected={filtersOpen || activeFilterCount > 0}
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-expanded={filtersOpen}
+                data-testid="nyaa-filters-toggle"
+              >
+                {`筛选与排序${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''} ${filtersOpen ? '▴' : '▾'}`}
+              </Chip>
+              {displayResults && <span className="k-dl-count-badge">{displayResults.length} 条种子</span>}
+            </div>
+          )}
 
-          <div className="k-row k-dl-sort-bar">
-            <Chip kind="filter" selected={filter === 'trusted-only'} onClick={() => toggleFilter('trusted-only')}>
-              {t('downloads.nyaa.trustedOnly')}
-            </Chip>
-            <Chip kind="filter" selected={filter === 'no-remakes'} onClick={() => toggleFilter('no-remakes')}>
-              {t('downloads.nyaa.noRemakes')}
-            </Chip>
-            <span className="k-dl-sort-divider" aria-hidden="true" />
-            <Chip kind="filter" selected={sort === 'seeders'} onClick={() => changeSort('seeders')}>
-              按做种
-            </Chip>
-            <Chip kind="filter" selected={sort === 'date'} onClick={() => changeSort('date')}>
-              按时间
-            </Chip>
-            <Chip kind="filter" selected={sort === 'size'} onClick={() => changeSort('size')}>
-              按体积
-            </Chip>
-            <Chip kind="filter" selected={sort === 'downloads'} onClick={() => changeSort('downloads')}>
-              按完成量
-            </Chip>
-            {displayResults && <span className="k-dl-count-badge">{displayResults.length} 条种子</span>}
-          </div>
+          {(!collapseFilters || filtersOpen) && (
+            <div className="k-row k-dl-sort-bar" data-testid="nyaa-category-row">
+              <Chip kind="filter" selected={category === '1_0'} onClick={() => changeCategory('1_0')}>
+                全部动画
+              </Chip>
+              <Chip kind="filter" selected={category === '1_2'} onClick={() => changeCategory('1_2')}>
+                多语/英译
+              </Chip>
+              <Chip kind="filter" selected={category === '1_3'} onClick={() => changeCategory('1_3')}>
+                中字/非英
+              </Chip>
+              <Chip kind="filter" selected={category === '1_4'} onClick={() => changeCategory('1_4')}>
+                生肉 Raw
+              </Chip>
+              {!collapseFilters && (
+                <>
+                  <span className="k-dl-sort-divider" aria-hidden="true" />
+                  {packScopeChips}
+                </>
+              )}
+            </div>
+          )}
 
-          {selectedSeries && results && results.length > 0 && (
+          {(!collapseFilters || filtersOpen) && (
+            <div className="k-row k-dl-sort-bar" data-testid="nyaa-sort-row">
+              <Chip kind="filter" selected={filter === 'trusted-only'} onClick={() => toggleFilter('trusted-only')}>
+                {t('downloads.nyaa.trustedOnly')}
+              </Chip>
+              <Chip kind="filter" selected={filter === 'no-remakes'} onClick={() => toggleFilter('no-remakes')}>
+                {t('downloads.nyaa.noRemakes')}
+              </Chip>
+              <span className="k-dl-sort-divider" aria-hidden="true" />
+              <Chip kind="filter" selected={sort === 'seeders'} onClick={() => changeSort('seeders')}>
+                按做种
+              </Chip>
+              <Chip kind="filter" selected={sort === 'date'} onClick={() => changeSort('date')}>
+                按时间
+              </Chip>
+              <Chip kind="filter" selected={sort === 'size'} onClick={() => changeSort('size')}>
+                按体积
+              </Chip>
+              <Chip kind="filter" selected={sort === 'downloads'} onClick={() => changeSort('downloads')}>
+                按完成量
+              </Chip>
+              {!collapseFilters && displayResults && <span className="k-dl-count-badge">{displayResults.length} 条种子</span>}
+            </div>
+          )}
+
+          {selectedSeries && results && results.length > 0 && (!collapseFilters || filtersOpen || keywordFilter !== '') && (
             <TextField
               label="在当前番剧种子中筛选（如：Judas / VCB / 1080p / 01）"
               value={keywordFilter}
