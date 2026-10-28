@@ -112,3 +112,56 @@ export function buildTranscriptRows(cues: readonly SubtitleCue[], opts: Transcri
     };
   });
 }
+
+/** A transcript line as seen by {@link buildSubtitleContext}. */
+export interface SubtitleContextRow {
+  readonly text: string;
+  /** ASS actor / speaker name, when known. */
+  readonly actor?: string | undefined;
+}
+
+/** Context lines (and speaker) for explaining row `index`. */
+export interface SubtitleContext {
+  readonly contextBefore: readonly string[];
+  readonly contextAfter: readonly string[];
+  /** Trimmed actor of the target row, when non-empty. */
+  readonly speaker?: string | undefined;
+}
+
+/** `[Actor] text` (or just `text`), single-line, trimmed. */
+function formatContextLine(row: SubtitleContextRow): string {
+  const text = row.text.replace(/\s*\r?\n\s*/g, ' ').trim();
+  const actor = row.actor?.trim();
+  return actor ? `[${actor}] ${text}` : text;
+}
+
+/**
+ * Shared context builder for subtitle explain requests. Single-sentence
+ * explain and batch pre-explain MUST both use it so the same line always gets
+ * identical `contextBefore` / `contextAfter` (and therefore the same prompt).
+ * Lines are formatted `[Actor] text` when the row has a non-empty actor;
+ * empty rows are skipped without shrinking the window.
+ */
+export function buildSubtitleContext(
+  rows: readonly SubtitleContextRow[],
+  index: number,
+  beforeCount = 2,
+  afterCount = 1,
+): SubtitleContext {
+  const contextBefore: string[] = [];
+  for (let k = index - 1; k >= 0 && contextBefore.length < beforeCount; k--) {
+    const row = rows[k];
+    if (!row) continue;
+    const line = formatContextLine(row);
+    if (line !== '') contextBefore.unshift(line);
+  }
+  const contextAfter: string[] = [];
+  for (let k = index + 1; k < rows.length && contextAfter.length < afterCount; k++) {
+    const row = rows[k];
+    if (!row) continue;
+    const line = formatContextLine(row);
+    if (line !== '') contextAfter.push(line);
+  }
+  const speaker = rows[index]?.actor?.trim();
+  return speaker ? { contextBefore, contextAfter, speaker } : { contextBefore, contextAfter };
+}

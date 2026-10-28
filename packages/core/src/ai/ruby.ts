@@ -2,8 +2,8 @@
  * Furigana segmentation that always reproduces the sentence:
  * `buildRuby(s, raw).map(r => r.base).join('') === s` holds for every input.
  */
-import type { CharSpan, RubySegment } from '../types';
-import { isKanji, katakanaToHiragana } from '../util/text';
+import type { CharSpan, RubySegment, SpanAlignment } from '../types';
+import { isKana, isKanji, isPunctuationOrSpace, katakanaToHiragana } from '../util/text';
 import { alignSpans } from './span-align';
 
 /** Model-provided ruby unit. */
@@ -118,6 +118,71 @@ export function sliceRuby(ruby: readonly RubySegment[], span: CharSpan): RubySeg
     const ce = Math.min(e, to);
     if (cs === s && ce === e) out.push(r);
     else out.push(...plainRuns(r.base.slice(cs - s, ce - s), cs));
+  }
+  return out;
+}
+
+/** A chunk (or word) whose reading can repair split ruby inside its span. */
+export interface RubyReadingSpan {
+  readonly charSpan: CharSpan;
+  readonly reading: string;
+  /** Unaligned chunks are skipped (their span is empty / meaningless). */
+  readonly alignment?: SpanAlignment | undefined;
+}
+
+/** Comparable reading: katakana → hiragana, punctuation / whitespace removed. */
+function readingKey(text: string): string {
+  let out = '';
+  for (const ch of katakanaToHiragana(text)) if (!isPunctuationOrSpace(ch)) out += ch;
+  return out;
+}
+
+/**
+ * Repair jukujikun / ateji readings that the model split per kanji.
+ *
+ * For each aligned chunk with a `reading`, look at the sentence ruby segments
+ * inside its `charSpan`. When the chunk's kanji form ONE contiguous run of 2+
+ * kanji-bearing segments (e.g. `明(あ)` `日(ひ)`) and the concatenated
+ * segment readings (`ruby ?? base`) disagree with `chunk.reading`, the run is
+ * merged into a single group-ruby segment whose reading is `chunk.reading`
+ * minus the kana before / after the run:
+ *
+ *   `明(あ)日(ひ)の` + reading `あしたの` → `明日(あした)の`
+ *
+ * Chunks whose reading cannot be reconciled with the surrounding kana, whose
+ * span cuts through a segment, or with kanji split by kana (`見(み)て行(い)く`)
+ * are left untouched. The result still concatenates to the same text.
+ */
+export function normalizeJukujikunRuby(sentenceRuby: readonly RubySegment[], chunks: readonly RubyReadingSpan[]): RubySegment[] {
+  const out = [...sentenceRuby];
+  for (const chunk of chunks) {
+    if (chunk.alignment === 'unaligned') continue;
+    const [from, to] = chunk.charSpan;
+    const reading = readingKey(chunk.reading ?? '');
+    if (to <= from || !reading) continue;
+    const first = out.findIndex((r) => r.charSpan[1] > from);
+    if (first < 0) continue;
+    let end = first;
+    while (end < out.length && (out[end]?.charSpan[0] ?? to) < to) end++;
+    const segs = out.slice(first, end);
+    if (segs.length === 0 || (segs[0]?.charSpan[0] ?? 0) < from || (segs[segs.length - 1]?.charSpan[1] ?? 0) > to) continue;
+    const kanjiIdx: number[] = [];
+    segs.forEach((r, i) => {
+      if (hasKanji(r.base)) kanjiIdx.push(i);
+    });
+    if (kanjiIdx.length < 2) continue;
+    const k0 = kanjiIdx[0] ?? 0;
+    const k1 = kanjiIdx[kanjiIdx.length - 1] ?? 0;
+    if (k1 - k0 + 1 !== kanjiIdx.length) continue;
+    if (readingKey(segs.map((r) => r.ruby ?? r.base).join('')) === reading) continue;
+    const prefix = readingKey(segs.slice(0, k0).map((r) => r.base).join(''));
+    const suffix = readingKey(segs.slice(k1 + 1).map((r) => r.base).join(''));
+    if (!reading.startsWith(prefix) || !reading.endsWith(suffix) || reading.length <= prefix.length + suffix.length) continue;
+    const middle = reading.slice(prefix.length, reading.length - suffix.length);
+    if (![...middle].every((ch) => isKana(ch))) continue;
+    const run = segs.slice(k0, k1 + 1);
+    const base = run.map((r) => r.base).join('');
+    out.splice(first + k0, run.length, seg(base, run[0]?.charSpan[0] ?? from, middle));
   }
   return out;
 }

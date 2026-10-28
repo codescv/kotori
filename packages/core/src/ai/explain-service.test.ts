@@ -258,3 +258,83 @@ describe('createExplainService vision', () => {
     expect(client.calls[0]?.model).toBe('vision-x');
   });
 });
+
+describe('createExplainService alignment validation', () => {
+  /** Raw output whose 2nd chunk surface is not in the sentence (hallucinated). */
+  const badRaw = JSON.stringify({
+    ...(slang.raw as Record<string, unknown>),
+    chunks: [
+      ...((slang.raw as { chunks: unknown[] }).chunks.slice(0, 1)),
+      { surface: '飲んでる', reading: 'のんでる', textbookForm: '飲んでいる', role: 'x', meaning: 'y', vocab: [{ surface: '飲んでる', lemma: '飲む', lemmaReading: 'のむ', lemmaRuby: [], partOfSpeech: 'verb', meaning: '喝' }] },
+      ...((slang.raw as { chunks: unknown[] }).chunks.slice(2)),
+    ],
+  });
+
+  it('silently retries once when a chunk is unaligned and caches the clean retry', async () => {
+    const { client, cache, service } = setup([
+      () => ({ text: badRaw, usage: { promptTokens: 1, outputTokens: 1 } }),
+      () => ({ text: rawText, usage: { promptTokens: 2, outputTokens: 2 } }),
+    ]);
+    const e = await service.explain(req);
+    expect(client.calls).toHaveLength(2);
+    expect(e.degraded).toBeUndefined();
+    expect(e.chunks.every((c) => c.alignment !== 'unaligned')).toBe(true);
+    expect(e.usage).toEqual({ promptTokens: 3, outputTokens: 3 });
+    expect(await cache.get(e.id)).toBeDefined();
+  });
+
+  it('drops still-unaligned chunks, flags degraded and never caches it', async () => {
+    const { client, cache, service } = setup([() => ({ text: badRaw }), () => ({ text: badRaw }), () => ({ text: rawText })]);
+    const e = await service.explain(req);
+    expect(client.calls).toHaveLength(2);
+    expect(e.degraded).toBe(true);
+    expect(e.chunks.map((c) => c.surface)).toEqual(['食べ', 'よ']);
+    expect(e.vocab.some((v) => v.surface === '飲んでる')).toBe(false);
+    expect(await cache.get(e.id)).toBeUndefined();
+    // Next call goes to the model again (nothing cached) and succeeds.
+    const again = await service.explain(req);
+    expect(again.fromCache).toBe(false);
+    expect(again.degraded).toBeUndefined();
+    expect(client.calls).toHaveLength(3);
+  });
+
+  it('does not retry when the caller aborted', async () => {
+    const ac = new AbortController();
+    const { client, service } = setup([
+      () => {
+        ac.abort();
+        return { text: badRaw };
+      },
+    ]);
+    await expect(service.explain(req, { signal: ac.signal })).rejects.toMatchObject({ code: 'cancelled' });
+    expect(client.calls).toHaveLength(1);
+  });
+});
+
+describe('createExplainService pageGuide cache', () => {
+  const image = { mimeType: 'image/png', base64: 'AAAA', width: 10, height: 10 };
+  const guide = JSON.stringify({ summary: 's', bubbles: [{ order: 1, box: { left: 0, top: 0, right: 500, bottom: 500 }, text: 'よ', translation: 'yo' }] });
+
+  it('serves the second call for the same page from the cache (no model call, no usage)', async () => {
+    const { client, service } = setup([() => ({ text: guide, usage: { promptTokens: 100, outputTokens: 50 } })]);
+    const first = await service.pageGuide({ volumeId: 'vol', pageIndex: 4, image, targetLanguage: 'zh-CN' });
+    expect(first.usage).toEqual({ promptTokens: 100, outputTokens: 50 });
+    const second = await service.pageGuide({ volumeId: 'vol', pageIndex: 4, image: { ...image, base64: 'BBBB' }, targetLanguage: 'zh-CN' });
+    expect(client.calls).toHaveLength(1);
+    expect(second.usage).toBeUndefined();
+    expect(second).toMatchObject({ volumeId: 'vol', pageIndex: 4, summary: 's', bubbles: first.bubbles });
+  });
+
+  it('keys by page and target language; cacheEnabled=false always calls the model', async () => {
+    const { client, service } = setup([() => ({ text: guide }), () => ({ text: guide }), () => ({ text: guide })]);
+    await service.pageGuide({ volumeId: 'vol', pageIndex: 1, image, targetLanguage: 'zh-CN' });
+    await service.pageGuide({ volumeId: 'vol', pageIndex: 2, image, targetLanguage: 'zh-CN' });
+    await service.pageGuide({ volumeId: 'vol', pageIndex: 1, image, targetLanguage: 'en' });
+    expect(client.calls).toHaveLength(3);
+
+    const off = setup([() => ({ text: guide }), () => ({ text: guide })], { cacheEnabled: false });
+    await off.service.pageGuide({ volumeId: 'vol', pageIndex: 1, image, targetLanguage: 'zh-CN' });
+    await off.service.pageGuide({ volumeId: 'vol', pageIndex: 1, image, targetLanguage: 'zh-CN' });
+    expect(off.client.calls).toHaveLength(2);
+  });
+});

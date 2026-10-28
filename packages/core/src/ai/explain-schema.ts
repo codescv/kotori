@@ -68,6 +68,7 @@ export const RawVocabSchema = z.object({
   meaning: reqString,
   conjugation: optString,
   jlpt: optJlpt,
+  /** Legacy: no longer in the response schema; still accepted if a model sends it. */
   pitchAccent: optNumber,
   notes: optString,
 });
@@ -81,6 +82,11 @@ export const RawChunkSchema = z.object({
   meaning: reqString,
   nuance: optString,
   vocab: arrayOf(RawVocabSchema),
+});
+
+export const RawOmittedSchema = z.object({
+  text: reqString,
+  role: optString,
 });
 
 export const RawGrammarSchema = z.object({
@@ -97,6 +103,8 @@ export const RawExplanationSchema = z.object({
   register: z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase().trim() : undefined), z.enum(REGISTERS).optional().catch(undefined)),
   tone: optString,
   culturalNote: optString,
+  omitted: arrayOf(RawOmittedSchema).catch([]),
+  dialogueRelation: optString,
   ruby: arrayOf(RawRubySchema),
   chunks: arrayOf(RawChunkSchema),
   grammar: arrayOf(RawGrammarSchema),
@@ -105,6 +113,7 @@ export const RawExplanationSchema = z.object({
 export type RawRuby = z.infer<typeof RawRubySchema>;
 export type RawVocab = z.infer<typeof RawVocabSchema>;
 export type RawChunk = z.infer<typeof RawChunkSchema>;
+export type RawOmitted = z.infer<typeof RawOmittedSchema>;
 export type RawGrammar = z.infer<typeof RawGrammarSchema>;
 export type RawExplanation = z.infer<typeof RawExplanationSchema>;
 
@@ -122,6 +131,11 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
     register: { type: 'STRING', enum: [...REGISTERS] },
     tone: S,
     culturalNote: S,
+    omitted: {
+      type: 'ARRAY',
+      items: { type: 'OBJECT', properties: { text: S, role: S }, required: ['text'], propertyOrdering: ['text', 'role'] },
+    },
+    dialogueRelation: S,
     ruby: RUBY_ITEMS,
     chunks: {
       type: 'ARRAY',
@@ -153,11 +167,10 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
                 meaning: S,
                 conjugation: S,
                 jlpt: { type: 'STRING', enum: [...JLPT_LEVELS] },
-                pitchAccent: { type: 'INTEGER' },
                 notes: S,
               },
               required: ['surface', 'lemma', 'lemmaReading', 'lemmaRuby', 'partOfSpeech', 'meaning'],
-              propertyOrdering: ['surface', 'lemma', 'lemmaReading', 'lemmaRuby', 'partOfSpeech', 'meaning', 'conjugation', 'jlpt', 'pitchAccent', 'notes'],
+              propertyOrdering: ['surface', 'lemma', 'lemmaReading', 'lemmaRuby', 'partOfSpeech', 'meaning', 'conjugation', 'jlpt', 'notes'],
             },
           },
         },
@@ -176,7 +189,7 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
     },
   },
   required: ['translation', 'ruby', 'chunks', 'grammar'],
-  propertyOrdering: ['translation', 'literalTranslation', 'register', 'tone', 'culturalNote', 'ruby', 'chunks', 'grammar'],
+  propertyOrdering: ['translation', 'literalTranslation', 'register', 'tone', 'culturalNote', 'omitted', 'dialogueRelation', 'ruby', 'chunks', 'grammar'],
 } as const;
 
 export const RawBatchExplanationSchema = z.object({

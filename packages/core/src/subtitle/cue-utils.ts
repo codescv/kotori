@@ -176,3 +176,34 @@ export function sentenceIndexToCueOffset(
   }
   return undefined;
 }
+
+/** Result of {@link splitBilingualCueText}. */
+export interface BilingualCueText {
+  /** The Japanese line(s); the whole input when the cue is not bilingual. */
+  readonly primaryJa: string;
+  /** Translation line(s) (Chinese / English / …) when detected. */
+  readonly secondaryTranslation?: string | undefined;
+}
+
+const KANA_RE = /[\u3040-\u30ff]/u;
+/** CJK ideographs or Latin letters (a translation line must contain some). */
+const CJK_OR_LATIN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaffA-Za-z\uff21-\uff3a\uff41-\uff5a]/u;
+
+/**
+ * Split a bilingual fansub cue (`日本語\n中文翻译`) into its Japanese and
+ * translation parts. A cue is bilingual when it has 2+ non-empty lines, the
+ * first line contains kana (`[\u3040-\u30ff]`) and every following line has
+ * zero kana but some CJK / Latin text. Otherwise the whole text is returned
+ * as `primaryJa` unchanged.
+ */
+export function splitBilingualCueText(text: string): BilingualCueText {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
+  if (lines.length < 2) return { primaryJa: text };
+  const [first, ...rest] = lines as [string, ...string[]];
+  if (!KANA_RE.test(first)) return { primaryJa: text };
+  if (!rest.every((l) => !KANA_RE.test(l) && CJK_OR_LATIN_RE.test(l))) return { primaryJa: text };
+  return { primaryJa: first, secondaryTranslation: rest.join('\n') };
+}

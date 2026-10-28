@@ -30,6 +30,10 @@ export function defaultSettings(dataDir: string): AppSettings {
       jimakuApiKey: '',
       preferredSubtitleLanguages: ['ja'],
       autoPreExplain: false,
+      furiganaMode: 'all',
+      showRomaji: false,
+      collapseTranslation: false,
+      pauseOnTranscriptClick: true,
     },
     manga: { defaultReadingMode: 'spread-rtl', showBlockOutlines: false, fit: 'contain', background: 'black', preloadPages: 2, autoPreExplain: false },
     downloads: {
@@ -86,6 +90,7 @@ const APP_ICONS = ['s4-01', 's4-02', 's4-03', 's4-04', 's3-01', 's3-02', 's3-03'
 const TARGET_LANGUAGES = ['zh-CN', 'zh-TW', 'en'];
 const READING_MODES = ['single-rtl', 'single-ltr', 'spread-rtl', 'spread-ltr', 'webtoon'];
 const FITS = ['contain', 'width', 'height'];
+const FURIGANA_MODES = ['all', 'off', 'tap'];
 const BACKGROUNDS = ['black', 'surface', 'white'];
 const VERTEX_AUTH_KINDS = ['access-token', 'adc', 'service-account-json', 'express-api-key'];
 
@@ -160,6 +165,10 @@ export function validateSettings(s: AppSettings): void {
   str('anime.jimakuApiKey', s.anime.jimakuApiKey);
   strings('anime.preferredSubtitleLanguages', s.anime.preferredSubtitleLanguages);
   if (s.anime.autoPreExplain !== undefined) bool('anime.autoPreExplain', s.anime.autoPreExplain);
+  if (s.anime.furiganaMode !== undefined) oneOf('anime.furiganaMode', s.anime.furiganaMode, FURIGANA_MODES);
+  if (s.anime.showRomaji !== undefined) bool('anime.showRomaji', s.anime.showRomaji);
+  if (s.anime.collapseTranslation !== undefined) bool('anime.collapseTranslation', s.anime.collapseTranslation);
+  if (s.anime.pauseOnTranscriptClick !== undefined) bool('anime.pauseOnTranscriptClick', s.anime.pauseOnTranscriptClick);
   // manga
   oneOf('manga.defaultReadingMode', s.manga.defaultReadingMode, READING_MODES);
   bool('manga.showBlockOutlines', s.manga.showBlockOutlines);

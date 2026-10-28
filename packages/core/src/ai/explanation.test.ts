@@ -99,7 +99,7 @@ describe('toSentenceExplanation', () => {
     expect(e.chunks[2]?.spokenEvolution).toBeUndefined();
     expect(e.grammar[0]).toMatchObject({ id: 'g0', pattern: '〜たい', chunkIds: ['c2'], jlpt: 'N5' });
     expect(e.id).toMatch(/^ex_[0-9a-f]{16}$/);
-    expect(e).toMatchObject({ targetLanguage: 'zh-CN', model: 'gemini-2.5-flash', promptVersion: 'v1', createdAt: 1000, fromCache: false, register: 'plain' });
+    expect(e).toMatchObject({ targetLanguage: 'zh-CN', model: 'gemini-2.5-flash', promptVersion: 'v2', createdAt: 1000, fromCache: false, register: 'plain' });
     expect(e.usage).toEqual({ promptTokens: 1, outputTokens: 2 });
     expect('literalTranslation' in e).toBe(false);
   });

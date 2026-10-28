@@ -7,7 +7,7 @@ import { normaliseJapanese, isPunctuationOrSpace } from '../util/text';
 import { explanationCacheKeySync } from './cache-key';
 import type { RawExplanation } from './explain-schema';
 import { PROMPT_VERSION } from './prompts';
-import { buildRuby, sliceRuby } from './ruby';
+import { buildRuby, normalizeJukujikunRuby, sliceRuby } from './ruby';
 import { alignSpans } from './span-align';
 
 export interface ExplanationMeta {
@@ -56,10 +56,14 @@ function resolveChunkIds(surfaces: readonly string[], chunks: readonly SemanticC
 export function toSentenceExplanation(raw: RawExplanation, req: Pick<ExplainRequest, 'sentence' | 'targetLanguage'>, meta: ExplanationMeta): SentenceExplanation {
   const sentence = req.sentence;
   const promptVersion = meta.promptVersion ?? PROMPT_VERSION;
-  const ruby = buildRuby(sentence, raw.ruby);
   const chunkAlign = alignSpans(
     sentence,
     raw.chunks.map((c) => c.surface),
+  );
+  // Repair jukujikun split per kanji (明(あ)日(ひ) → 明日(あした)) using chunk readings.
+  const ruby = normalizeJukujikunRuby(
+    buildRuby(sentence, raw.ruby),
+    raw.chunks.map((c, ci) => ({ charSpan: chunkAlign.spans[ci] ?? ([0, 0] as CharSpan), reading: c.reading, alignment: chunkAlign.alignment[ci] ?? 'unaligned' })),
   );
 
   const chunks: SemanticChunk[] = [];
@@ -80,15 +84,16 @@ export function toSentenceExplanation(raw: RawExplanation, req: Pick<ExplainRequ
       const vAlignment = alignment === 'unaligned' ? 'unaligned' : (vAlign.alignment[vi] ?? 'unaligned');
       const vSpan: CharSpan = [span[0] + local[0], span[0] + local[1]];
       const id = `v${vocab.length}`;
+      const lemma = rv.lemma || rv.surface;
       vocabIds.push(id);
       const entry: { -readonly [K in keyof VocabEntry]: VocabEntry[K] } = {
         id,
         charSpan: vSpan,
         alignment: vAlignment,
         surface: vAlignment === 'unaligned' ? rv.surface : sentence.slice(vSpan[0], vSpan[1]),
-        lemma: rv.lemma || rv.surface,
+        lemma,
         lemmaReading: rv.lemmaReading,
-        lemmaRuby: buildRuby(rv.lemma || rv.surface, rv.lemmaRuby),
+        lemmaRuby: normalizeJukujikunRuby(buildRuby(lemma, rv.lemmaRuby), [{ charSpan: [0, lemma.length], reading: rv.lemmaReading }]),
         partOfSpeech: rv.partOfSpeech,
         meaning: rv.meaning,
       };
@@ -145,8 +150,37 @@ export function toSentenceExplanation(raw: RawExplanation, req: Pick<ExplainRequ
   if (raw.register !== undefined) expl.register = raw.register;
   if (raw.tone !== undefined) expl.tone = raw.tone;
   if (raw.culturalNote !== undefined && raw.culturalNote.trim() !== '') expl.culturalNote = raw.culturalNote.trim();
+  const omitted = (raw.omitted ?? [])
+    .map((o) => ({ text: o.text.trim(), role: o.role?.trim() }))
+    .filter((o) => o.text !== '')
+    .map((o) => (o.role ? { text: o.text, role: o.role } : { text: o.text }));
+  if (omitted.length > 0) expl.omitted = omitted;
+  if (raw.dialogueRelation !== undefined && raw.dialogueRelation.trim() !== '') expl.dialogueRelation = raw.dialogueRelation.trim();
   if (meta.usage !== undefined) expl.usage = meta.usage;
   return expl;
+}
+
+/** True when any chunk could not be aligned back onto the sentence. */
+export function hasUnalignedChunks(expl: Pick<SentenceExplanation, 'chunks'>): boolean {
+  return expl.chunks.some((c) => c.alignment === 'unaligned');
+}
+
+/**
+ * Drop unaligned (likely hallucinated) chunks together with their vocab and
+ * grammar references, and flag the result `degraded: true`. Callers must not
+ * cache degraded explanations.
+ */
+export function degradeExplanation(expl: SentenceExplanation): SentenceExplanation {
+  const dropped = expl.chunks.filter((c) => c.alignment === 'unaligned');
+  const droppedChunkIds = new Set(dropped.map((c) => c.id));
+  const droppedVocabIds = new Set(dropped.flatMap((c) => c.vocabIds));
+  return {
+    ...expl,
+    chunks: expl.chunks.filter((c) => !droppedChunkIds.has(c.id)),
+    vocab: expl.vocab.filter((v) => !droppedVocabIds.has(v.id) && v.alignment !== 'unaligned'),
+    grammar: expl.grammar.map((g) => ({ ...g, chunkIds: g.chunkIds.filter((id) => !droppedChunkIds.has(id)) })),
+    degraded: true,
+  };
 }
 
 /** Memoised sorted views (keyed by the immutable chunk / vocab array) keep lookups O(log n). */

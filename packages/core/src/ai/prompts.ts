@@ -5,7 +5,7 @@
 import type { AiPersonaSettings, ExplainRequest, FollowUpMessage, MangaBubbleOcrRequest, MangaPageGuideRequest, SentenceExplanation, TargetLanguage } from '../types';
 import type { GeminiContent } from './gemini-client';
 
-export const PROMPT_VERSION = 'v1';
+export const PROMPT_VERSION = 'v2';
 
 /** System instruction + conversation, ready for `GeminiRequest`. */
 export interface PromptParts {
@@ -35,7 +35,7 @@ export function explainSystemInstruction(lang: TargetLanguage): string {
     '1. `chunks` are semantic chunks (意群/phrases) that cover the TARGET sentence from left to right, in order, without gaps or overlaps (punctuation may be left out).',
     '2. Every `surface` (chunk and vocab) MUST be a verbatim substring of the TARGET sentence, copied character-for-character (same kana/kanji, same width, same small kana, same long-vowel marks). Never normalise, never correct typos, never output indices.',
     '3. Each vocab `surface` lies inside its chunk\'s `surface`; list vocab in left-to-right order. `lemma` is the dictionary form.',
-    '4. `ruby` segments the WHOLE TARGET sentence: concatenating every `base` must reproduce the sentence exactly. Give `ruby` (hiragana reading) ONLY on segments containing kanji; omit it for kana, Latin, digits and punctuation. Prefer short kanji-run segments (e.g. 食|べて, not 食べて).',
+    '4. `ruby` segments the WHOLE TARGET sentence: concatenating every `base` must reproduce the sentence exactly. Give `ruby` (hiragana reading) ONLY on segments containing kanji; omit it for kana, Latin, digits and punctuation. Prefer short kanji-run segments (e.g. 食|べて, not 食べて). NEVER split jukujikun / ateji / whole-word irregular readings per kanji (明日→あした, 今日→きょう, 昨日→きのう, 大人→おとな, 一人→ひとり, 二人→ふたり, 今年→ことし, 今朝→けさ, 上手→じょうず, 時計→とけい): annotate the entire compound as ONE segment, e.g. {"base":"明日","ruby":"あした"}, never {"base":"明","ruby":"あ"},{"base":"日","ruby":"した"}.',
     '5. `textbookForm` is always present: the standard/textbook form of the chunk (e.g. surface てんじゃねぇ → textbookForm ているのではない). If the chunk is already standard, repeat the surface.',
     '6. `spokenEvolution` ONLY when surface differs from textbookForm: `kind` (short label such as 縮約, 音便, 俗语, 方言), `derivation` as steps "A → B → C", `formality` from 0 (very rough) to 1 (formal). Omit it otherwise.',
     `7. Write every explanation field (translation, literalTranslation, tone, culturalNote, role, meaning, nuance, derivation, conjugation, notes, grammar explanation) in ${out}.`,
@@ -44,6 +44,9 @@ export function explainSystemInstruction(lang: TargetLanguage): string {
     '10. Add `literalTranslation` only when it differs meaningfully from `translation`.',
     '11. Keep explanations concise and crisp. Only include content-bearing words or special expressions in `vocab` (skip trivial single-character case particles like の/を/に/が/は unless used in a special idiom).',
     '12. Populate `culturalNote` (1-2 sentences) ONLY when the sentence contains a notable Japanese cultural reference, ACG/band/manga trope, wordplay/pun, dialectal quirk, or pragmatic irony; omit `culturalNote` for ordinary literal sentences.',
+    '13. Populate `omitted` ONLY when the TARGET sentence leaves out a subject / object / topic that is essential to understanding it (e.g. {"text":"私は","role":"省略主语"}); `text` is the Japanese that is implied, `role` a short label. Omit `omitted` otherwise.',
+    '14. When the TARGET merges several dialogue lines (or a Speaker is given and context shows an exchange), add `dialogueRelation`: one sentence on who speaks to whom, register shifts and the question/answer flow. Omit it otherwise.',
+    '15. Do not output pitch accent information.',
   ].join('\n');
 }
 
@@ -54,6 +57,7 @@ export function explainSystemInstruction(lang: TargetLanguage): string {
 export function buildExplainPrompt(req: ExplainRequest): PromptParts {
   const lines: string[] = [];
   if (req.sceneHint) lines.push(`Scene: ${req.sceneHint}`);
+  if (req.speaker?.trim()) lines.push(`Speaker: ${req.speaker.trim()}`);
   if (req.contextBefore && req.contextBefore.length > 0) lines.push('Context before (do not explain):', ...req.contextBefore.map((l) => `- ${l}`));
   if (req.contextAfter && req.contextAfter.length > 0) lines.push('Context after (do not explain):', ...req.contextAfter.map((l) => `- ${l}`));
   if (req.focusCharIndex !== undefined && req.focusCharIndex >= 0 && req.focusCharIndex < req.sentence.length) {
@@ -93,7 +97,8 @@ export function buildBatchExplainPrompt(requests: readonly ExplainRequest[]): Pr
   }
   lines.push(`Break down each of the following ${requests.length} TARGET sentences in order:`);
   requests.forEach((req, idx) => {
-    lines.push(`#${idx + 1}: <<<${req.sentence}>>>`);
+    const speaker = req.speaker?.trim();
+    lines.push(`#${idx + 1}: ${speaker ? `[${speaker}] ` : ''}<<<${req.sentence}>>>`);
   });
 
   return { systemInstruction, contents: [{ role: 'user', parts: [{ text: lines.join('\n') }] }] };

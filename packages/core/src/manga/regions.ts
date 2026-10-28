@@ -152,3 +152,91 @@ export function deriveCharRegions(block: MangaBlock): MangaCharRegion[] {
   });
   return out;
 }
+
+/** Anything with a page-pixel box: `box = [x1, y1, x2, y2]` or a `MangaRect`. */
+export type ReadingOrderItem = { readonly box: readonly [number, number, number, number] } | { readonly rect: MangaRect };
+
+interface Bounds {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+function boundsOf(item: ReadingOrderItem): Bounds {
+  if ('box' in item) {
+    const [x1, y1, x2, y2] = item.box;
+    return { left: Math.min(x1, x2), top: Math.min(y1, y2), right: Math.max(x1, x2), bottom: Math.max(y1, y2) };
+  }
+  const r = item.rect;
+  return { left: Math.min(r.left, r.right), top: Math.min(r.top, r.bottom), right: Math.max(r.left, r.right), bottom: Math.max(r.top, r.bottom) };
+}
+
+/** Length of the overlap of `[a0, a1]` and `[b0, b1]` (0 when disjoint). */
+function overlap(a0: number, a1: number, b0: number, b1: number): number {
+  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+}
+
+/** Fraction of the shorter interval that must overlap to share a tier / column. */
+const ORDER_OVERLAP_RATIO = 0.4;
+
+/**
+ * Sort manga text blocks in Japanese reading order: top-right → bottom-left.
+ *
+ * 1. Blocks are grouped into horizontal **tiers**: a block joins the current
+ *    tier when its vertical extent overlaps the tier's vertical extent by
+ *    ≥ 40 % of the shorter of the two (plus a 1 % page-height slack when
+ *    `pageHeight` is given). Tiers are read top to bottom.
+ * 2. Inside a tier, blocks are grouped into **columns** by horizontal overlap
+ *    (same 40 % rule on widths); columns are read right to left and blocks
+ *    inside a column top to bottom.
+ *
+ * Accepts `box = [x1, y1, x2, y2]` items or `MangaBlock`-like `rect` items.
+ * Returns a new array; the input is not mutated. Stable for identical boxes.
+ */
+export function sortBlocksInReadingOrder<T extends ReadingOrderItem>(blocks: readonly T[], pageWidth?: number, pageHeight?: number): T[] {
+  const ySlack = pageHeight !== undefined && pageHeight > 0 ? pageHeight * 0.01 : 0;
+  const xSlack = pageWidth !== undefined && pageWidth > 0 ? pageWidth * 0.01 : 0;
+  const items = blocks.map((item, order) => ({ item, order, b: boundsOf(item) }));
+  items.sort((p, q) => p.b.top - q.b.top || q.b.right - p.b.right || p.order - q.order);
+
+  type Entry = (typeof items)[number];
+  const tiers: { top: number; bottom: number; members: Entry[] }[] = [];
+  for (const e of items) {
+    const h = e.b.bottom - e.b.top;
+    const tier = tiers[tiers.length - 1];
+    if (tier) {
+      const shorter = Math.min(h, tier.bottom - tier.top);
+      if (overlap(e.b.top, e.b.bottom, tier.top, tier.bottom) + ySlack >= ORDER_OVERLAP_RATIO * shorter) {
+        tier.members.push(e);
+        tier.bottom = Math.max(tier.bottom, e.b.bottom);
+        continue;
+      }
+    }
+    tiers.push({ top: e.b.top, bottom: e.b.bottom, members: [e] });
+  }
+
+  const out: T[] = [];
+  for (const tier of tiers) {
+    // Right-most first, then cluster into columns by horizontal overlap.
+    const byRight = [...tier.members].sort((p, q) => q.b.right - p.b.right || p.b.top - q.b.top || p.order - q.order);
+    const columns: { left: number; right: number; members: Entry[] }[] = [];
+    for (const e of byRight) {
+      const w = e.b.right - e.b.left;
+      const col = columns.find((c) => overlap(e.b.left, e.b.right, c.left, c.right) + xSlack >= ORDER_OVERLAP_RATIO * Math.min(w, c.right - c.left));
+      if (col) {
+        col.members.push(e);
+        col.left = Math.min(col.left, e.b.left);
+        col.right = Math.max(col.right, e.b.right);
+      } else {
+        columns.push({ left: e.b.left, right: e.b.right, members: [e] });
+      }
+    }
+    columns.sort((p, q) => q.right - p.right);
+    for (const col of columns) {
+      col.members.sort((p, q) => p.b.top - q.b.top || q.b.right - p.b.right || p.order - q.order);
+      for (const e of col.members) out.push(e.item);
+    }
+  }
+  return out;
+}

@@ -17,7 +17,7 @@ const textOf = (parts: readonly unknown[]): string => parts.map((p) => (p as { t
 describe('buildExplainPrompt', () => {
   it('quotes the target verbatim and separates context', () => {
     const p = buildExplainPrompt(req);
-    expect(PROMPT_VERSION).toBe('v1');
+    expect(PROMPT_VERSION).toBe('v2');
     expect(p.systemInstruction).toContain('verbatim substring');
     expect(p.systemInstruction).toContain('textbookForm');
     expect(p.systemInstruction).toContain('Simplified Chinese');

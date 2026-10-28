@@ -19,9 +19,10 @@ import type {
   TokenUsage,
 } from '../types';
 import { KotoriError } from '../util/errors';
+import { fnv1a64 } from '../util/hash';
 import { explanationCacheKey } from './cache-key';
 import { BATCH_EXPLAIN_RESPONSE_SCHEMA, EXPLAIN_RESPONSE_SCHEMA, RawBatchExplanationSchema, RawExplanationSchema } from './explain-schema';
-import { toSentenceExplanation } from './explanation';
+import { degradeExplanation, hasUnalignedChunks, toSentenceExplanation } from './explanation';
 import type { GeminiClient, GeminiRequest } from './gemini-client';
 import { buildBatchExplainPrompt, buildExplainPrompt, buildFollowUpPrompt, PROMPT_VERSION } from './prompts';
 import { generateStructured } from './structured';
@@ -61,6 +62,50 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 function normaliseError(e: unknown, signal: AbortSignal | undefined): KotoriError {
   if (signal?.aborted) return e instanceof KotoriError && e.code === 'cancelled' ? e : new KotoriError('cancelled', 'Request cancelled');
   return KotoriError.wrap(e);
+}
+
+/** Sum two optional usages (retries are billed too). */
+function addUsage(a: TokenUsage | undefined, b: TokenUsage | undefined): TokenUsage | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const cached = (a.cachedTokens ?? 0) + (b.cachedTokens ?? 0);
+  return {
+    promptTokens: a.promptTokens + b.promptTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    ...(a.cachedTokens !== undefined || b.cachedTokens !== undefined ? { cachedTokens: cached } : {}),
+  };
+}
+
+/** Number of chunks that failed to align. */
+function unalignedCount(expl: SentenceExplanation): number {
+  return expl.chunks.filter((c) => c.alignment === 'unaligned').length;
+}
+
+/**
+ * Page guides are stored in the `ExplanationCache` as wrapper entries: a
+ * `SentenceExplanation` whose `sentence` starts with this prefix and whose
+ * `translation` holds the serialised `MangaPageGuideResult`.
+ */
+export const PAGE_GUIDE_CACHE_PREFIX = '\u0000kotori:page-guide:';
+
+/** Stable page identity used for page-guide cache keys. */
+export function pageGuideCacheIdentity(req: Pick<MangaPageGuideRequest, 'volumeId' | 'pageIndex' | 'image'>): string | undefined {
+  if (req.volumeId && req.pageIndex !== undefined && Number.isFinite(req.pageIndex)) return `${req.volumeId}:p${req.pageIndex}`;
+  const b64 = req.image?.base64;
+  if (b64) return `img:${fnv1a64(b64.slice(0, 4096) + String(b64.length))}`;
+  return undefined;
+}
+
+/** Unwrap a cached page-guide wrapper entry (or `undefined` when it is not one). */
+function unwrapPageGuide(entry: SentenceExplanation | undefined): MangaPageGuideResult | undefined {
+  if (!entry || !entry.sentence.startsWith(PAGE_GUIDE_CACHE_PREFIX)) return undefined;
+  try {
+    const parsed = JSON.parse(entry.translation) as MangaPageGuideResult;
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.bubbles)) return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Simple in-memory `ExplanationCache` (tests, mock host, cache-less hosts). */
@@ -116,6 +161,47 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
     ...(settings.thinkingBudget !== undefined ? { thinkingBudget: settings.thinkingBudget } : {}),
   });
 
+  /** One structured model call for a single sentence (no cache). */
+  async function generateOne(normalized: ExplainRequest, id: string, settings: AiSettings, signal: AbortSignal | undefined): Promise<SentenceExplanation> {
+    const prompt = buildExplainPrompt(normalized);
+    const res = await generateStructured(
+      clientFor(settings),
+      { model: settings.explainModel, ...prompt, responseSchema: EXPLAIN_RESPONSE_SCHEMA, ...knobs(settings) },
+      RawExplanationSchema,
+      signal,
+    );
+    throwIfAborted(signal);
+    return toSentenceExplanation(res.value, normalized, { id, model: settings.explainModel, usage: res.usage, now: now() });
+  }
+
+  /**
+   * Alignment validation: when any chunk is `unaligned` (the model's surface
+   * is not in the sentence — usually a hallucination), silently retry once.
+   * If chunks are still unaligned, keep the better attempt, drop those chunks
+   * and flag it `degraded` (callers never cache degraded results).
+   */
+  async function ensureAligned(
+    first: SentenceExplanation,
+    normalized: ExplainRequest,
+    id: string,
+    settings: AiSettings,
+    signal: AbortSignal | undefined,
+  ): Promise<SentenceExplanation> {
+    if (!hasUnalignedChunks(first)) return first;
+    throwIfAborted(signal);
+    let retry: SentenceExplanation | undefined;
+    try {
+      retry = await generateOne(normalized, id, settings, signal);
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      retry = undefined; // fall back to degrading the first attempt
+    }
+    const best = retry && unalignedCount(retry) <= unalignedCount(first) ? retry : first;
+    const usage = addUsage(first.usage, retry?.usage);
+    const withUsage: SentenceExplanation = usage ? { ...best, usage } : best;
+    return hasUnalignedChunks(withUsage) ? degradeExplanation(withUsage) : withUsage;
+  }
+
   /** Core explain implementation shared by `explain` and vision `explain: true`. */
   async function explain(request: ExplainRequest, options?: AiCallOptions): Promise<SentenceExplanation> {
     const signal = options?.signal;
@@ -130,16 +216,9 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
         if (cached) return { ...cached, fromCache: true };
       }
       throwIfAborted(signal);
-      const prompt = buildExplainPrompt(normalized);
-      const res = await generateStructured(
-        clientFor(settings),
-        { model: settings.explainModel, ...prompt, responseSchema: EXPLAIN_RESPONSE_SCHEMA, ...knobs(settings) },
-        RawExplanationSchema,
-        signal,
-      );
-      throwIfAborted(signal);
-      const expl = toSentenceExplanation(res.value, normalized, { id, model: settings.explainModel, usage: res.usage, now: now() });
-      if (settings.cacheEnabled) await deps.cache.put(expl);
+      const first = await generateOne(normalized, id, settings, signal);
+      const expl = await ensureAligned(first, normalized, id, settings, signal);
+      if (settings.cacheEnabled && !expl.degraded) await deps.cache.put(expl);
       return expl;
     } catch (e) {
       throw normaliseError(e, signal);
@@ -209,8 +288,9 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
         const origIdx = uncachedIndices[k]!;
         const req = normalizedList[origIdx]!;
         const id = ids[origIdx]!;
-        const expl = toSentenceExplanation(items[k]!, req, { id, model: settings.explainModel, usage: res.usage, now: now() });
-        if (settings.cacheEnabled) await deps.cache.put(expl);
+        const batchExpl = toSentenceExplanation(items[k]!, req, { id, model: settings.explainModel, usage: res.usage, now: now() });
+        const expl = await ensureAligned(batchExpl, req, id, settings, signal);
+        if (settings.cacheEnabled && !expl.degraded) await deps.cache.put(expl);
         results[origIdx] = expl;
       }
 
@@ -318,7 +398,42 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
         throwIfAborted(signal);
         const settings = deps.settings();
         const normalized: MangaPageGuideRequest = { ...request, targetLanguage: request.targetLanguage ?? settings.targetLanguage ?? 'zh-CN' };
-        return await visionPageGuide(clientFor(settings), normalized, { model: settings.visionModel, ...knobs(settings), ...(signal ? { signal } : {}), now });
+        const identity = settings.cacheEnabled ? pageGuideCacheIdentity(normalized) : undefined;
+        const key = identity
+          ? await explanationCacheKey({
+              sentence: PAGE_GUIDE_CACHE_PREFIX + identity,
+              targetLanguage: normalized.targetLanguage,
+              model: settings.visionModel,
+              promptVersion: `page-guide-${PROMPT_VERSION}`,
+            })
+          : undefined;
+        if (key) {
+          const hit = unwrapPageGuide(await deps.cache.get(key));
+          if (hit) {
+            const { usage: _usage, ...rest } = hit;
+            return { ...rest, volumeId: normalized.volumeId, pageIndex: normalized.pageIndex };
+          }
+        }
+        throwIfAborted(signal);
+        const result = await visionPageGuide(clientFor(settings), normalized, { model: settings.visionModel, ...knobs(settings), ...(signal ? { signal } : {}), now });
+        throwIfAborted(signal);
+        if (key && identity) {
+          await deps.cache.put({
+            id: key,
+            sentence: PAGE_GUIDE_CACHE_PREFIX + identity,
+            ruby: [],
+            translation: JSON.stringify(result),
+            chunks: [],
+            vocab: [],
+            grammar: [],
+            targetLanguage: normalized.targetLanguage,
+            model: result.model,
+            promptVersion: `page-guide-${PROMPT_VERSION}`,
+            createdAt: result.createdAt,
+            fromCache: false,
+          });
+        }
+        return result;
       } catch (e) {
         throw normaliseError(e, signal);
       }

@@ -33,6 +33,10 @@ export function defaultSettings(downloadDir: string): AppSettings {
       jimakuApiKey: '',
       preferredSubtitleLanguages: ['ja'],
       autoPreExplain: false,
+      furiganaMode: 'all',
+      showRomaji: false,
+      collapseTranslation: false,
+      pauseOnTranscriptClick: true,
     },
     manga: {
       defaultReadingMode: 'spread-rtl',

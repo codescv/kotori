@@ -167,7 +167,11 @@ export interface VocabEntry {
   readonly conjugation?: string;
   /** JLPT level N5..N1 when confidently known. */
   readonly jlpt?: 'N5' | 'N4' | 'N3' | 'N2' | 'N1';
-  /** Pitch accent pattern index (0 = 平板) when known. */
+  /**
+   * Pitch accent pattern index (0 = 平板) when known.
+   * @deprecated No longer requested from the model (often wrong, wastes
+   * tokens); kept optional so older cached explanations still type-check.
+   */
   readonly pitchAccent?: number;
   readonly notes?: string;
 }
@@ -229,6 +233,8 @@ export interface ExplainRequest {
   readonly targetLanguage: TargetLanguage;
   /** Skip cache lookup and force a fresh model call. */
   readonly force?: boolean;
+  /** Speaker / actor of the TARGET line (ASS `Name`, manga speaker) — prompt hint only. */
+  readonly speaker?: string | undefined;
 }
 
 export interface SentenceExplanation {
@@ -259,6 +265,20 @@ export interface SentenceExplanation {
   readonly fromCache: boolean;
   /** Token usage reported by the API (for the settings page cost meter). */
   readonly usage?: TokenUsage;
+  /**
+   * True when some model chunks could not be aligned onto `sentence` even
+   * after one silent retry; those chunks were dropped. Degraded explanations
+   * are never cached, so the next request tries again.
+   */
+  readonly degraded?: boolean | undefined;
+  /**
+   * Elements the Japanese leaves implicit but that are essential to the
+   * meaning (e.g. `{ text: '私は', role: '省略主语' }`). Absent when nothing
+   * important is omitted.
+   */
+  readonly omitted?: readonly { readonly text: string; readonly role?: string | undefined }[] | undefined;
+  /** For merged multi-line dialogue: speaker relationship / register shift / Q&A flow. */
+  readonly dialogueRelation?: string | undefined;
 }
 
 export interface TokenUsage {
@@ -1063,6 +1083,14 @@ export interface AnimeSettings {
   /** jimaku.cc API key (required for its API). */
   readonly jimakuApiKey: string;
   readonly preferredSubtitleLanguages: readonly LanguageTag[];
+  /** Furigana display: always (`'all'`, default), never (`'off'`), or on tap (`'tap'`). */
+  readonly furiganaMode?: 'all' | 'off' | 'tap';
+  /** Show romaji under the Japanese line (default `false`). */
+  readonly showRomaji?: boolean;
+  /** Collapse the translation until tapped (default `false`, i.e. shown). */
+  readonly collapseTranslation?: boolean;
+  /** Pause playback when a transcript row is clicked (default `true`). */
+  readonly pauseOnTranscriptClick?: boolean;
 }
 
 export interface MangaSettings {
