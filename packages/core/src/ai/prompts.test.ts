@@ -17,7 +17,7 @@ const textOf = (parts: readonly unknown[]): string => parts.map((p) => (p as { t
 describe('buildExplainPrompt', () => {
   it('quotes the target verbatim and separates context', () => {
     const p = buildExplainPrompt(req);
-    expect(PROMPT_VERSION).toBe('v2');
+    expect(PROMPT_VERSION).toBe('v3');
     expect(p.systemInstruction).toContain('verbatim substring');
     expect(p.systemInstruction).toContain('textbookForm');
     expect(p.systemInstruction).toContain('Simplified Chinese');
@@ -27,6 +27,15 @@ describe('buildExplainPrompt', () => {
     expect(t).toContain('- うるせぇ');
     expect(t).toContain('Scene: Gintama');
     expect(t).toContain('「ん」');
+  });
+  it('P0 rule 3 asks for canonical kanji lemmas and no longer mentions lemmaRuby / jlpt', () => {
+    const sys = buildExplainPrompt(req).systemInstruction;
+    expect(sys).toContain('canonical dictionary headword');
+    expect(sys).toContain('"賭ける" for "命をかけて"');
+    expect(sys).toContain('"分かる" for "わかんない"');
+    expect(sys).toContain('"やっぱり"');
+    expect(sys).not.toContain('lemmaRuby');
+    expect(sys).not.toContain('jlpt');
   });
   it('omits optional sections', () => {
     const t = textOf(buildExplainPrompt({ sentence: 'あ', source: { kind: 'manual' }, targetLanguage: 'en' }).contents[0]?.parts ?? []);

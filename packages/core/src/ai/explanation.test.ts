@@ -40,8 +40,48 @@ describe('RawExplanationSchema', () => {
     expect(r.chunks[0]?.vocab[0]?.partOfSpeech).toBe('proper-noun');
     expect(r.chunks[0]?.vocab[0]?.jlpt).toBe('N3');
     expect(r.chunks[0]?.vocab[0]?.pitchAccent).toBe(2);
-    expect(r.chunks[0]?.vocab[0]?.lemmaRuby).toEqual([]);
+    expect(r.chunks[0]?.vocab[0]?.lemmaRuby).toBeUndefined();
     expect(RawExplanationSchema.parse({ ...(r as object), chunks: [{ ...r.chunks[0], vocab: [{ ...r.chunks[0]?.vocab[0], partOfSpeech: 'gerund' }] }] }).chunks[0]?.vocab[0]?.partOfSpeech).toBe('other');
+  });
+
+  it('P1 schema slimming: vocab no longer requests lemmaRuby / jlpt but keeps notes', () => {
+    const vocab = EXPLAIN_RESPONSE_SCHEMA.properties.chunks.items.properties.vocab.items;
+    expect(Object.keys(vocab.properties)).not.toContain('lemmaRuby');
+    expect(Object.keys(vocab.properties)).not.toContain('jlpt');
+    expect(Object.keys(vocab.properties)).toContain('notes');
+    expect(vocab.required).toEqual(['surface', 'lemma', 'lemmaReading', 'partOfSpeech', 'meaning']);
+    expect(vocab.propertyOrdering).not.toContain('lemmaRuby');
+  });
+
+  it('computes lemmaRuby locally when the model omits it, and keeps legacy model ruby', () => {
+    const raw = RawExplanationSchema.parse({
+      translation: 't',
+      ruby: [{ base: '命', ruby: 'いのち' }, { base: 'をかけて' }],
+      chunks: [
+        {
+          surface: '命をかけて',
+          reading: 'いのちをかけて',
+          textbookForm: '命を賭けて',
+          role: 'r',
+          meaning: 'm',
+          vocab: [
+            { surface: '命', lemma: '命', lemmaReading: 'いのち', partOfSpeech: 'noun', meaning: '生命' },
+            { surface: 'かけて', lemma: '賭ける', lemmaReading: 'かける', partOfSpeech: 'verb', meaning: '赌上', notes: '孤注一掷' },
+          ],
+        },
+      ],
+    });
+    const e = toSentenceExplanation(raw, { sentence: '命をかけて', targetLanguage: 'zh-CN' }, { model: 'm', now: 1 });
+    expect(e.vocab[0]?.lemmaRuby).toEqual([{ base: '命', ruby: 'いのち', charSpan: [0, 1] }]);
+    expect(e.vocab[1]?.lemmaRuby).toEqual([
+      { base: '賭', ruby: 'か', charSpan: [0, 1] },
+      { base: 'ける', charSpan: [1, 3] },
+    ]);
+    expect(e.vocab[1]?.notes).toBe('孤注一掷');
+    expect(e.vocab[1]?.jlpt).toBeUndefined();
+    // Legacy cached / v2 response with model ruby still honoured.
+    const legacy = build(slang);
+    expect(legacy.vocab.find((v) => v.lemma === '食べる')?.lemmaRuby[0]).toMatchObject({ base: '食', ruby: 'た' });
   });
 
   it('rejects output without a translation', () => {
@@ -99,7 +139,7 @@ describe('toSentenceExplanation', () => {
     expect(e.chunks[2]?.spokenEvolution).toBeUndefined();
     expect(e.grammar[0]).toMatchObject({ id: 'g0', pattern: '〜たい', chunkIds: ['c2'], jlpt: 'N5' });
     expect(e.id).toMatch(/^ex_[0-9a-f]{16}$/);
-    expect(e).toMatchObject({ targetLanguage: 'zh-CN', model: 'gemini-2.5-flash', promptVersion: 'v2', createdAt: 1000, fromCache: false, register: 'plain' });
+    expect(e).toMatchObject({ targetLanguage: 'zh-CN', model: 'gemini-2.5-flash', promptVersion: 'v3', createdAt: 1000, fromCache: false, register: 'plain' });
     expect(e.usage).toEqual({ promptTokens: 1, outputTokens: 2 });
     expect('literalTranslation' in e).toBe(false);
   });

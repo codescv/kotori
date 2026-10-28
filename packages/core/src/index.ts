@@ -11,3 +11,4 @@ export * from './ai/index';
 export * from './subtitle/index';
 export * from './manga/index';
 export * from './acquire/index';
+export * from './dict/index';

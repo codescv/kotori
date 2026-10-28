@@ -5,7 +5,7 @@
 import type { AiPersonaSettings, ExplainRequest, FollowUpMessage, MangaBubbleOcrRequest, MangaPageGuideRequest, SentenceExplanation, TargetLanguage } from '../types';
 import type { GeminiContent } from './gemini-client';
 
-export const PROMPT_VERSION = 'v2';
+export const PROMPT_VERSION = 'v3';
 
 /** System instruction + conversation, ready for `GeminiRequest`. */
 export interface PromptParts {
@@ -34,7 +34,7 @@ export function explainSystemInstruction(lang: TargetLanguage): string {
     'Rules:',
     '1. `chunks` are semantic chunks (意群/phrases) that cover the TARGET sentence from left to right, in order, without gaps or overlaps (punctuation may be left out).',
     '2. Every `surface` (chunk and vocab) MUST be a verbatim substring of the TARGET sentence, copied character-for-character (same kana/kanji, same width, same small kana, same long-vowel marks). Never normalise, never correct typos, never output indices.',
-    '3. Each vocab `surface` lies inside its chunk\'s `surface`; list vocab in left-to-right order. `lemma` is the dictionary form.',
+    '3. Each vocab `surface` lies inside its chunk\'s `surface`; list vocab in left-to-right order. `lemma` MUST be the canonical dictionary headword written in its standard kanji orthography (e.g. output lemma "賭ける" for "命をかけて", "駆ける" for "空をかける", "分かる" for "わかんない") even when the surface in the sentence is written in kana; use a kana-only lemma ONLY for words ordinarily written in kana in dictionaries (e.g. "やっぱり", "うんざり", "さすが"). `lemmaReading` is the hiragana reading of `lemma`.',
     '4. `ruby` segments the WHOLE TARGET sentence: concatenating every `base` must reproduce the sentence exactly. Give `ruby` (hiragana reading) ONLY on segments containing kanji; omit it for kana, Latin, digits and punctuation. Prefer short kanji-run segments (e.g. 食|べて, not 食べて). NEVER split jukujikun / ateji / whole-word irregular readings per kanji (明日→あした, 今日→きょう, 昨日→きのう, 大人→おとな, 一人→ひとり, 二人→ふたり, 今年→ことし, 今朝→けさ, 上手→じょうず, 時計→とけい): annotate the entire compound as ONE segment, e.g. {"base":"明日","ruby":"あした"}, never {"base":"明","ruby":"あ"},{"base":"日","ruby":"した"}.',
     '5. `textbookForm` is always present: the standard/textbook form of the chunk (e.g. surface てんじゃねぇ → textbookForm ているのではない). If the chunk is already standard, repeat the surface.',
     '6. `spokenEvolution` ONLY when surface differs from textbookForm: `kind` (short label such as 縮約, 音便, 俗语, 方言), `derivation` as steps "A → B → C", `formality` from 0 (very rough) to 1 (formal). Omit it otherwise.',
