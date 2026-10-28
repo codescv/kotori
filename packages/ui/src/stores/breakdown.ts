@@ -65,14 +65,14 @@ export interface BreakdownState {
   readonly explainCalls: number;
   /** Optional manga speech-bubble crop preview for the currently inspected block. */
   readonly bubblePreview: BubbleCropPreview | undefined;
-  /** Optional anime player callback to replay a `[startMs, endMs]` audio slice. */
-  readonly audioReplayHandler: ((startMs: number, endMs: number) => void) | undefined;
+  /** Optional anime player callback to replay a `[startMs, endMs]` audio slice (with optional `rate`). */
+  readonly audioReplayHandler: ((startMs: number, endMs: number, rate?: number) => void) | undefined;
 
   open(host: PlatformHost, input: BreakdownOpenInput): Promise<void>;
   /** Show an already-computed explanation (e.g. from `ocrBubble({ explain: true })`). */
   show(explanation: SentenceExplanation, source: ExplainSource, focusCharIndex?: number, bubblePreview?: BubbleCropPreview): void;
   setFocus(charIndex: number | undefined): void;
-  setAudioReplayHandler(handler: ((startMs: number, endMs: number) => void) | undefined): void;
+  setAudioReplayHandler(handler: ((startMs: number, endMs: number, rate?: number) => void) | undefined): void;
   retry(host: PlatformHost): Promise<void>;
   askFollowUp(host: PlatformHost, question: string): Promise<void>;
   setOpen(open: boolean): void;
@@ -117,7 +117,7 @@ const initial = {
   error: undefined as BreakdownError | undefined,
   streamingText: undefined as string | undefined,
   bubblePreview: undefined as BubbleCropPreview | undefined,
-  audioReplayHandler: undefined as ((startMs: number, endMs: number) => void) | undefined,
+  audioReplayHandler: undefined as ((startMs: number, endMs: number, rate?: number) => void) | undefined,
 };
 
 export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
@@ -214,6 +214,7 @@ export const useBreakdownStore = create<BreakdownState>()((set, get) => ({
       contextBefore: req.contextBefore,
       contextAfter: req.contextAfter,
       sceneHint: req.sceneHint,
+      speaker: req.speaker,
       bubblePreview: get().bubblePreview,
     });
   },
