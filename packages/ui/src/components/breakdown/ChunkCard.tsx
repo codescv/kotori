@@ -35,6 +35,11 @@ function ChunkCardImpl({ chunk, index, active, vocab, onSelect, t }: ChunkCardPr
     // The first card is already in view at the top: scrolling it "into view"
     // on open would push the sticky sentence / translation off-screen.
     if (firstRun && index === 0) return;
+    // When the P2 InstantDictPopup is expanded at the top of the panel, do not
+    // auto-scroll down — otherwise the sticky sentence obscures the popup.
+    if (ref.current?.closest('.k-breakdown')?.querySelector('[data-testid="instant-dict-popup"]:not(.is-collapsed)')) {
+      return;
+    }
     if (active && ref.current && typeof ref.current.scrollIntoView === 'function') {
       ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }

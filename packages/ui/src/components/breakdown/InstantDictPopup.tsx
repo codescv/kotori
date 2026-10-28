@@ -7,7 +7,7 @@
  * 食べる`), pitch contour, frequency rank and senses. Once the AI breakdown is
  * ready the card can be collapsed or dismissed.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { InstantLookupMatch } from '@kotori/core';
 import { useOptionalHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
@@ -80,14 +80,29 @@ const KANA_ONLY = /^[\u3040-\u30ffー]+$/u;
 
 export function InstantDictPopup({ state, collapsible = false, defaultCollapsed = false, className }: InstantDictPopupProps) {
   const t = useT();
+  const rootRef = useRef<HTMLElement>(null);
   const [selected, setSelected] = useState(0);
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [dismissed, setDismissed] = useState(false);
   const key = state?.key;
+  const hasMatches = Boolean(state && !state.loading && state.matches.length > 0);
   useEffect(() => {
     setSelected(0);
     setDismissed(false);
   }, [key]);
+  useLayoutEffect(() => {
+    if (!key || !hasMatches || (collapsible && collapsed) || dismissed) return;
+    let cur = rootRef.current?.parentElement ?? null;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      const oy = getComputedStyle(cur).overflowY;
+      if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') {
+        if (typeof cur.scrollTo === 'function') cur.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+        cur.scrollTop = 0;
+        break;
+      }
+      cur = cur.parentElement;
+    }
+  }, [key, hasMatches, collapsible, collapsed, dismissed]);
 
   if (!state || dismissed) return null;
   if (!state.loading && state.matches.length === 0) return null;
@@ -97,7 +112,7 @@ export function InstantDictPopup({ state, collapsible = false, defaultCollapsed 
   const others = state.matches.map((m, i) => ({ m, i })).filter(({ i }) => i !== selected);
 
   return (
-    <section className={cx('k-instant-dict', isCollapsed && 'is-collapsed', className)} data-testid="instant-dict-popup" aria-live="polite" aria-busy={state.loading || undefined}>
+    <section ref={rootRef} className={cx('k-instant-dict', isCollapsed && 'is-collapsed', className)} data-testid="instant-dict-popup" aria-live="polite" aria-busy={state.loading || undefined}>
       <header className="k-instant-dict__bar">
         <span className="k-instant-dict__title">{t('dict.instant.title')}</span>
         {match && (

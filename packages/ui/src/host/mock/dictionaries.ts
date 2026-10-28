@@ -61,7 +61,7 @@ export const MOCK_DICTIONARIES: readonly DictionaryInfo[] = [
   {
     id: MOCK_FREQ_ID,
     title: 'JPDB v2.2',
-    revision: 'JPDBv2㋕',
+    revision: 'v2.2',
     kind: 'freq',
     status: 'ready',
     priority: 2,
