@@ -156,38 +156,26 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     if (currentCoverPath && !/^https?:\/\//i.test(currentCoverPath) && existsSync(currentCoverPath)) return;
 
     let remoteCoverUrl = currentCoverPath && /^https?:\/\//i.test(currentCoverPath) ? currentCoverPath : undefined;
-    let resolvedAnilistId = series.anilistId;
+    const resolvedAnilistId = series.anilistId;
+    if (resolvedAnilistId === undefined && !remoteCoverUrl) return;
 
-    if (!remoteCoverUrl) {
-      const cleanedTitle = series.title
-        .replace(/\s*\((?:19|20)\d{2}\)\s*$/g, ' ')
-        .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
-        .replace(/\b(?:1080p|720p|2160p|4K|HEVC|x265|x264|10bit|BD|BDRip|WEB-?DL|WEBRip|FLAC|AAC|RAW|Batch|S\d+E?\d*)\b/gi, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (cleanedTitle.length >= 2 || resolvedAnilistId !== undefined) {
-        try {
-          const query =
-            resolvedAnilistId !== undefined
-              ? `query ($id: Int) { Media(id: $id, type: ANIME) { id coverImage { extraLarge large } } }`
-              : `query ($search: String) { Media(search: $search, type: ANIME, sort: [POPULARITY_DESC, SCORE_DESC], isAdult: false) { id coverImage { extraLarge large } } }`;
-          const variables = resolvedAnilistId !== undefined ? { id: resolvedAnilistId } : { search: cleanedTitle };
-          const res = await deps.fetch('https://graphql.anilist.co', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ query, variables }),
-          });
-          if (res.ok) {
-            const json = (await res.json()) as {
-              data?: { Media?: { id?: number; coverImage?: { extraLarge?: string; large?: string } } };
-            };
-            const media = json.data?.Media;
-            if (media?.id && resolvedAnilistId === undefined) resolvedAnilistId = media.id;
-            remoteCoverUrl = media?.coverImage?.extraLarge ?? media?.coverImage?.large;
-          }
-        } catch {
-          // Best-effort metadata enrichment
+    if (!remoteCoverUrl && resolvedAnilistId !== undefined) {
+      try {
+        const query = `query ($id: Int) { Media(id: $id, type: ANIME) { id coverImage { extraLarge large } } }`;
+        const res = await deps.fetch('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ query, variables: { id: resolvedAnilistId } }),
+        });
+        if (res.ok) {
+          const json = (await res.json()) as {
+            data?: { Media?: { id?: number; coverImage?: { extraLarge?: string; large?: string } } };
+          };
+          const media = json.data?.Media;
+          remoteCoverUrl = media?.coverImage?.extraLarge ?? media?.coverImage?.large;
         }
+      } catch {
+        // Best-effort metadata enrichment
       }
     }
 
@@ -328,24 +316,132 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     return repos.tracks.get(track.id) ?? track;
   }
 
+  function sidecarsChanged(
+    scanned: readonly { readonly filePath: string }[],
+    currentTracks: readonly SubtitleTrack[],
+  ): boolean {
+    const scannedPaths = scanned.map((s) => s.filePath).sort();
+    const currentPaths = currentTracks
+      .filter((t) => t.origin === 'external' && t.filePath !== undefined)
+      .map((t) => t.filePath!)
+      .sort();
+    if (scannedPaths.length !== currentPaths.length) return true;
+    for (let i = 0; i < scannedPaths.length; i++) {
+      if (scannedPaths[i] !== currentPaths[i]) return true;
+    }
+    return false;
+  }
+
+  /** Reconcile existing series against disk when files are added or deleted. */
+  async function syncExistingSeries(targetSeriesId?: Id): Promise<void> {
+    const targets =
+      targetSeriesId !== undefined
+        ? [repos.series.get(targetSeriesId)].filter((s): s is AnimeSeries => s !== undefined)
+        : repos.series.list();
+    for (const series of targets) {
+      if (!existsSync(series.sourcePath)) continue;
+      const scan = await scanAnimeFolder(series.sourcePath).catch(() => undefined);
+      if (!scan) continue;
+      const currentEps = repos.episodes.listBySeries(series.id);
+      const changed =
+        scan.episodes.length !== currentEps.length ||
+        scan.episodes.some((ep, i) => {
+          const cur = currentEps[i];
+          if (!cur) return true;
+          return (
+            ep.filePath !== cur.filePath ||
+            ep.sizeBytes !== cur.sizeBytes ||
+            sidecarsChanged(ep.sidecars, cur.subtitleTracks)
+          );
+        });
+      if (!changed) continue;
+      if (scan.episodes.length === 0) {
+        for (const id of repos.episodes.idsBySeries(series.id)) {
+          repos.episodes.remove(id);
+        }
+        deps.emit({ type: 'library-changed', scope: 'anime' });
+      } else {
+        sync(series.id, scan, series.title, series.addedAt, repos.series.coverPath(series.id));
+        probeSeries(series.id);
+        deps.emit({ type: 'library-changed', scope: 'anime' });
+      }
+    }
+  }
+
   const service: NodeAnimeService = {
     async listSeries() {
       if (!process.env['VITEST']) {
         await service.scanRoots().catch(() => undefined);
       }
+      await syncExistingSeries().catch(() => undefined);
       return repos.series.list();
     },
     async getSeries(id) {
+      requireSeries(id);
+      await syncExistingSeries(id).catch(() => undefined);
       return requireSeries(id);
     },
     async listEpisodes(seriesId) {
       requireSeries(seriesId);
+      await syncExistingSeries(seriesId).catch(() => undefined);
       return repos.episodes.listBySeries(seriesId);
     },
     async getEpisode(id) {
       return requireEpisode(id);
     },
     importSeries: (request) => importOrRescan(request.path, request.titleOverride, request.anilistId, request.coverUrl),
+    async updateSeries(seriesId, patch) {
+      const series = requireSeries(seriesId);
+      const oldCoverPath = repos.series.coverPath(seriesId);
+      const autoPosterPath = join(series.sourcePath, 'poster.jpg');
+      const nextTitle = patch.title !== undefined && patch.title.trim() !== '' ? patch.title.trim() : undefined;
+
+      let coverPathPatch: string | null | undefined;
+      if (patch.coverUrl === null || (typeof patch.coverUrl === 'string' && patch.coverUrl.trim() === '')) {
+        if (oldCoverPath && resolve(oldCoverPath) === resolve(autoPosterPath)) {
+          await rm(oldCoverPath, { force: true });
+        }
+        coverPathPatch = null;
+      } else if (typeof patch.coverUrl === 'string') {
+        const trimmedCover = patch.coverUrl.trim();
+        if (trimmedCover !== series.coverUrl) {
+          if (
+            oldCoverPath &&
+            resolve(oldCoverPath) === resolve(autoPosterPath) &&
+            resolve(trimmedCover) !== resolve(autoPosterPath)
+          ) {
+            await rm(oldCoverPath, { force: true });
+          }
+          coverPathPatch = trimmedCover;
+        }
+      } else if (
+        typeof patch.anilistId === 'number' &&
+        patch.anilistId !== series.anilistId &&
+        oldCoverPath &&
+        resolve(oldCoverPath) === resolve(autoPosterPath)
+      ) {
+        await rm(oldCoverPath, { force: true });
+        coverPathPatch = null;
+      }
+
+      const anilistPatch =
+        patch.anilistId === null ? null : typeof patch.anilistId === 'number' ? patch.anilistId : undefined;
+
+      repos.series.update(seriesId, {
+        ...(nextTitle !== undefined ? { title: nextTitle } : {}),
+        ...(coverPathPatch !== undefined ? { coverPath: coverPathPatch } : {}),
+        ...(anilistPatch !== undefined ? { anilistId: anilistPatch } : {}),
+      });
+
+      if (typeof patch.anilistId === 'number' || (typeof patch.coverUrl === 'string' && patch.coverUrl.trim() !== '')) {
+        const job = enrichSeriesCover(seriesId);
+        probes.add(job);
+        void job.finally(() => probes.delete(job));
+      }
+
+      deps.emit({ type: 'library-changed', scope: 'anime' });
+      return requireSeries(seriesId);
+    },
     async scanRoots(roots) {
       const configured = roots ?? deps.settings.get().library.animeRoots;
       const defaultDirs = process.env['VITEST'] ? [] : [deps.settings.get().downloads.downloadDir];
@@ -398,6 +494,7 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
           // Ignore unreadable directories
         }
       }
+      await syncExistingSeries().catch(() => undefined);
     },
     async removeSeries(seriesId, deleteFiles = false) {
       const series = requireSeries(seriesId);

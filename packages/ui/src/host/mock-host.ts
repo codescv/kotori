@@ -171,7 +171,7 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
   const putEpisode = (e: AnimeEpisode): void => void episodes.set(e.id, e);
 
   // ------------------------------------------------------ library imports
-  function importSeriesFrom(path: string, titleOverride?: string): AnimeSeries {
+  function importSeriesFrom(path: string, titleOverride?: string, anilistId?: number, coverUrl?: string): AnimeSeries {
     const template = animeFixtures[0];
     if (!template) throw new KotoriError('internal', 'no fixtures');
     const id = newId('series');
@@ -192,7 +192,16 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
       return { ...rest, id: epId, seriesId: id, subtitleTracks, filePath: `${path}/${e.fileName}`, mediaUrl: `mock://media/${epId}` };
     });
     eps.forEach(putEpisode);
-    const s: AnimeSeries = { id, title, sourcePath: path, episodeCount: eps.length, addedAt: Date.now(), ...(template.series.coverUrl ? { coverUrl: template.series.coverUrl } : {}) };
+    const resolvedCover = coverUrl ?? (anilistId !== undefined ? template.series.coverUrl : undefined);
+    const s: AnimeSeries = {
+      id,
+      title,
+      sourcePath: path,
+      episodeCount: eps.length,
+      addedAt: Date.now(),
+      ...(resolvedCover ? { coverUrl: resolvedCover } : {}),
+      ...(anilistId !== undefined ? { anilistId } : {}),
+    };
     series.set(id, s);
     emit({ type: 'library-changed', scope: 'anime' });
     return s;
@@ -383,7 +392,30 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
         track('anime.importSeries');
         await wait(latency * 3);
         if (!req.path.trim()) throw new KotoriError('invalid-argument', 'path is required');
-        return importSeriesFrom(req.path, req.titleOverride);
+        return importSeriesFrom(req.path, req.titleOverride, req.anilistId, req.coverUrl);
+      },
+      async updateSeries(seriesId, patch) {
+        track('anime.updateSeries');
+        await delay();
+        const cur = getSeries(seriesId);
+        const nextTitle = patch.title !== undefined && patch.title.trim() !== '' ? patch.title.trim() : cur.title;
+        const nextAnilistId = patch.anilistId === null ? undefined : (patch.anilistId ?? cur.anilistId);
+        const nextCoverUrl =
+          patch.coverUrl === null || (typeof patch.coverUrl === 'string' && patch.coverUrl.trim() === '')
+            ? undefined
+            : typeof patch.coverUrl === 'string'
+              ? patch.coverUrl.trim()
+              : cur.coverUrl;
+        const { anilistId: _a, coverUrl: _c, ...rest } = cur;
+        const updated: AnimeSeries = {
+          ...rest,
+          title: nextTitle,
+          ...(nextAnilistId !== undefined ? { anilistId: nextAnilistId } : {}),
+          ...(nextCoverUrl !== undefined ? { coverUrl: nextCoverUrl } : {}),
+        };
+        series.set(seriesId, updated);
+        emit({ type: 'library-changed', scope: 'anime' });
+        return updated;
       },
       async removeSeries(seriesId) {
         await delay();

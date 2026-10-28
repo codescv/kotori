@@ -112,7 +112,10 @@ function compareEpisodes(a: ScannedEpisode, b: ScannedEpisode): number {
 /** Most common parsed title among episodes (the series title), else folder name. */
 function inferTitle(episodes: readonly ScannedEpisode[], fallback: string): string {
   const counts = new Map<string, number>();
-  for (const e of episodes) if (e.parsedName.title) counts.set(e.parsedName.title, (counts.get(e.parsedName.title) ?? 0) + 1);
+  for (const e of episodes) {
+    const t = e.parsedName.title;
+    if (t && !/^\d{4}$/.test(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
   let best: string | undefined;
   let bestCount = 0;
   for (const [title, n] of counts) {

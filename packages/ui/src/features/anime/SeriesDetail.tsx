@@ -1,4 +1,4 @@
-/** Series detail: Fushi-style hero with cover, synopsis & metadata, actions (rescan · auto Jimaku · remove) and the episode list. */
+/** Series detail: Fushi-style hero with cover, synopsis & metadata, actions (edit · rescan · auto Jimaku · remove) and the episode list. */
 import { useEffect, useState } from 'react';
 import { useRouteStore } from '../../app/routes';
 import { Button } from '../../components/m3/Button';
@@ -11,6 +11,7 @@ import { useT } from '../../i18n';
 import { formatAnimeEpisodeTitle, formatAnimeSeriesTitle, formatClock } from '../../lib/cues';
 import { showSnackbar } from '../../stores/snackbar';
 import { fetchAniListByIds, fetchAniListBySearch, type AniListMediaInfo } from '../downloads/anilist';
+import { EditSeriesDialog } from './EditSeriesDialog';
 import { useAnimeStore } from './useAnimeStore';
 import './player/player.css';
 
@@ -30,26 +31,41 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   const episodes = useAnimeStore((s) => s.episodes[seriesId]);
   const loadEpisodes = useAnimeStore((s) => s.loadEpisodes);
   const [aniMeta, setAniMeta] = useState<AniListMediaInfo | undefined>();
+  const [suggestedMeta, setSuggestedMeta] = useState<AniListMediaInfo | undefined>();
+  const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
+
+  useEffect(() => {
+    setDismissedSuggestion(false);
+  }, [seriesId]);
 
   useEffect(() => {
     void loadEpisodes(host, seriesId);
   }, [host, seriesId, loadEpisodes]);
 
   useEffect(() => {
-    if (!series) return;
+    if (!series) {
+      setAniMeta(undefined);
+      setSuggestedMeta(undefined);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       if (series.anilistId !== undefined) {
+        setSuggestedMeta(undefined);
         const byId = await fetchAniListByIds([series.anilistId]);
         const hit = byId.get(series.anilistId);
-        if (hit && !cancelled) {
+        if (!cancelled) {
           setAniMeta(hit);
-          return;
         }
+        return;
       }
+      setAniMeta(undefined);
       const hit = await fetchAniListBySearch(series.title);
-      if (hit && hit.id < 900000 && !cancelled) setAniMeta(hit);
+      if (!cancelled) {
+        setSuggestedMeta(hit && hit.id < 900000 ? hit : undefined);
+      }
     })();
     return () => {
       cancelled = true;
@@ -63,12 +79,47 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
         .filter((x, i, a): x is string => Boolean(x) && x !== displaySeriesTitle && a.indexOf(x) === i)
         .join(' · ')
     : '';
+  const suggestedTitle = suggestedMeta
+    ? (suggestedMeta.nativeTitle ?? suggestedMeta.chineseTitle ?? suggestedMeta.romajiTitle ?? '')
+    : '';
+
+  const confirmSuggestedAniList = async (): Promise<void> => {
+    if (!series || !suggestedMeta) return;
+    try {
+      await host.anime.updateSeries(series.id, {
+        anilistId: suggestedMeta.id,
+        ...(suggestedMeta.coverUrl ? { coverUrl: suggestedMeta.coverUrl } : {}),
+      });
+      await useAnimeStore.getState().invalidate(host);
+      showSnackbar('已关联番剧信息');
+    } catch (e) {
+      showSnackbar(errMsg(e), { tone: 'error' });
+    }
+  };
 
   return (
     <div className="k-page">
       <header className="k-page__header">
         <IconButton icon="back" label={t('common.back')} onClick={() => useRouteStore.getState().goBack()} />
       </header>
+      {series && series.anilistId === undefined && suggestedMeta && !dismissedSuggestion && (
+        <div className="k-anilist-banner" data-testid="anilist-confirm-banner">
+          <span className="k-anilist-banner__text" lang="ja">
+            {`检测到候选番剧信息：「${suggestedTitle}」`}
+          </span>
+          <div className="k-anilist-banner__actions">
+            <Button variant="tonal" onClick={() => void confirmSuggestedAniList()} data-testid="anilist-confirm-accept-btn">
+              确认关联
+            </Button>
+            <Button variant="outlined" onClick={() => setEditOpen(true)}>
+              编辑信息
+            </Button>
+            <Button variant="text" onClick={() => setDismissedSuggestion(true)} data-testid="anilist-confirm-dismiss-btn">
+              忽略
+            </Button>
+          </div>
+        </div>
+      )}
       {series && (
         <section className="k-series-hero">
           {coverUrl ? (
@@ -118,7 +169,19 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
             )}
             <span className="k-body-small k-muted">{series.sourcePath}</span>
             <div className="k-row">
-              <Button variant="tonal" icon="refresh" onClick={() => void host.anime.rescanSeries(seriesId).catch((e: unknown) => showSnackbar(errMsg(e), { tone: 'error' }))}>
+              <Button variant="tonal" icon="edit" onClick={() => setEditOpen(true)} data-testid="edit-series-btn">
+                编辑信息
+              </Button>
+              <Button
+                variant="tonal"
+                icon="refresh"
+                onClick={() =>
+                  void host.anime
+                    .rescanSeries(seriesId)
+                    .then(() => useAnimeStore.getState().invalidate(host))
+                    .catch((e: unknown) => showSnackbar(errMsg(e), { tone: 'error' }))
+                }
+              >
                 {t('anime.series.rescan')}
               </Button>
               <Button
@@ -149,6 +212,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
           </div>
         </section>
       )}
+      {series && <EditSeriesDialog open={editOpen} series={series} onClose={() => setEditOpen(false)} />}
       {!episodes && (
         <div className="k-empty">
           <CircularProgress />

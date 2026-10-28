@@ -150,6 +150,20 @@ describe('scanAnimeFolder (directory)', () => {
   it('rejects a missing path', async () => {
     await expect(scanAnimeFolder(join(root, 'nope'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it('parses NogiKouji variety recordings and never picks a bare 4-digit year over folder fallback', async () => {
+    const dir = join(root, 'NogiKouji');
+    await touch('NogiKouji/2026-08-23_【公式】「乃木坂工事中」# 578「初耳46 前編」2026.08.23 OA_[cEE5gee6cx4].mp4', 'video1');
+    await touch('NogiKouji/2026-08-30_【公式】「乃木坂工事中」# 579「初耳46 後編」2026.08.30 OA_[dFF6hff7dy5].mp4', 'video2');
+    const scanned = await scanAnimeFolder(dir);
+    expect(scanned.title).toBe('乃木坂工事中');
+    expect(scanned.episodes.map((e) => e.parsedName.episode)).toEqual([578, 579]);
+
+    const yearOnlyDir = join(root, 'MyVarietyFolder');
+    await touch('MyVarietyFolder/2026.mp4', 'v');
+    const fallbackScanned = await scanAnimeFolder(yearOnlyDir);
+    expect(fallbackScanned.title).toBe('MyVarietyFolder');
+  });
 });
 
 describe('scanAnimeFolder (single file)', () => {

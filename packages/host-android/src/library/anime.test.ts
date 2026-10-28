@@ -146,4 +146,42 @@ describe('anime library', () => {
     const series = await t.host.anime.importSeries({ path: ROOT });
     await expect(t.host.anime.autoFetchJimaku(series.id)).rejects.toMatchObject({ code: 'invalid-argument' });
   });
+
+  it('auto-syncs added/deleted episodes on listEpisodes and supports updateSeries', async () => {
+    const t = await makeHost();
+    await seedSeries(t);
+    const series = await t.host.anime.importSeries({ path: ROOT });
+    expect(series.episodeCount).toBe(2);
+
+    // Add episode 3 without calling rescanSeries
+    const ep3Uri = video('[SubsPlease] Sousou no Frieren - 03 (1080p) [CDEF3456].mkv');
+    await t.fs.writeFile(ep3Uri, new Uint8Array(512));
+    const epsAfterAdd = await t.host.anime.listEpisodes(series.id);
+    expect(epsAfterAdd.map((e) => e.parsedName.episode)).toEqual([1, 2, 3]);
+    expect((await t.host.anime.getSeries(series.id)).episodeCount).toBe(3);
+
+    // Delete episode 2 and verify listSeries updates automatically
+    await t.fs.remove(video('[SubsPlease] Sousou no Frieren - 02 (1080p) [BCDE2345].mkv'));
+    expect((await t.host.anime.listSeries())[0]?.episodeCount).toBe(2);
+
+    // Update series title, link AniList, then unlink
+    const linked = await t.host.anime.updateSeries(series.id, {
+      title: '葬送のフリーレン',
+      anilistId: 154587,
+      coverUrl: 'https://example.com/frieren.jpg',
+    });
+    expect(linked).toMatchObject({
+      title: '葬送のフリーレン',
+      anilistId: 154587,
+      coverUrl: 'https://example.com/frieren.jpg',
+    });
+
+    const unlinked = await t.host.anime.updateSeries(series.id, {
+      anilistId: null,
+      coverUrl: null,
+    });
+    expect(unlinked.anilistId).toBeUndefined();
+    expect(unlinked.coverUrl).toBeUndefined();
+    expect(unlinked.title).toBe('葬送のフリーレン');
+  });
 });

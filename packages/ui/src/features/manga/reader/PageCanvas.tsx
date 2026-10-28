@@ -70,6 +70,10 @@ export interface ZoomPanProps {
   readonly onBlankTap?: (() => void) | undefined;
   /** Temporary vertical offset (in CSS px) to pan the active speech bubble above the mobile BottomSheet. */
   readonly avoidOffsetY?: number | undefined;
+  /** Target label shown when pulling rightward from the left edge (e.g. '下一页' in RTL, '上一页' in LTR). */
+  readonly leftTurnLabel?: string | undefined;
+  /** Target label shown when pulling leftward from the right edge (e.g. '上一页' in RTL, '下一页' in LTR). */
+  readonly rightTurnLabel?: string | undefined;
 }
 
 interface View {
@@ -155,6 +159,8 @@ export function ZoomPan({
   onEdgeTap,
   onBlankTap,
   avoidOffsetY = 0,
+  leftTurnLabel,
+  rightTurnLabel,
 }: ZoomPanProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -169,15 +175,22 @@ export function ZoomPan({
   viewRef.current = view;
 
   const [dragX, setDragX] = useState(0);
+  const [pullX, setPullX] = useState(0);
   const [gesturing, setGesturing] = useState(false);
 
   const [lastKey, setLastKey] = useState(resetKey);
   if (lastKey !== resetKey) {
     setLastKey(resetKey);
-    const nextView = { scale: 1, x: 0, y: initialY() };
+    const keptScale = viewRef.current.scale > 1.01 ? viewRef.current.scale : 1;
+    const nextY =
+      keptScale > 1.01
+        ? Math.max(0, ((contentSize?.height ?? 0) * keptScale - (stageSize?.height ?? 0)) / 2)
+        : initialY();
+    const nextView = { scale: keptScale, x: 0, y: nextY };
     setView(nextView);
     viewRef.current = nextView;
     if (dragX !== 0) setDragX(0);
+    if (pullX !== 0) setPullX(0);
     if (gesturing) setGesturing(false);
   }
 
@@ -299,6 +312,7 @@ export function ZoomPan({
       movedRef.current = true;
       pinchedRef.current = true;
       setDragX(0);
+      setPullX(0);
       setGesturing(true);
     } else if (pts.length === 1 && !pinchedRef.current) {
       const p = pts[0]!;
@@ -328,6 +342,7 @@ export function ZoomPan({
       movedRef.current = true;
       pinchedRef.current = true;
       setDragX(0);
+      setPullX(0);
       setGesturing(true);
       const dist = Math.max(10, Math.hypot(a.x - b.x, a.y - b.y));
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -349,6 +364,7 @@ export function ZoomPan({
         if (viewRef.current.scale < 1) {
           updateView({ scale: 1, x: 0, y: initialY() });
         }
+        setPullX(0);
         singleRef.current = { start: { x: p.x, y: p.y }, last: { x: p.x, y: p.y }, target: null, overscrollX: 0 };
         return;
       }
@@ -374,9 +390,11 @@ export function ZoomPan({
         const rawOverscrollX = nextUnclampedX - nextView.x;
         if (Math.abs(rawOverscrollX) > 0.5 && (s.overscrollX !== 0 || Math.abs(stepX) > Math.abs(stepY) * 0.8)) {
           s.overscrollX = rawOverscrollX;
+          setPullX(rawOverscrollX);
           setDragX(Math.sign(rawOverscrollX) * Math.min(Math.abs(rawOverscrollX) * 0.45, 90));
         } else {
           s.overscrollX = 0;
+          setPullX(0);
           setDragX(0);
         }
         updateView(nextView);
@@ -385,9 +403,13 @@ export function ZoomPan({
         const ch = contentSize && contentSize.height > 0 ? contentSize.height : sh;
         const maxY = Math.max(0, (ch - sh) / 2);
         if (maxY > 2 && Math.abs(dy) >= Math.abs(dx)) {
+          setPullX(0);
           updateView((v) => clampView({ scale: 1, x: 0, y: v.y + stepY }, rect));
         } else if (Math.abs(dx) > Math.abs(dy)) {
           setDragX(Math.sign(dx) * Math.min(Math.abs(dx) * 0.45, 90));
+          setPullX(Math.abs(dx) > Math.abs(dy) * 1.15 ? dx : 0);
+        } else {
+          setPullX(0);
         }
       }
     }
@@ -395,6 +417,7 @@ export function ZoomPan({
 
   const finishAllPoints = (rect: BoxRect) => {
     setDragX(0);
+    setPullX(0);
     setGesturing(false);
     if (viewRef.current.scale < 1) {
       updateView({ scale: 1, x: 0, y: initialY() });
@@ -476,11 +499,21 @@ export function ZoomPan({
     movedRef.current = false;
     pinchedRef.current = false;
     setDragX(0);
+    setPullX(0);
     setGesturing(false);
     if (viewRef.current.scale < 1) {
       updateView({ scale: 1, x: 0, y: initialY() });
     }
   };
+
+  const edgeSide = pullX > 0 ? 'left' : 'right';
+  const edgeTargetLabel =
+    Math.abs(pullX) >= 12
+      ? edgeSide === 'left'
+        ? (leftTurnLabel ?? (onSwipeRight ? '翻页' : undefined))
+        : (rightTurnLabel ?? (onSwipeLeft ? '翻页' : undefined))
+      : undefined;
+  const edgeArmed = Math.abs(pullX) >= 42;
 
   return (
     <div
@@ -569,6 +602,18 @@ export function ZoomPan({
       >
         {children}
       </div>
+      {edgeTargetLabel !== undefined && (
+        <div
+          className={cx('k-zoompan__edge-hint', `k-zoompan__edge-hint--${edgeSide}`, edgeArmed && 'is-armed')}
+          data-testid="edge-turn-indicator"
+          data-side={edgeSide}
+          data-armed={edgeArmed ? 'true' : 'false'}
+          aria-hidden="true"
+        >
+          <span className="k-zoompan__edge-arrow">{edgeSide === 'left' ? '‹' : '›'}</span>
+          <span className="k-zoompan__edge-text">{edgeArmed ? `松手${edgeTargetLabel}` : `继续拖动${edgeTargetLabel}`}</span>
+        </div>
+      )}
     </div>
   );
 }

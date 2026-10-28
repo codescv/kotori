@@ -103,6 +103,26 @@ describe('parseEpisodeName', () => {
     expect(p.title).toBe('Just A Title');
     expect(Object.keys(p).sort()).toEqual(['isBatch', 'raw', 'title']);
   });
+
+  it('parses variety / YouTube TV recordings with full dates, 【公式】, 「Show」 and spaced # episode without misdetecting a batch', () => {
+    const p = parseEpisodeName('2026-08-23_【公式】「乃木坂工事中」# 578「初耳46 前編」2026.08.23 OA_[cEE5gee6cx4].mp4');
+    expect(p).toMatchObject({
+      title: '乃木坂工事中',
+      episode: 578,
+      year: 2026,
+      isBatch: false,
+    });
+    expect(p.episodeRange).toBeUndefined();
+
+    const p2 = parseEpisodeName('2026-08-30_【公式】「乃木坂工事中」#579「初耳46 後編」2026.08.30 OA_[AbC_123-xYz].mp4');
+    expect(p2).toMatchObject({
+      title: '乃木坂工事中',
+      episode: 579,
+      year: 2026,
+      isBatch: false,
+    });
+    expect(p2.episodeRange).toBeUndefined();
+  });
 });
 
 describe('parseJapaneseNumber', () => {

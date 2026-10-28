@@ -14,9 +14,10 @@ export interface DialogProps {
   readonly className?: string | undefined;
   /** Wide variant for forms / path browsers. */
   readonly wide?: boolean;
+  readonly 'data-testid'?: string | undefined;
 }
 
-export function Dialog({ open, onClose, title, icon, children, actions, className, wide }: DialogProps) {
+export function Dialog({ open, onClose, title, icon, children, actions, className, wide, 'data-testid': testId }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -34,7 +35,14 @@ export function Dialog({ open, onClose, title, icon, children, actions, classNam
   if (!open) return null;
   const node = (
     <div className="k-dialog-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} className={cx('k-dialog', wide && 'k-dialog--wide', className)} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
+      <div
+        ref={ref}
+        className={cx('k-dialog', wide && 'k-dialog--wide', className)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeof title === 'string' ? title : undefined}
+        data-testid={testId}
+      >
         {icon && <Icon name={icon} className="k-dialog__icon" />}
         <h2 className="k-dialog__headline">{title}</h2>
         <div className="k-dialog__content">{children}</div>

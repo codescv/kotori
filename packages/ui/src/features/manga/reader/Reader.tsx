@@ -460,9 +460,11 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
     <div
       className={cx('k-bubble-step', `k-bubble-step--${variant}`, variant === 'floating' && isLastSpread && nextVolume && onOpenVolume && 'is-raised')}
       role="group"
+      title="按阅读顺序逐个点读本页台词气泡 (快捷键 [ / ])"
       aria-label={t('manga.reader.bubbleStep', { current: activeStep + 1, total: stepBubbles.length })}
     >
       <IconButton icon="chevronLeft" size="small" label={t('manga.reader.prevBubble')} onClick={() => stepBubble(-1)} data-testid="bubble-step-prev" />
+      <span className="k-bubble-step__label k-label-medium" aria-hidden="true">💬 台词</span>
       <span className="k-bubble-step__count k-label-medium" data-testid="bubble-step-count">
         {`${activeStep >= 0 ? activeStep + 1 : '–'}/${stepBubbles.length}`}
       </span>
@@ -571,8 +573,10 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                   resetKey={spreadIdx}
                   stageSize={stage}
                   contentSize={spreadBox ? { width: spreadBox.width, height: spreadBox.height } : undefined}
-                  onSwipeLeft={rtl ? goPrev : goNext}
-                  onSwipeRight={rtl ? goNext : goPrev}
+                  onSwipeLeft={(rtl ? spreadIdx > 0 : spreadIdx < spreads.length - 1) ? (rtl ? goPrev : goNext) : undefined}
+                  onSwipeRight={(rtl ? spreadIdx < spreads.length - 1 : spreadIdx > 0) ? (rtl ? goNext : goPrev) : undefined}
+                  leftTurnLabel={(rtl ? spreadIdx < spreads.length - 1 : spreadIdx > 0) ? (rtl ? t('manga.reader.next') : t('manga.reader.prev')) : undefined}
+                  rightTurnLabel={(rtl ? spreadIdx > 0 : spreadIdx < spreads.length - 1) ? (rtl ? t('manga.reader.prev') : t('manga.reader.next')) : undefined}
                   onEdgeTap={handleEdgeTap}
                   onBlankTap={toggleImmersive}
                   avoidOffsetY={avoidOffsetY}

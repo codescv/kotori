@@ -12,6 +12,7 @@ import type {
   AiCallOptions,
   AiSettings,
   AnimeImportRequest,
+  AnimeSeriesUpdatePatch,
   DictionaryImportSource,
   DownloadRequest,
   ExplainRequest,
@@ -241,6 +242,12 @@ export const ROUTES: RouteTable = {
     path: '/api/anime/series',
     encode: (request: AnimeImportRequest) => req({}, {}, request),
     decode: (w) => [body<AnimeImportRequest>(w)],
+  },
+  'anime.updateSeries': {
+    method: 'PATCH',
+    path: '/api/anime/series/:seriesId',
+    encode: (seriesId: Id, patch: AnimeSeriesUpdatePatch) => req({ seriesId }, {}, patch),
+    decode: (w) => [p(w, 'seriesId'), body<AnimeSeriesUpdatePatch>(w)],
   },
   'anime.removeSeries': {
     method: 'DELETE',

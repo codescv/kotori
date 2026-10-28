@@ -348,6 +348,74 @@ describe('anime library', () => {
     await mkdir(empty);
     await expect(h.host.anime.importSeries({ path: empty })).rejects.toMatchObject({ code: 'invalid-argument' });
   });
+
+  it('automatically syncs added and deleted video/subtitle files on listEpisodes and listSeries while preserving progress', async () => {
+    const show = await makeShow();
+    const series = await h.host.anime.importSeries({ path: show });
+    const initialEps = await h.host.anime.listEpisodes(series.id);
+    expect(initialEps).toHaveLength(2);
+    const ep1 = initialEps[0]!;
+    await h.host.anime.saveProgress(ep1.id, { positionMs: 34_500, durationMs: 1_400_000, updatedAt: 1_700_000_010_000 });
+
+    // Add episode 3 + sidecar subtitle directly on disk without calling rescanSeries
+    await writeFile(join(show, '[Grp] Show - 03 (1080p).mp4'), new Uint8Array(512));
+    await writeFile(join(show, '[Grp] Show - 03 (1080p).ja.srt'), SRT);
+
+    const syncedEps = await h.host.anime.listEpisodes(series.id);
+    expect(syncedEps.map((e) => e.parsedName.episode)).toEqual([1, 2, 3]);
+    expect(syncedEps[2]?.subtitleTracks).toHaveLength(1);
+    expect(syncedEps[0]?.progress?.positionMs).toBe(34_500);
+    expect((await h.host.anime.listSeries()).find((s) => s.id === series.id)?.episodeCount).toBe(3);
+
+    // Delete episode 2 from disk and verify listSeries / listEpisodes prune it automatically
+    await rm(join(show, '[Grp] Show - 02 (1080p).mkv'));
+    expect((await h.host.anime.listSeries()).find((s) => s.id === series.id)?.episodeCount).toBe(2);
+    const afterDelete = await h.host.anime.listEpisodes(series.id);
+    expect(afterDelete.map((e) => e.parsedName.episode)).toEqual([1, 3]);
+  });
+
+  it('does not silently query AniList for unlinked series, and supports updateSeries for editing title, linking and unlinking', async () => {
+    const nogiDir = join(h.dir, 'NogiKouji');
+    await mkdir(nogiDir, { recursive: true });
+    await writeFile(
+      join(nogiDir, '2026-08-23_【公式】「乃木坂工事中」# 578「初耳46 前編」2026.08.23 OA_[cEE5gee6cx4].mp4'),
+      new Uint8Array(1024),
+    );
+    const imported = await h.host.anime.importSeries({ path: nogiDir });
+    expect(imported.title).toBe('乃木坂工事中');
+    expect(imported.anilistId).toBeUndefined();
+    expect(h.fetchLog.some((u) => u.includes('anilist.co'))).toBe(false);
+
+    // Link AniList + custom title + cover URL
+    const linked = await h.host.anime.updateSeries(imported.id, {
+      title: '乃木坂工事中（公式）',
+      anilistId: 130003,
+      coverUrl: 'https://example.com/custom-cover.jpg',
+    });
+    expect(linked).toMatchObject({
+      title: '乃木坂工事中（公式）',
+      anilistId: 130003,
+      coverUrl: 'https://example.com/custom-cover.jpg',
+    });
+
+    // Simulate auto-fetched poster.jpg on disk, then unlink and clear cover
+    const posterPath = join(nogiDir, 'poster.jpg');
+    await writeFile(posterPath, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    await h.host.anime.rescanSeries(imported.id);
+
+    const unlinked = await h.host.anime.updateSeries(imported.id, {
+      title: 'NogiKouji',
+      anilistId: null,
+      coverUrl: null,
+    });
+    expect(unlinked.title).toBe('NogiKouji');
+    expect(unlinked.anilistId).toBeUndefined();
+    expect(unlinked.coverUrl).toBeUndefined();
+    // Rescanning must not resurrect deleted poster.jpg
+    const afterRescan = await h.host.anime.rescanSeries(imported.id);
+    expect(afterRescan.coverUrl).toBeUndefined();
+    expect(afterRescan.anilistId).toBeUndefined();
+  });
 });
 
 describe('manga library', () => {

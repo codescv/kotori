@@ -106,6 +106,7 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
     listEpisodes: (id) => animeLib.listEpisodes(id),
     getEpisode: (id) => animeLib.getEpisode(id),
     importSeries: (request) => animeLib.importSeries(request),
+    updateSeries: (id, patch) => animeLib.updateSeries(id, patch),
     removeSeries: (id, deleteFiles) => animeLib.removeSeries(id, deleteFiles),
     rescanSeries: (id) => animeLib.rescanSeries(id),
     getCues: (trackId) => animeLib.getCues(trackId),

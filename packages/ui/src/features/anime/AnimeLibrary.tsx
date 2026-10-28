@@ -8,7 +8,7 @@ import { FilledCard, OutlinedCard } from '../../components/m3/Card';
 import { CircularProgress } from '../../components/m3/Progress';
 import { useT } from '../../i18n';
 import { formatAnimeSeriesTitle } from '../../lib/cues';
-import { fetchAniListByIds, fetchAniListBySearch, type AniListMediaInfo } from '../downloads/anilist';
+import { fetchAniListByIds, type AniListMediaInfo } from '../downloads/anilist';
 import { ImportSeriesDialog } from './ImportSeriesDialog';
 import { useAnimeStore } from './useAnimeStore';
 import './player/player.css';
@@ -17,7 +17,10 @@ function useSeriesMetadata(seriesList: readonly AnimeSeries[] | undefined): Read
   const [metaBySeriesId, setMetaBySeriesId] = useState<Readonly<Record<string, AniListMediaInfo>>>({});
 
   useEffect(() => {
-    if (!seriesList || seriesList.length === 0) return;
+    if (!seriesList || seriesList.length === 0) {
+      setMetaBySeriesId({});
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const next: Record<string, AniListMediaInfo> = {};
@@ -29,15 +32,8 @@ function useSeriesMetadata(seriesList: readonly AnimeSeries[] | undefined): Read
           if (hit) next[s.id] = hit;
         }
       }
-      await Promise.all(
-        seriesList.map(async (s) => {
-          if (next[s.id]) return;
-          const hit = await fetchAniListBySearch(s.title);
-          if (hit && hit.id < 900000) next[s.id] = hit;
-        }),
-      );
-      if (!cancelled && Object.keys(next).length > 0) {
-        setMetaBySeriesId((prev) => ({ ...prev, ...next }));
+      if (!cancelled) {
+        setMetaBySeriesId(next);
       }
     })();
     return () => {

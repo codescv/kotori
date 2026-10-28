@@ -37,6 +37,7 @@ export const SAMPLE_ARGS: { readonly [K in RoutedMethodKey]: WireArgs<K> } = {
   'anime.listEpisodes': ['sr_1'],
   'anime.getEpisode': ['ep_1'],
   'anime.importSeries': [{ path: '/tmp/anime', titleOverride: 'Show' }],
+  'anime.updateSeries': ['sr_1', { title: 'Updated' }],
   'anime.removeSeries': ['sr_1', true],
   'anime.rescanSeries': ['sr_1'],
   'anime.getCues': ['tr_1'],

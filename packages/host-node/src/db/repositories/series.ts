@@ -94,6 +94,29 @@ export class SeriesRepository {
     );
   }
 
+  update(
+    id: Id,
+    patch: { readonly title?: string; readonly coverPath?: string | null; readonly anilistId?: number | null },
+  ): void {
+    const sets: string[] = [];
+    const args: Array<string | number | null> = [];
+    if (patch.title !== undefined) {
+      sets.push('title = ?');
+      args.push(patch.title);
+    }
+    if (patch.coverPath !== undefined) {
+      sets.push('cover_path = ?');
+      args.push(patch.coverPath);
+    }
+    if (patch.anilistId !== undefined) {
+      sets.push('anilist_id = ?');
+      args.push(patch.anilistId);
+    }
+    if (sets.length === 0) return;
+    args.push(id);
+    run(this.db, `UPDATE anime_series SET ${sets.join(', ')} WHERE id = ?`, ...args);
+  }
+
   touchWatched(id: Id, episodeId: Id, at: EpochMs): void {
     run(this.db, 'UPDATE anime_series SET last_watched_episode_id = ?, last_watched_at = ? WHERE id = ?', episodeId, at, id);
   }

@@ -7,6 +7,7 @@ import {
   cueIndexAt,
   cueJapaneseText,
   cueOffsetToSentenceIndex,
+  formatAnimeSeriesTitle,
   formatClock,
   mergeCuesToSentence,
   mergePerCharacterCueGroups,
@@ -158,5 +159,21 @@ describe('shared subtitle explain context (single click ≡ batch pre-explain)',
     // Merged range: before the first row, after the last row, no single speaker.
     expect(subtitleExplainContext(rows, 1, 2)).toEqual({ contextBefore: ['[湊] おはよう。'], contextAfter: ['そうかな？'] });
     expect(subtitleExplainContext(rows, -1)).toEqual({});
+  });
+});
+
+describe('formatAnimeSeriesTitle', () => {
+  it('preserves user/folder ASCII and custom titles without letting AniList overwrite them', () => {
+    expect(formatAnimeSeriesTitle({ title: 'NogiKouji' }, { nativeTitle: '攻殻機動隊', chineseTitle: '攻壳机动队' })).toBe('NogiKouji');
+    expect(formatAnimeSeriesTitle({ title: '乃木坂工事中' }, { nativeTitle: '攻殻機動隊' })).toBe('乃木坂工事中');
+  });
+
+  it('replaces uncleaned release filenames with AniList metadata or parsed title', () => {
+    expect(
+      formatAnimeSeriesTitle(
+        { title: '[SubsPlease] Sousou no Frieren - 01 (1080p) [ABCD1234].mkv' },
+        { nativeTitle: '葬送のフリーレン' },
+      ),
+    ).toBe('葬送のフリーレン');
   });
 });

@@ -22,6 +22,7 @@ const ANIME_METHODS: Record<keyof AnimeApi, true> = {
   listEpisodes: true,
   getEpisode: true,
   importSeries: true,
+  updateSeries: true,
   removeSeries: true,
   rescanSeries: true,
   getCues: true,

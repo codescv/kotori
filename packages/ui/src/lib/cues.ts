@@ -112,14 +112,11 @@ export function formatAnimeSeriesTitle(
 ): string {
   if (!series) return meta?.nativeTitle ?? meta?.chineseTitle ?? meta?.romajiTitle ?? '';
   const raw = series.title.trim();
-  if (meta?.nativeTitle && (isRawMediaFileName(raw) || /^[\x20-\x7E]+$/.test(raw))) {
-    return meta.nativeTitle;
+  if (!isRawMediaFileName(raw)) {
+    return raw;
   }
-  if (isRawMediaFileName(raw)) {
-    const parsed = parseEpisodeName(raw).title.trim();
-    if (parsed) return meta?.nativeTitle ?? meta?.chineseTitle ?? parsed;
-  }
-  return raw;
+  const parsed = parseEpisodeName(raw).title.trim();
+  return meta?.nativeTitle ?? meta?.chineseTitle ?? (parsed || raw);
 }
 
 /**

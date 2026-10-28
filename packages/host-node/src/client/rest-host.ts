@@ -114,6 +114,7 @@ export const createRestPlatformHost: CreateRestPlatformHost = (options = {}) => 
       listEpisodes: (id) => call('anime.listEpisodes', id),
       getEpisode: (id) => call('anime.getEpisode', id),
       importSeries: (request) => call('anime.importSeries', request),
+      updateSeries: (id, patch) => call('anime.updateSeries', id, patch),
       removeSeries: (id, deleteFiles) => (deleteFiles === undefined ? call('anime.removeSeries', id) : call('anime.removeSeries', id, deleteFiles)),
       rescanSeries: (id) => call('anime.rescanSeries', id),
       getCues: (trackId) => call('anime.getCues', trackId),

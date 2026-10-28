@@ -285,7 +285,10 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
     episodes.sort(sortEpisodes);
 
     const titles = new Map<string, number>();
-    for (const e of episodes) if (e.parsedName.title !== '') titles.set(e.parsedName.title, (titles.get(e.parsedName.title) ?? 0) + 1);
+    for (const e of episodes) {
+      const t = e.parsedName.title;
+      if (t !== '' && !/^\d{4}$/.test(t)) titles.set(t, (titles.get(t) ?? 0) + 1);
+    }
     const commonTitle = [...titles.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
     const resolvedAnilistId = anilistId ?? existing?.anilistId;
     const resolvedCoverUrl = coverUrl ?? existing?.coverUrl;
@@ -315,6 +318,57 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
     await tx.done;
     ctx.emit({ type: 'library-changed', scope: 'anime' });
     return series;
+  };
+
+  const syncExistingSeries = async (targetSeriesId?: string): Promise<void> => {
+    const targets =
+      targetSeriesId !== undefined
+        ? [await db.get('series', targetSeriesId)].filter((s): s is StoredSeries => s !== undefined)
+        : await db.getAll('series');
+    for (const series of targets) {
+      const rootStat = await deps.fs.stat(series.sourcePath).catch(() => undefined);
+      if (!rootStat) continue;
+      const scan = await scanMedia(series.sourcePath).catch(() => undefined);
+      if (!scan) continue;
+      const oldEpisodes = (await db.getAllFromIndex('episodes', 'bySeries', series.id)).sort(sortEpisodes);
+      const oldTracks = (
+        await Promise.all(oldEpisodes.map((e) => db.getAllFromIndex('tracks', 'byEpisode', e.id)))
+      ).flat();
+      const sidecars = matchSidecars(scan.videos, scan.subs);
+      const scannedVideos = [...scan.videos].sort((a, b) => {
+        const ea = parseEpisodeName(a.name).episode ?? Number.MAX_SAFE_INTEGER;
+        const eb = parseEpisodeName(b.name).episode ?? Number.MAX_SAFE_INTEGER;
+        return ea - eb || compareNatural(a.name, b.name);
+      });
+      const changed =
+        scannedVideos.length !== oldEpisodes.length ||
+        scannedVideos.some((v, i) => {
+          const cur = oldEpisodes[i];
+          if (!cur) return true;
+          if (v.path !== cur.filePath || v.sizeBytes !== cur.sizeBytes) return true;
+          const scPaths = (sidecars.get(v.path) ?? []).map((s) => s.path).sort();
+          const curPaths = oldTracks
+            .filter((t) => t.episodeId === cur.id && t.origin === 'external' && t.filePath !== undefined)
+            .map((t) => t.filePath!)
+            .sort();
+          return scPaths.length !== curPaths.length || scPaths.some((p, k) => p !== curPaths[k]);
+        });
+      if (!changed) continue;
+      await progress.flushAll();
+      const freshSeries = (await db.get('series', series.id)) ?? series;
+      if (scannedVideos.length === 0) {
+        const tx = db.transaction(['series', 'episodes', 'tracks'], 'readwrite');
+        await Promise.all([
+          tx.objectStore('series').put({ ...freshSeries, episodeCount: 0 }),
+          ...oldEpisodes.map((e) => tx.objectStore('episodes').delete(e.id)),
+          ...oldTracks.map((t) => tx.objectStore('tracks').delete(t.id)),
+        ]);
+        await tx.done;
+        ctx.emit({ type: 'library-changed', scope: 'anime' });
+      } else {
+        await scanSeries(freshSeries.sourcePath, freshSeries.title, freshSeries);
+      }
+    }
   };
 
   const addTrackFromFile = async (episodeId: string, options: AddTrackFileOptions): Promise<SubtitleTrack> => {
@@ -368,12 +422,18 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
 
   return {
     async listSeries() {
+      await syncExistingSeries().catch(() => undefined);
       const all = await db.getAll('series');
       return all.sort((a, b) => (b.lastWatchedAt ?? b.addedAt) - (a.lastWatchedAt ?? a.addedAt) || compareNatural(a.title, b.title));
     },
-    getSeries: requireSeries,
+    async getSeries(seriesId) {
+      await requireSeries(seriesId);
+      await syncExistingSeries(seriesId).catch(() => undefined);
+      return requireSeries(seriesId);
+    },
     async listEpisodes(seriesId) {
       await requireSeries(seriesId);
+      await syncExistingSeries(seriesId).catch(() => undefined);
       const episodes = await db.getAllFromIndex('episodes', 'bySeries', seriesId);
       return Promise.all(episodes.sort(sortEpisodes).map(hydrate));
     },
@@ -384,6 +444,27 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
       if (request.path === '') throw new KotoriError('invalid-argument', 'path is required');
       const existing = await db.get('series', stableId('ser', request.path));
       return scanSeries(request.path, request.titleOverride, existing, request.anilistId, request.coverUrl);
+    },
+    async updateSeries(seriesId, patch) {
+      const cur = await requireSeries(seriesId);
+      const nextTitle = patch.title !== undefined && patch.title.trim() !== '' ? patch.title.trim() : cur.title;
+      const nextAnilistId = patch.anilistId === null ? undefined : (patch.anilistId ?? cur.anilistId);
+      const nextCoverUrl =
+        patch.coverUrl === null || (typeof patch.coverUrl === 'string' && patch.coverUrl.trim() === '')
+          ? undefined
+          : typeof patch.coverUrl === 'string'
+            ? patch.coverUrl.trim()
+            : cur.coverUrl;
+      const { anilistId: _a, coverUrl: _c, ...rest } = cur;
+      const updated: StoredSeries = {
+        ...rest,
+        title: nextTitle,
+        ...(nextAnilistId !== undefined ? { anilistId: nextAnilistId } : {}),
+        ...(nextCoverUrl !== undefined ? { coverUrl: nextCoverUrl } : {}),
+      };
+      await db.put('series', updated);
+      ctx.emit({ type: 'library-changed', scope: 'anime' });
+      return updated;
     },
     async removeSeries(seriesId, deleteFiles = false) {
       await requireSeries(seriesId);

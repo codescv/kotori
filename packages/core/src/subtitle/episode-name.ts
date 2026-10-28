@@ -255,8 +255,8 @@ function findEpisode(text: string, allowTrailing: boolean): EpisodeHit | undefin
   // 01v2 anywhere
   m = /(?:^|\s)(\d{1,4})v(\d+)(?=$|\s)/.exec(text);
   if (m) return withVersion({ index: m.index, episode: toInt(m[1]) as number }, m[2]);
-  // #05
-  m = /#(\d{1,4})\b/.exec(text);
+  // #05 / # 578
+  m = /#\s*(\d{1,4})\b/.exec(text);
   if (m) return { index: m.index, episode: toInt(m[1]) as number };
   // Trailing bare number: "Title 05", "Title 05 END" (not "Season 2"; skipped when a
   // bracket such as `[01]` already names the episode).
@@ -327,6 +327,21 @@ function parseUnsafe(fileName: string): ParsedEpisodeName {
 
   // Scene style (`Title.S01E02.1080p.WEB-DL.x264-GRP`): dots/underscores are separators.
   const scene = !/\s/.test(work) && /[._]/.test(work);
+
+  // Strip standalone YouTube 11-char video ID brackets at the end (`_[cEE5gee6cx4]`), unless they hold release tags.
+  work = work.replace(/(?:[\s_]+)\[([A-Za-z0-9_-]{11})\]\s*$/, (whole, id: string) => {
+    const probe: Draft = {};
+    const spaced = id.replace(/_/g, ' ');
+    if (
+      collectTags(spaced, probe) ||
+      /\b(?:batch|complete|dual[ -]?audio|multi[ -]?subs?|raw|eng?\s*subs?)\b/i.test(spaced) ||
+      episodeFromBracket(spaced) !== undefined
+    ) {
+      return whole;
+    }
+    return ' '.repeat(whole.length);
+  });
+
   if (scene) {
     const groupMatch = /-([A-Za-z0-9]+)$/.exec(work);
     if (groupMatch && /[._]/.test(work.slice(0, groupMatch.index))) {
@@ -337,6 +352,13 @@ function parseUnsafe(fileName: string): ParsedEpisodeName {
         work = before;
       }
     }
+    work = work.replace(
+      /(?:^|(?<=[\s._]))((?:19|20)\d{2})[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])(?:[\s._]*OA)?(?=$|[\s._])/gi,
+      (m, yr: string) => {
+        draft.year ??= Number.parseInt(yr, 10);
+        return ' '.repeat(m.length);
+      },
+    );
     // Keep `H.264` and audio channel layouts (`AAC2.0`, `DDP5.1`) intact before splitting on dots.
     work = work.replace(/(H|x)\.(26[45])/gi, '$1$2').replace(/(\d)\.([01])(?=$|[._-])/g, '$1\u0000$2');
     work = work.replace(/[._]/g, ' ').replace(/\u0000/g, '.');
@@ -344,13 +366,23 @@ function parseUnsafe(fileName: string): ParsedEpisodeName {
     work = work.replace(/_/g, ' ');
   }
 
+  // Strip full calendar dates (`2026-08-23`, `2026.08.23 OA`) so they are never misread as episode ranges or titles.
+  work = work.replace(
+    /\b((?:19|20)\d{2})[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])(?:\s*OA\b)?/gi,
+    (m, yr: string) => {
+      draft.year ??= Number.parseInt(yr, 10);
+      return ' '.repeat(m.length);
+    },
+  );
+
   const { rest, brackets } = extractBrackets(work);
   const titleCandidates: string[] = [];
   let bracketEpisode: EpisodeHit | undefined;
 
   brackets.forEach((b, i) => {
     const c = b.content;
-    if (b.kind === 'quote' || c === '') return; // episode subtitle 「…」 → ignore
+    if (b.kind === 'quote' || c === '') return; // quote brackets are handled after episode marker detection
+    if (b.kind === 'lenticular' && /^(?:公式|おまけ.*|予告|特報|PV|CM)$/i.test(c)) return;
     if (RE_CRC.test(c) && /\d/.test(c) && b.kind === 'square') {
       draft.crc32 = c.toUpperCase();
       return;
@@ -374,6 +406,10 @@ function parseUnsafe(fileName: string): ParsedEpisodeName {
       if (yr && draft.year === undefined) draft.year = Number.parseInt(yr[1] as string, 10);
       return;
     }
+    // Ignore trailing standalone YouTube 11-char ID brackets as title candidates.
+    if (b.kind === 'square' && b.index > 0 && rest.slice(b.index).trim() === '' && /^[A-Za-z0-9_-]{11}$/.test(c)) {
+      return;
+    }
     // Free text: a leading `[...]` is the release group, the rest are title candidates.
     if (i === 0 && rest.slice(0, b.index).trim() === '' && b.kind !== 'paren' && draft.releaseGroup === undefined) {
       draft.releaseGroup = c;
@@ -395,8 +431,17 @@ function parseUnsafe(fileName: string): ParsedEpisodeName {
   if (hit) {
     applyHit(draft, hit);
     titleText = head.slice(0, hit.index);
+    const preEpisodeQuotes = brackets
+      .filter((b) => b.kind === 'quote' && b.content !== '' && b.index < hit.index)
+      .map((b) => b.content);
+    if (preEpisodeQuotes.length > 0) {
+      titleCandidates.unshift(...preEpisodeQuotes);
+    }
   } else if (bracketEpisode) {
     applyHit(draft, bracketEpisode);
+  } else if (cleanTitle(titleText) === '' && titleCandidates.length === 0 && draft.releaseGroup === undefined) {
+    const firstQuote = brackets.find((b) => b.kind === 'quote' && b.content !== '');
+    if (firstQuote) titleCandidates.push(firstQuote.content);
   }
 
   // Season markers left in the title: `S2` / `Season 2` are removed, `2nd Season` / `第2期` kept.

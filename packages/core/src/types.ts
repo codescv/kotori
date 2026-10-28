@@ -1406,12 +1406,21 @@ export interface AnimeImportRequest {
   readonly coverUrl?: string;
 }
 
+export interface AnimeSeriesUpdatePatch {
+  readonly title?: string;
+  /** Pass `null` to unlink AniList metadata. */
+  readonly anilistId?: number | null;
+  /** Pass `null` to clear cover URL / auto-fetched poster. */
+  readonly coverUrl?: string | null;
+}
+
 export interface AnimeApi {
   listSeries(): Promise<readonly AnimeSeries[]>;
   getSeries(seriesId: Id): Promise<AnimeSeries>;
   listEpisodes(seriesId: Id): Promise<readonly AnimeEpisode[]>;
   getEpisode(episodeId: Id): Promise<AnimeEpisode>;
   importSeries(request: AnimeImportRequest): Promise<AnimeSeries>;
+  updateSeries(seriesId: Id, patch: AnimeSeriesUpdatePatch): Promise<AnimeSeries>;
   removeSeries(seriesId: Id, deleteFiles?: boolean): Promise<void>;
   /** Re-scan the series folder for new episodes / sidecar subtitles. */
   rescanSeries(seriesId: Id): Promise<AnimeSeries>;

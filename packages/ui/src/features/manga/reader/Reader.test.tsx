@@ -348,15 +348,27 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     await new Promise((r) => setTimeout(r, 270));
     expect(useBreakdownStore.getState().isOpen).toBe(false);
 
-    // 2. While zoomed in (2.00x), single-finger drag past the right boundary (overscrollX >= 42) turns to next page (page 2 in RTL)
+    // 2. While zoomed in (2.00x), single-finger drag past the horizontal boundary shows edge-turn-indicator, turns to next page (page 2 in RTL), and preserves 2.00x zoom
+    // At 2.00x on a 1000px stage, view.x starts at +96 and maxX is +500; clientX=524 pans +424px -> overscrollX = +20px
     fireEvent.touchStart(zp, { touches: [{ clientX: 100, clientY: 400 }] });
-    fireEvent.touchMove(zp, { touches: [{ clientX: 550, clientY: 405 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 524, clientY: 402 }] });
+    const partialHint = screen.getByTestId('edge-turn-indicator');
+    expect(partialHint.dataset['side']).toBe('left');
+    expect(partialHint.dataset['armed']).toBe('false');
+    expect(partialHint).toHaveTextContent('继续拖动下一页');
+
+    fireEvent.touchMove(zp, { touches: [{ clientX: 560, clientY: 405 }] });
     fireEvent.touchMove(zp, { touches: [{ clientX: 820, clientY: 405 }] });
+    const armedHint = screen.getByTestId('edge-turn-indicator');
+    expect(armedHint.dataset['armed']).toBe('true');
+    expect(armedHint).toHaveTextContent('松手下一页');
+
     fireEvent.touchEnd(zp, { touches: [] });
 
+    expect(screen.queryByTestId('edge-turn-indicator')).toBeNull();
     expect(spread().dataset['pageIndexes']).toBe('2');
-    // Turning the page resets zoom to 1.00x
-    expect(zp.dataset['scale']).toBe('1.00');
+    // Turning the page preserves zoom at 2.00x instead of resetting to 1.00x
+    expect(zp.dataset['scale']).toBe('2.00');
   });
 });
 
@@ -387,6 +399,7 @@ describe('Reader — sequential bubble reading (气泡顺读), guide context & H
     setup();
     await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
     expect(screen.getByTestId('bubble-step-count')).toHaveTextContent('–/6');
+    expect(screen.getByRole('group', { name: /气泡/ })).toHaveTextContent('💬 台词');
 
     fireEvent.click(screen.getByTestId('bubble-step-next'));
     await waitFor(() => expect(sentence()).toBe('おはよう、ことり。'));
