@@ -4,6 +4,7 @@
  */
 import type { CharSpan, ExplainRequest, GrammarPoint, SemanticChunk, SentenceExplanation, SpokenEvolution, TokenUsage, VocabEntry } from '../types';
 import { normaliseJapanese, isPunctuationOrSpace } from '../util/text';
+import { computeLemmaRuby } from '../dict/lemma-ruby';
 import { explanationCacheKeySync } from './cache-key';
 import type { RawExplanation } from './explain-schema';
 import { PROMPT_VERSION } from './prompts';
@@ -93,7 +94,11 @@ export function toSentenceExplanation(raw: RawExplanation, req: Pick<ExplainRequ
         surface: vAlignment === 'unaligned' ? rv.surface : sentence.slice(vSpan[0], vSpan[1]),
         lemma,
         lemmaReading: rv.lemmaReading,
-        lemmaRuby: normalizeJukujikunRuby(buildRuby(lemma, rv.lemmaRuby), [{ charSpan: [0, lemma.length], reading: rv.lemmaReading }]),
+        // Model ruby only from legacy (≤ v2) responses / caches; otherwise computed deterministically.
+        lemmaRuby:
+          rv.lemmaRuby && rv.lemmaRuby.length > 0
+            ? normalizeJukujikunRuby(buildRuby(lemma, rv.lemmaRuby), [{ charSpan: [0, lemma.length], reading: rv.lemmaReading }])
+            : computeLemmaRuby(lemma, rv.lemmaReading),
         partOfSpeech: rv.partOfSpeech,
         meaning: rv.meaning,
       };

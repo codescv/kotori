@@ -1182,9 +1182,178 @@ export type HostEvent =
   | { readonly type: 'download-removed'; readonly taskId: Id }
   | { readonly type: 'library-changed'; readonly scope: 'anime' | 'manga' }
   | { readonly type: 'settings-changed'; readonly settings: AppSettings }
-  | { readonly type: 'host-notice'; readonly level: 'info' | 'warning' | 'error'; readonly message: string };
+  | { readonly type: 'host-notice'; readonly level: 'info' | 'warning' | 'error'; readonly message: string }
+  | {
+      readonly type: 'dict-import-progress';
+      readonly dictId: Id;
+      readonly title: string;
+      readonly phase: 'downloading' | 'importing' | 'ready' | 'failed';
+      readonly processedRows: number;
+      readonly error?: string;
+    };
 
 export type Unsubscribe = () => void;
+
+// ---------------------------------------------------------------------------
+// 6b. Dictionaries (local Yomitan v3 engine; enrichment is render-time only)
+// ---------------------------------------------------------------------------
+
+/** What an imported dictionary contributes: glosses, pitch, frequency, or several. */
+export type DictionaryKind = 'term' | 'pitch' | 'freq' | 'mixed';
+
+/** `importing` rows are invisible to lookups and purged on startup. */
+export type DictionaryStatus = 'importing' | 'ready';
+
+export interface DictionaryInfo {
+  readonly id: Id;
+  readonly title: string;
+  readonly revision: string;
+  readonly kind: DictionaryKind;
+  readonly status: DictionaryStatus;
+  /** Lower value = shown first. */
+  readonly priority: number;
+  readonly enabled: boolean;
+  readonly termCount: number;
+  readonly metaCount: number;
+  readonly attribution?: string;
+  readonly sourceUrl?: string;
+  /** Standalone `index.json` endpoint used to check for updates. */
+  readonly indexUrl?: string;
+  readonly importedAt: EpochMs;
+}
+
+/** One compact dictionary sense (gloss + at most a few example pairs). */
+export interface CompactSense {
+  readonly gloss: string;
+  /** `[japanese, translation]` example pairs. */
+  readonly examples?: ReadonlyArray<readonly [string, string]>;
+  readonly tags?: readonly string[];
+}
+
+/** One `term_bank` row after import-time compaction. */
+export interface CompactTermRecord {
+  readonly dictId: Id;
+  /** Row ordinal inside the dictionary (0..N-1). */
+  readonly seq: number;
+  readonly expression: string;
+  /** Hiragana; `''` when the source had no reading and the expression is not kana. */
+  readonly reading: string;
+  readonly defTags: string;
+  readonly rules: string;
+  readonly score: number;
+  /** JMdict-style sequence number (0 when absent). */
+  readonly sequenceId: number;
+  /** Set when the row is a pure `[[formOf, [rules]]]` / `non-lemma` redirect. */
+  readonly redirectTo?: string;
+  readonly senses: readonly CompactSense[];
+  /** Lookup keys: `[expression]` or `[expression, reading]`. */
+  readonly keys: readonly string[];
+}
+
+export interface PitchPattern {
+  /** Downstep position (0 = 平板). */
+  readonly position: number;
+  readonly nasal?: readonly number[];
+  readonly devoice?: readonly number[];
+}
+
+/** Pitch rows merged across dictionaries only when the full payload is identical. */
+export interface MergedPitchGroup {
+  readonly reading: string;
+  readonly position: number;
+  readonly nasal?: readonly number[];
+  readonly devoice?: readonly number[];
+  /** Titles of every dictionary that reported this exact payload. */
+  readonly sources: readonly string[];
+}
+
+export interface FrequencyBadge {
+  readonly dictId: Id;
+  readonly dictTitle: string;
+  readonly value: number;
+  readonly displayValue: string;
+  /** Kana-orthography frequency (JPDB `㋕`). */
+  readonly kanaOnly?: boolean;
+}
+
+export interface DictionarySenseGroup {
+  readonly dictId: Id;
+  readonly dictTitle: string;
+  readonly expression: string;
+  readonly reading: string;
+  readonly defTags: string;
+  readonly senses: readonly CompactSense[];
+  /** Index into `senses` best matching the AI contextual meaning. */
+  readonly matchedSenseIdx?: number;
+}
+
+/** One homograph candidate shown in the `uncertain` state. */
+export interface VocabCandidate {
+  readonly expression: string;
+  readonly reading: string;
+  readonly pitches: readonly MergedPitchGroup[];
+  readonly frequencies: readonly FrequencyBadge[];
+  readonly senseGroups: readonly DictionarySenseGroup[];
+}
+
+/** Render-time dictionary enrichment of one `VocabEntry` (never cached in explanations). */
+export interface VocabEnrichment {
+  readonly status: 'matched' | 'uncertain' | 'empty';
+  readonly headword?: string;
+  readonly reading?: string;
+  readonly pitches: readonly MergedPitchGroup[];
+  readonly frequencies: readonly FrequencyBadge[];
+  readonly senseGroups: readonly DictionarySenseGroup[];
+  readonly candidates?: readonly VocabCandidate[];
+}
+
+export interface RecommendedDictPreset {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly kind: DictionaryKind;
+  readonly sizeLabel: string;
+  readonly license: string;
+  readonly attribution: string;
+  readonly downloadUrl: string;
+  readonly indexUrl?: string;
+  readonly isUpdatable: boolean;
+  /** Not redistributable: the UI links out instead of one-click installing. */
+  readonly externalOnly?: boolean;
+}
+
+/** One longest-prefix match for click-to-lookup (P2). */
+export interface InstantLookupMatch {
+  readonly surface: string;
+  readonly matchedLength: number;
+  readonly lemma: string;
+  readonly reading: string;
+  /** Deinflection reasons applied, surface → lemma order. */
+  readonly deinflectChain: readonly string[];
+  readonly pitches: readonly MergedPitchGroup[];
+  readonly frequencies: readonly FrequencyBadge[];
+  readonly senseGroups: readonly DictionarySenseGroup[];
+}
+
+export interface DictionaryImportSource {
+  readonly filePath?: string;
+  readonly url?: string;
+  readonly presetId?: string;
+  readonly bytes?: Uint8Array;
+  readonly fileName?: string;
+  readonly attribution?: string;
+  readonly indexUrl?: string;
+}
+
+export interface DictionaryHost {
+  list(): Promise<DictionaryInfo[]>;
+  importZip(source: DictionaryImportSource): Promise<DictionaryInfo>;
+  update(id: Id, patch: { enabled?: boolean; priority?: number }): Promise<DictionaryInfo>;
+  remove(id: Id): Promise<void>;
+  /** Keyed by `VocabEntry.id`. */
+  enrichVocab(vocab: readonly VocabEntry[]): Promise<Record<string, VocabEnrichment>>;
+  lookupPrefix(text: string, maxLength?: number): Promise<InstantLookupMatch[]>;
+}
 
 // ---------------------------------------------------------------------------
 // 7. PlatformHost contract
@@ -1359,6 +1528,8 @@ export interface PlatformHost {
   readonly ai: AiApi;
   readonly downloads: DownloadsApi;
   readonly files: FilesApi;
+  /** Local dictionaries (optional until every host wires it; absent ⇒ zero-dict fallback). */
+  readonly dict?: DictionaryHost;
   /** Push events (download progress, library changes). */
   subscribe(listener: (event: HostEvent) => void): Unsubscribe;
   /** Release sockets / event sources. */

@@ -14,6 +14,7 @@
     "./subtitle": "./src/subtitle/index.ts",
     "./manga": "./src/manga/index.ts",
     "./acquire": "./src/acquire/index.ts",
+    "./dict": "./src/dict/index.ts",
     "./util": "./src/util/index.ts"
   },
   "files": [
