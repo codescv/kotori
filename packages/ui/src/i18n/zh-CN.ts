@@ -77,7 +77,7 @@ export const zhCN = {
   'player.fullscreen': '全屏',
   'player.speed': '倍速',
   'player.abLoop': 'A-B 循环所选句子',
-  'player.keyboardHint': '空格 播放/暂停 · ←/→ 跳句 · R 循环 · B 盲听 · Esc 关闭解析',
+  'player.keyboardHint': '空格 播放/暂停 · ←/→ 跳句 · R 循环 · B 隐藏字幕 · Esc 关闭解析',
 
   'transcript.search': '搜索字幕…',
   'transcript.follow': '自动跟随',

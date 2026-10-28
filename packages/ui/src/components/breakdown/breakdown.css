@@ -63,3 +63,11 @@
 }
 .k-ruby-text.is-ruby-tap .k-ruby:hover rt,
 .k-ruby-text.is-ruby-tap .k-ruby.is-revealed rt { opacity: 1; filter: none; }
+
+/* Inside mobile BottomSheet, keep the bubble crop collapsed to a compact 1-line pill until tapped. */
+.k-bottom-sheet .k-breakdown__bubble-crop:not(.is-expanded) .k-breakdown__bubble-crop-svg {
+  display: none;
+}
+.k-bottom-sheet .k-breakdown__bubble-crop:not(.is-expanded) {
+  padding: 4px 10px;
+}

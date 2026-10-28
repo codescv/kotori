@@ -79,8 +79,8 @@
 .k-player__scrub::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--md-sys-color-primary); }
 .k-player__scrub::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--md-sys-color-primary); }
 .k-player__buttons { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.k-player--compact .k-player__buttons { gap: 2px; }
-.k-player--compact .k-player__buttons .k-icon-btn { width: 36px; height: 36px; }
+.k-player--compact .k-player__buttons { gap: 1px; flex-wrap: nowrap; }
+.k-player--compact .k-player__buttons .k-icon-btn { width: 32px; height: 32px; }
 .k-player__time { font: var(--md-sys-typescale-label-large); font-variant-numeric: tabular-nums; color: var(--md-sys-color-on-surface-variant); margin-left: 8px; }
 .k-player--compact .k-player__time { font: var(--md-sys-typescale-label-medium); margin-left: 4px; }
 .k-player__hint { margin: 4px 0 0; }

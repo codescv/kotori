@@ -76,7 +76,7 @@ export const ja: Messages = {
   'player.fullscreen': '全画面',
   'player.speed': '再生速度',
   'player.abLoop': '選択したセリフを A-B リピート',
-  'player.keyboardHint': 'Space 再生/停止 · ←/→ セリフ移動 · R リピート · B ブラインド · Esc 解説を閉じる',
+  'player.keyboardHint': 'Space 再生/停止 · ←/→ セリフ移動 · R リピート · B 字幕を隠す · Esc 解説を閉じる',
 
   'transcript.search': '字幕を検索…',
   'transcript.follow': '自動追従',

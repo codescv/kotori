@@ -76,7 +76,7 @@ export const en: Messages = {
   'player.fullscreen': 'Fullscreen',
   'player.speed': 'Speed',
   'player.abLoop': 'A-B loop selected lines',
-  'player.keyboardHint': 'Space play/pause · ←/→ jump lines · R loop · B blind · Esc close breakdown',
+  'player.keyboardHint': 'Space play/pause · ←/→ jump lines · R loop · B hide subtitles · Esc close breakdown',
 
   'transcript.search': 'Search subtitles…',
   'transcript.follow': 'Auto-follow',

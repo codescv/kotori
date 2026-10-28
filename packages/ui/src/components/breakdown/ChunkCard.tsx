@@ -42,7 +42,8 @@ function ChunkCardImpl({ chunk, index, active, vocab, onSelect, t }: ChunkCardPr
   const evolved = chunk.spokenEvolution;
   const surface = chunk.surface.trim();
   const reading = chunk.reading.trim();
-  const showReading = reading !== '' && reading !== surface;
+  const hasKanji = /[\u4e00-\u9faf\u3400-\u4dbf々]/.test(surface);
+  const showReading = hasKanji && reading !== '' && reading !== surface;
   const romaji = showRomaji ? kanaToRomaji(reading || surface) : '';
   const textbook = chunk.textbookForm.trim();
   const showTextbook = textbook !== '' && (textbook !== surface || evolved !== undefined);
