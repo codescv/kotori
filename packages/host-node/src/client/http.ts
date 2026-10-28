@@ -41,6 +41,8 @@ export interface HttpClient {
   request<K extends RoutedMethodKey>(key: K, args: WireArgs<K>, options?: CallOptions): Promise<Response>;
   /** GET a JSON envelope from an arbitrary path (e.g. `/api/info`). */
   getJson<T>(path: string, options?: CallOptions): Promise<T>;
+  /** POST raw bytes (e.g. a dictionary `.zip`) and decode the JSON envelope. */
+  postBytes<T>(path: string, bytes: Uint8Array, contentType: string, options?: CallOptions): Promise<T>;
 }
 
 /** Combine a caller signal with a timeout; returns the signal and a disposer. */
@@ -96,10 +98,13 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const defaultTimeout = options.timeoutMs ?? 0;
 
-  async function send(method: string, url: string, body: unknown, callOptions: CallOptions | undefined): Promise<Response> {
+  async function send(method: string, url: string, body: unknown, callOptions: CallOptions | undefined, raw?: { bytes: Uint8Array; contentType: string }): Promise<Response> {
     const link = linkSignal(callOptions?.signal, callOptions?.timeoutMs ?? defaultTimeout);
     const init: RequestInit = { method, headers: { accept: 'application/json' } };
-    if (body !== undefined) {
+    if (raw) {
+      init.body = raw.bytes as unknown as BodyInit;
+      init.headers = { accept: 'application/json', 'content-type': raw.contentType };
+    } else if (body !== undefined) {
       init.body = JSON.stringify(body);
       init.headers = { accept: 'application/json', 'content-type': 'application/json' };
     }
@@ -141,6 +146,10 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     },
     async getJson(path, callOptions) {
       const res = await send('GET', baseUrl + path, undefined, callOptions);
+      return decodeEnvelope(res);
+    },
+    async postBytes(path, bytes, contentType, callOptions) {
+      const res = await send('POST', baseUrl + path, undefined, callOptions, { bytes, contentType });
       return decodeEnvelope(res);
     },
   };

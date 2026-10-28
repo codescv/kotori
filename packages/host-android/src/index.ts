@@ -14,9 +14,12 @@
  *   library/manga.ts    .mokuro / CBZ (fflate, extracted once) / image dir import
  *   ai.ts               explain engine + IndexedDB explanation cache / threads
  *   downloads.ts        Jimaku / mokuro.moe / HTTP downloads; torrents → external app
+ *   dict.ts             local Yomitan dictionaries over IndexedDB (DictionaryHost)
+ *   native-tts.ts       Web Speech shim over the native TextToSpeech plugin
  */
 export { createCapacitorPlatformHost, ANDROID_CAPABILITIES } from './capacitor-host';
 export type { CapacitorHostDeps, FsEntry, FsOps, PickFilesOptions } from './deps';
 export { defaultSettings, mergeSettings } from './settings';
+export { createNativeSpeechSynthesis, installNativeSpeechSynthesis, NativeSpeechUtterance, type NativeSpeechPlugin } from './native-tts';
 
 export type CreateCapacitorPlatformHost = typeof import('./capacitor-host').createCapacitorPlatformHost;

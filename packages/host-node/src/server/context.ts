@@ -6,7 +6,7 @@
  */
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { AnimeApi, DownloadsApi, HostCapabilities, HostInfo, MangaApi, SettingsApi } from '@kotori/core';
+import type { AnimeApi, DictionaryHost, DownloadsApi, HostCapabilities, HostInfo, MangaApi, SettingsApi } from '@kotori/core';
 import { adcTokenProvider } from '../ai/credentials';
 import { createAiService, type HostAiService } from '../ai/service';
 import { createRepositories, type Repositories } from '../db/repositories';
@@ -20,6 +20,7 @@ import { TorrentClient } from '../torrent';
 import type { ServerOptions } from './index';
 import { attachJimakuSubtitle, createAnimeService, type NodeAnimeService } from './services/anime';
 import { createDownloadsService, createFilesService, type NodeFilesApi, type Opener } from './services/downloads';
+import { createDictService } from './services/dict';
 import { createMangaService, type NodeMangaService } from './services/manga';
 import { EventHub } from './util';
 
@@ -33,6 +34,7 @@ export interface NodeHost {
   readonly ai: HostAiService;
   readonly downloads: DownloadsApi;
   readonly files: NodeFilesApi;
+  readonly dict: DictionaryHost;
 }
 
 export interface ServerContext {
@@ -187,6 +189,7 @@ export async function createServerContext(options: ServerOptions, overrides: Con
     manga,
     ai,
     downloads: createDownloadsService({ settings, manager: getManager, fetch: fetchFn }),
+    dict: createDictService({ repo: repos.dictionaries, emit, fetch: fetchFn, dataDir, ...(now ? { now } : {}) }),
     files: createFilesService({ ...(overrides.opener ? { opener: overrides.opener } : {}), ...(overrides.home ? { home: overrides.home } : {}) }),
   };
 
@@ -213,4 +216,4 @@ export async function createServerContext(options: ServerOptions, overrides: Con
 }
 
 /** Type-level guard: the server host implements the routed `PlatformHost` groups. */
-export type _HostConformance = [NodeHost['anime'] extends AnimeApi ? true : never, NodeHost['manga'] extends MangaApi ? true : never];
+export type _HostConformance = [NodeHost['anime'] extends AnimeApi ? true : never, NodeHost['manga'] extends MangaApi ? true : never, NodeHost['dict'] extends DictionaryHost ? true : never];

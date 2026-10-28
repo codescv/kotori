@@ -2,6 +2,13 @@
 import { App as CapacitorApp } from '@capacitor/app';
 import { mountKotoriApp } from '@kotori/ui';
 import { createCapacitorPlatformHost } from '../src/index';
+import { nativeSpeechPlugin } from '../src/default-deps';
+import { installNativeSpeechSynthesis } from '../src/native-tts';
+
+// Android System WebView has no working Web Speech synthesizer: route the UI's
+// `speechSynthesis` calls to the native TextToSpeech / online-audio plugin.
+const speech = nativeSpeechPlugin();
+if (speech) installNativeSpeechSynthesis(speech, window);
 
 const root = document.getElementById('root');
 if (root) {

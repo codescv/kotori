@@ -9,7 +9,9 @@
  * 2. **CSRF** — for state-changing methods, a present `Origin` must be
  *   same-origin with the request (browsers always send `Origin` on
  *   cross-origin POSTs) → 403; and a request body must be
- *   `application/json` (multipart only on the subtitle upload route), which
+ *   `application/json` (multipart only on the subtitle upload route; raw
+ *   `application/zip` / `application/octet-stream` only on the dictionary
+ *   upload route — both non-simple types that also force a preflight), which
  *   forces a CORS preflight we never answer → 415.
  */
 import type { MiddlewareHandler } from 'hono';
@@ -18,6 +20,8 @@ import type { ServerOptions } from './index';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const MULTIPART_ROUTE = /^\/api\/anime\/episodes\/[^/]+\/tracks$/;
+const BINARY_UPLOAD_ROUTE = /^\/api\/dict\/import$/;
+const BINARY_TYPES = new Set(['application/zip', 'application/octet-stream', 'application/x-zip-compressed']);
 
 function forbidden(message: string, status: 403 | 415): Response {
   return new Response(JSON.stringify({ ok: false, error: { code: 'invalid-argument', message } }), {
@@ -63,7 +67,8 @@ export function localOnlyGuard(options: Pick<ServerOptions, 'host'>): Middleware
       const hasBody = contentType !== '' || length > 0 || c.req.header('transfer-encoding') !== undefined;
       const json = contentType === 'application/json';
       const multipart = contentType === 'multipart/form-data' && MULTIPART_ROUTE.test(url.pathname);
-      if (hasBody && !json && !multipart) return forbidden('Request body must be application/json', 415);
+      const binary = BINARY_TYPES.has(contentType) && BINARY_UPLOAD_ROUTE.test(url.pathname);
+      if (hasBody && !json && !multipart && !binary) return forbidden('Request body must be application/json', 415);
     }
     await next();
   };

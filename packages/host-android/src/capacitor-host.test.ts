@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AiApi, AnimeApi, DownloadsApi, HostEvent, MangaApi, SettingsApi } from '@kotori/core';
+import type { AiApi, AnimeApi, DictionaryHost, DownloadsApi, HostEvent, MangaApi, SettingsApi } from '@kotori/core';
 import { defaultSettings, deepMerge, mergeSettings } from './settings';
 import { DATA_ROOT, createTestHost, type TestHost } from './testing/harness';
 
@@ -70,6 +70,14 @@ const DOWNLOAD_METHODS: Record<keyof DownloadsApi, true> = {
   remove: true,
   selectFiles: true,
 };
+const DICT_METHODS: Record<keyof DictionaryHost, true> = {
+  list: true,
+  importZip: true,
+  update: true,
+  remove: true,
+  enrichVocab: true,
+  lookupPrefix: true,
+};
 
 describe('createCapacitorPlatformHost', () => {
   it('reports android info and capabilities', async () => {
@@ -100,6 +108,7 @@ describe('createCapacitorPlatformHost', () => {
       [host.manga, MANGA_METHODS],
       [host.ai, AI_METHODS],
       [host.downloads, DOWNLOAD_METHODS],
+      [host.dict ?? {}, DICT_METHODS],
     ];
     for (const [api, methods] of groups) {
       for (const name of Object.keys(methods)) expect(typeof (api as Record<string, unknown>)[name], name).toBe('function');

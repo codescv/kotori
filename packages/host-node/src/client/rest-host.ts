@@ -6,6 +6,9 @@
  */
 import { KotoriError } from '@kotori/core';
 import type {
+  DictionaryHost,
+  DictionaryImportSource,
+  DictionaryInfo,
   FollowUpDelta,
   FollowUpMessage,
   HostCapabilities,
@@ -14,7 +17,7 @@ import type {
   KotoriErrorShape,
   PlatformHost,
 } from '@kotori/core';
-import { EVENTS_PATH, INFO_PATH, type RoutedMethodKey, type WireArgs, type HostResult } from '../shared';
+import { EVENTS_PATH, INFO_PATH, ROUTES, buildQuery, type RoutedMethodKey, type WireArgs, type HostResult } from '../shared';
 import { createHttpClient, decodeEnvelope, type FetchLike, type HttpClient } from './http';
 import { HostEventStream, readSseResponse } from './events';
 
@@ -32,8 +35,24 @@ export interface RestPlatformHostOptions {
 export type CreateRestPlatformHost = (options?: RestPlatformHostOptions) => RestPlatformHost;
 
 export interface RestPlatformHost extends PlatformHost {
+  /** Always present on desktop (local SQLite dictionaries). */
+  readonly dict: DictionaryHost;
   /** Re-fetch `GET /api/info` (capabilities may change, e.g. ffmpeg discovered). */
   refreshInfo(): Promise<HostInfo>;
+}
+
+/**
+ * `dict.importZip`: uploaded bytes go as a raw `application/zip` body (no
+ * base64 inflation); every other source is the route-table JSON body. No
+ * client timeout — large dictionaries take a while to download and import.
+ */
+function importDictionary(http: HttpClient, source: DictionaryImportSource): Promise<DictionaryInfo> {
+  if (source.bytes === undefined) return http.call('dict.importZip', [source], { timeoutMs: 0 });
+  const query: Record<string, string> = {};
+  if (source.fileName) query['fileName'] = source.fileName;
+  if (source.attribution) query['attribution'] = source.attribution;
+  if (source.indexUrl) query['indexUrl'] = source.indexUrl;
+  return http.postBytes<DictionaryInfo>(ROUTES['dict.importZip'].path + buildQuery(query), source.bytes, 'application/zip', { timeoutMs: 0 });
 }
 
 export const DEFAULT_DESKTOP_CAPABILITIES: HostCapabilities = {
@@ -147,6 +166,14 @@ export const createRestPlatformHost: CreateRestPlatformHost = (options = {}) => 
       // Desktop has no native pickers in the browser; the UI uses the path browser.
       listDirectory: (path) => (path === undefined ? call('files.listDirectory') : call('files.listDirectory', path)),
       openExternal: (url) => call('files.openExternal', url),
+    },
+    dict: {
+      list: () => call('dict.list'),
+      importZip: (source) => importDictionary(http, source),
+      update: (id, patch) => call('dict.update', id, patch),
+      remove: (id) => call('dict.remove', id),
+      enrichVocab: (vocab) => call('dict.enrichVocab', vocab),
+      lookupPrefix: (text, maxLength) => (maxLength === undefined ? call('dict.lookupPrefix', text) : call('dict.lookupPrefix', text, maxLength)),
     },
     subscribe: (listener: (event: HostEvent) => void) => events.subscribe(listener),
     async dispose() {

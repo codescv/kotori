@@ -10,6 +10,9 @@ import type {
   AnimeEpisode,
   AnimeSeries,
   AppSettings,
+  CompactTermRecord,
+  DictMetaRecord,
+  DictionaryInfo,
   DownloadTask,
   FollowUpMessage,
   MangaPage,
@@ -18,7 +21,7 @@ import type {
   SubtitleTrack,
 } from '@kotori/core';
 
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export type StoredSeries = AnimeSeries;
 export type StoredEpisode = Omit<AnimeEpisode, 'mediaUrl' | 'subtitleTracks'>;
@@ -50,6 +53,12 @@ export interface KotoriDbSchema extends DBSchema {
   explanations: { key: string; value: SentenceExplanation };
   threads: { key: string; value: StoredThread };
   downloads: { key: string; value: DownloadTask };
+  /** v2: imported Yomitan dictionaries (`status: 'importing'` rows are purged on startup). */
+  dictionaries: { key: string; value: DictionaryInfo };
+  /** v2: compact term rows; `byKey` is multiEntry over `keys` (expression + reading). */
+  dictTerms: { key: [string, number]; value: CompactTermRecord; indexes: { byKey: string } };
+  /** v2: one merged pitch / freq record per `(dictId, expression, mode)`. */
+  dictMeta: { key: [string, string, string]; value: DictMetaRecord; indexes: { byExprMode: [string, string] } };
 }
 
 export type KotoriDb = IDBPDatabase<KotoriDbSchema>;
@@ -69,6 +78,11 @@ export async function openKotoriDb(factory: IDBFactory, name: string): Promise<K
       db.createObjectStore('explanations', { keyPath: 'id' });
       db.createObjectStore('threads', { keyPath: 'explanationId' });
       db.createObjectStore('downloads', { keyPath: 'id' });
+    }
+    if (event.oldVersion < 2) {
+      db.createObjectStore('dictionaries', { keyPath: 'id' });
+      db.createObjectStore('dictTerms', { keyPath: ['dictId', 'seq'] }).createIndex('byKey', 'keys', { multiEntry: true });
+      db.createObjectStore('dictMeta', { keyPath: ['dictId', 'expression', 'mode'] }).createIndex('byExprMode', ['expression', 'mode']);
     }
   };
   // `wrap` is schema-agnostic; the schema above is what `onupgradeneeded` creates.

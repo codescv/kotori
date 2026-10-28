@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { zipSync } from 'fflate';
+import { strToU8, zipSync } from 'fflate';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FollowUpDelta, HostEvent, PlatformHost } from '@kotori/core';
 import { ROUTE_KEYS, type RoutedMethodKey } from '../shared';
@@ -53,6 +53,15 @@ function geminiJson(text: string): Response {
   });
 }
 
+/** Archive served for the `kanjium-pitch` preset download URL (set per test). */
+let presetZip: Uint8Array | undefined;
+
+function yomitanZip(title: string, files: Record<string, unknown>): Uint8Array {
+  const entries: Record<string, Uint8Array> = { 'index.json': strToU8(JSON.stringify({ title, revision: '1', format: 3 })) };
+  for (const [name, rows] of Object.entries(files)) entries[name] = strToU8(JSON.stringify(rows));
+  return zipSync(entries);
+}
+
 interface Harness {
   dir: string;
   ctx: ServerContext;
@@ -90,6 +99,7 @@ async function harness(options: { webDir?: string } = {}): Promise<Harness> {
       return new Response('<html><body><pre><a href="../">../</a>\n<a href="Vol1.mokuro">Vol1.mokuro</a>  01-Jan-2024 10:00  1234\n<a href="Vol1.zip">Vol1.zip</a>  01-Jan-2024 10:00  99999\n</pre></body></html>');
     }
     if (url.startsWith('https://jimaku.cc/')) return Response.json([]);
+    if (url.endsWith('/kanjium_pitch_accents.zip') && presetZip) return new Response(presetZip as unknown as BodyInit, { headers: { 'content-length': String(presetZip.length) } });
     if (url.startsWith('https://example.com/')) return new Response(new Uint8Array(4096).fill(7), { headers: { 'content-length': '4096' } });
     return new Response('not found', { status: 404 });
   }) as typeof fetch;
@@ -558,5 +568,63 @@ describe('static UI and TCP server', () => {
       await server.close();
       await rm(dataDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('dictionaries (REST end-to-end)', () => {
+  const TERMS = [
+    ['言う', 'いう', 'v5u vt', 'v5', 0, ['to say'], 1, ''],
+    ['食べる', 'たべる', 'v1 vt', 'v1', 0, ['to eat'], 2, ''],
+  ];
+
+  it('imports uploaded bytes (raw application/zip), a local file and a preset download, emitting progress', async () => {
+    const host = h.host;
+    const dict = host.dict!;
+    const uploaded = await dict.importZip({ bytes: yomitanZip('Upload Dict', { 'term_bank_1.json': TERMS }), fileName: 'upload.zip', attribution: 'me' });
+    expect(uploaded).toMatchObject({ title: 'Upload Dict', status: 'ready', kind: 'term', termCount: 2, attribution: 'me' });
+
+    const filePath = join(h.dir, 'local.zip');
+    await writeFile(filePath, yomitanZip('Local Dict', { 'term_meta_bank_1.json': [['言う', 'freq', 30]] }));
+    const local = await dict.importZip({ filePath });
+    expect(local).toMatchObject({ title: 'Local Dict', kind: 'freq', metaCount: 1, priority: 1 });
+
+    presetZip = yomitanZip('Kanjium', { 'term_meta_bank_1.json': [['言う', 'pitch', { reading: 'いう', pitches: [{ position: 0 }] }]] });
+    try {
+      const preset = await dict.importZip({ presetId: 'kanjium-pitch' });
+      expect(preset).toMatchObject({ title: 'Kanjium', kind: 'pitch', attribution: expect.stringContaining('Kanjium') });
+      expect(preset.sourceUrl).toMatch(/kanjium_pitch_accents\.zip$/);
+      const phases = h.events.filter((e) => e.type === 'dict-import-progress' && e.dictId === preset.id).map((e) => (e.type === 'dict-import-progress' ? e.phase : ''));
+      expect(phases[0]).toBe('downloading');
+      expect(phases.at(-1)).toBe('ready');
+      // Temporary download removed after import.
+      expect((await readdir(join(h.dir, 'data', 'cache'))).filter((f) => f.endsWith('.zip'))).toEqual([]);
+    } finally {
+      presetZip = undefined;
+    }
+
+    expect((await dict.list()).map((d) => d.title)).toEqual(['Upload Dict', 'Local Dict', 'Kanjium']);
+    const enriched = await dict.enrichVocab([
+      { id: 'v0', charSpan: [0, 2], alignment: 'exact', surface: '言う', lemma: '言う', lemmaReading: 'いう', lemmaRuby: [], partOfSpeech: 'verb', meaning: 'say' },
+    ]);
+    expect(enriched['v0']).toMatchObject({ status: 'matched', headword: '言う', frequencies: [{ value: 30 }], pitches: [{ position: 0, sources: ['Kanjium'] }] });
+    const matches = await dict.lookupPrefix('食べさせられなかった', 12);
+    expect(matches[0]).toMatchObject({ lemma: '食べる', matchedLength: 10 });
+
+    expect(await dict.update(local.id, { enabled: false, priority: 9 })).toMatchObject({ enabled: false, priority: 9 });
+    await dict.remove(uploaded.id);
+    expect((await dict.list()).map((d) => d.title)).toEqual(['Kanjium', 'Local Dict']);
+  });
+
+  it('maps bad sources to 4xx errors and fires a failed event', async () => {
+    const dict = h.host.dict!;
+    await expect(dict.importZip({ presetId: 'nope' })).rejects.toMatchObject({ code: 'invalid-argument' });
+    await expect(dict.importZip({ filePath: join(h.dir, 'missing.zip') })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(dict.importZip({ url: 'https://unknown.test/x.zip' })).rejects.toMatchObject({ code: 'network' });
+    await expect(dict.importZip({ bytes: strToU8('not a zip'), fileName: 'bad.zip' })).rejects.toMatchObject({ code: 'parse' });
+    await expect(dict.remove('dict_missing')).rejects.toMatchObject({ code: 'not-found' });
+    expect(h.events.filter((e) => e.type === 'dict-import-progress' && e.phase === 'failed')).toHaveLength(2);
+    // Raw bodies are only accepted on the dictionary upload route.
+    const res = await h.app.request('/api/settings', { method: 'PATCH', body: new Uint8Array([1]), headers: { 'content-type': 'application/zip' } });
+    expect(res.status).toBe(415);
   });
 });

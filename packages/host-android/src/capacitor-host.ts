@@ -14,6 +14,7 @@
 import type {
   AiApi,
   AnimeApi,
+  DictionaryHost,
   DownloadsApi,
   FilesApi,
   HostCapabilities,
@@ -25,6 +26,7 @@ import type {
 import { createAndroidAi } from './ai';
 import type { HostContext } from './context';
 import { resolveDeps } from './default-deps';
+import { createDictionaryService } from './dict';
 import type { CapacitorHostDeps } from './deps';
 import { createDownloadManager, type DownloadManager } from './downloads';
 import { createAnimeLibrary } from './library/anime';
@@ -76,6 +78,11 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
   downloadManager = dl;
   await dl.init();
   const engine = createAndroidAi(ctx);
+  const dictService = createDictionaryService(ctx);
+  // Half-finished imports (app killed mid-import) are invisible to lookups; drop their rows.
+  await dictService.purgeIncompleteImports().catch((error: unknown) => {
+    console.warn('[kotori:host-android] purging incomplete dictionary imports failed', error);
+  });
 
   const settings: SettingsApi = {
     get: () => settingsStore.get(),
@@ -158,6 +165,15 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
     openExternal: (url) => deps.openExternal(url),
   };
 
+  const dict: DictionaryHost = {
+    list: () => dictService.list(),
+    importZip: (source) => dictService.importZip(source),
+    update: (id, patch) => dictService.update(id, patch),
+    remove: (id) => dictService.remove(id),
+    enrichVocab: (vocab) => dictService.enrichVocab(vocab),
+    lookupPrefix: (text, maxLength) => dictService.lookupPrefix(text, maxLength),
+  };
+
   let disposed: Promise<void> | undefined;
   return {
     info: { platform: 'android', os: 'android', version: deps.version, capabilities: ANDROID_CAPABILITIES, dataDir: deps.dataRoot },
@@ -167,6 +183,7 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
     ai,
     downloads,
     files,
+    dict,
     subscribe(listener) {
       listeners.add(listener);
       return () => {

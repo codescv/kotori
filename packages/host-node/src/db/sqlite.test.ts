@@ -35,6 +35,9 @@ afterEach(() => {
 const EXPECTED_TABLES = [
   'anime_episodes',
   'anime_series',
+  'dict_meta',
+  'dict_terms',
+  'dictionaries',
   'download_tasks',
   'explanations',
   'follow_up_threads',
@@ -83,6 +86,7 @@ describe('openDatabase (:memory:)', () => {
     expect(rows).toEqual([
       { version: 1, name: 'init' },
       { version: 2, name: 'download_auto_import' },
+      { version: 3, name: 'dictionaries' },
     ]);
     expect(scalar(db, 'PRAGMA foreign_keys')).toBe(1);
     expect(scalar(db, 'PRAGMA busy_timeout')).toBe(5000);
@@ -94,7 +98,7 @@ describe('openDatabase (:memory:)', () => {
     const db = track(openDatabase(':memory:'));
     expect(migrate(db)).toEqual([]);
     expect(migrate(db)).toEqual([]);
-    expect(scalar(db, 'SELECT COUNT(*) FROM schema_migrations')).toBe(2);
+    expect(scalar(db, 'SELECT COUNT(*) FROM schema_migrations')).toBe(3);
   });
 });
 
@@ -115,7 +119,7 @@ describe('openDatabase (file)', () => {
     first.close();
 
     const second = track(openDatabase(path));
-    expect(scalar(second, 'SELECT COUNT(*) FROM schema_migrations')).toBe(2);
+    expect(scalar(second, 'SELECT COUNT(*) FROM schema_migrations')).toBe(3);
     expect(scalar(second, 'SELECT applied_at FROM schema_migrations WHERE version = 1')).toBe(appliedAt);
     expect(scalar(second, "SELECT json FROM settings WHERE key = 'k'")).toBe('{"a":1}');
     expect(scalar(second, 'PRAGMA journal_mode')).toBe('wal');
@@ -136,9 +140,9 @@ describe('migrate', () => {
     const db = track(openDatabase(':memory:'));
     const extra: Migration[] = [
       { version: 1, name: 'init', sql: 'THIS WOULD FAIL IF RE-RUN' },
-      { version: 3, name: 'extra', sql: 'CREATE TABLE extra_t (x INTEGER);' },
+      { version: 100, name: 'extra', sql: 'CREATE TABLE extra_t (x INTEGER);' },
     ];
-    expect(migrate(db, extra)).toEqual([3]);
+    expect(migrate(db, extra)).toEqual([100]);
     expect(tableNames(db)).toContain('extra_t');
     expect(migrate(db, extra)).toEqual([]);
   });
@@ -146,16 +150,16 @@ describe('migrate', () => {
   it('rolls back a failing migration (no partial DDL, no version row) and stops', () => {
     const db = track(openDatabase(':memory:'));
     const migrations: Migration[] = [
-      { version: 3, name: 'broken', sql: 'CREATE TABLE half_done (x INTEGER); INSERT INTO no_such_table VALUES (1);' },
-      { version: 4, name: 'after', sql: 'CREATE TABLE after_t (x INTEGER);' },
+      { version: 100, name: 'broken', sql: 'CREATE TABLE half_done (x INTEGER); INSERT INTO no_such_table VALUES (1);' },
+      { version: 101, name: 'after', sql: 'CREATE TABLE after_t (x INTEGER);' },
     ];
     expect(() => migrate(db, migrations)).toThrow(/no_such_table/);
     expect(tableNames(db)).not.toContain('half_done');
     expect(tableNames(db)).not.toContain('after_t');
-    expect(scalar(db, 'SELECT MAX(version) FROM schema_migrations')).toBe(2);
+    expect(scalar(db, 'SELECT MAX(version) FROM schema_migrations')).toBe(3);
     // The connection is usable afterwards (no dangling transaction).
     expect(db.isTransaction).toBe(false);
-    expect(migrate(db, [{ version: 3, name: 'fixed', sql: 'CREATE TABLE fixed_t (x INTEGER);' }])).toEqual([3]);
+    expect(migrate(db, [{ version: 100, name: 'fixed', sql: 'CREATE TABLE fixed_t (x INTEGER);' }])).toEqual([100]);
   });
 });
 

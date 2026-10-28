@@ -3,7 +3,7 @@
  * the route-table round-trip test, the REST client tests and the server
  * route-coverage test).
  */
-import type { DownloadRequest, ExplainRequest, FollowUpRequest, ImagePayload } from '@kotori/core';
+import type { DownloadRequest, ExplainRequest, FollowUpRequest, ImagePayload, VocabEntry } from '@kotori/core';
 import type { RoutedMethodKey, WireArgs } from './routes';
 
 const image: ImagePayload = { mimeType: 'image/png', base64: 'iVBORw0KGgo=', width: 10, height: 10 };
@@ -15,6 +15,18 @@ export const sampleExplain: ExplainRequest = {
 };
 export const sampleFollowUp: FollowUpRequest = { explanationId: 'ex_1', history: [], question: 'なぜ？', targetLanguage: 'zh-CN' };
 export const sampleDownload: DownloadRequest = { source: { kind: 'http', url: 'https://example.com/a.zip', fileName: 'a.zip' }, autoImport: false };
+
+export const sampleVocab: VocabEntry = {
+  id: 'v0',
+  charSpan: [0, 3],
+  alignment: 'exact',
+  surface: '言った',
+  lemma: '言う',
+  lemmaReading: 'いう',
+  lemmaRuby: [],
+  partOfSpeech: 'verb',
+  meaning: '说',
+};
 
 export const SAMPLE_ARGS: { readonly [K in RoutedMethodKey]: WireArgs<K> } = {
   'settings.get': [],
@@ -72,4 +84,10 @@ export const SAMPLE_ARGS: { readonly [K in RoutedMethodKey]: WireArgs<K> } = {
   'downloads.selectFiles': ['dl_1', [0, 2]],
   'files.listDirectory': ['/tmp'],
   'files.openExternal': ['magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'],
+  'dict.list': [],
+  'dict.importZip': [{ filePath: '/nonexistent/kotori-test-dict.zip', fileName: 'kotori-test-dict.zip', attribution: 'test' }],
+  'dict.update': ['dict_1', { enabled: false, priority: 2 }],
+  'dict.remove': ['dict_1'],
+  'dict.enrichVocab': [[sampleVocab]],
+  'dict.lookupPrefix': ['言っちゃった', 8],
 };

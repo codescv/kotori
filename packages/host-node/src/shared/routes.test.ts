@@ -25,7 +25,7 @@ import { SAMPLE_ARGS } from './sample-args.testutil';
 function hostMethodKeys(): string[] {
   const host = createRestPlatformHost({ baseUrl: 'http://x', fetch: async () => new Response('{}') });
   const keys: string[] = [];
-  for (const group of ['settings', 'anime', 'manga', 'ai', 'downloads', 'files'] as const) {
+  for (const group of ['settings', 'anime', 'manga', 'ai', 'downloads', 'files', 'dict'] as const) {
     for (const [name, value] of Object.entries(host[group])) if (typeof value === 'function') keys.push(`${group}.${name}`);
   }
   return keys.sort();
@@ -36,8 +36,8 @@ describe('route table', () => {
     const routed = new Set<string>(ROUTE_KEYS);
     const clientOnly = new Set<string>(CLIENT_ONLY_METHODS);
     for (const key of hostMethodKeys()) expect(routed.has(key) || clientOnly.has(key), key).toBe(true);
-    // 51 routed methods = 3 settings + 15 anime + 10 manga + 9 ai + 12 downloads + 2 files.
-    expect(ROUTE_KEYS).toHaveLength(51);
+    // 57 routed methods = 3 settings + 15 anime + 10 manga + 9 ai + 12 downloads + 2 files + 6 dict.
+    expect(ROUTE_KEYS).toHaveLength(57);
     for (const key of ROUTE_KEYS) expect(hostMethodKeys()).toContain(key);
   });
 
@@ -64,6 +64,16 @@ describe('route table', () => {
       const decoded = route.decode(transported);
       expect(decoded, key).toEqual(args);
     }
+  });
+
+  it('carries dict.importZip bytes as base64 and back', () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 255, 128, 7]);
+    const wire = ROUTES['dict.importZip'].encode({ bytes, fileName: 'a.zip' });
+    expect(wire.body).toEqual({ fileName: 'a.zip', bytesBase64: 'UEsDBAD/gAc=' });
+    const [decoded] = ROUTES['dict.importZip'].decode(JSON.parse(JSON.stringify(wire)) as WireRequest);
+    expect(decoded.fileName).toBe('a.zip');
+    expect(decoded.bytes).toEqual(bytes);
+    expect(() => ROUTES['dict.importZip'].decode({ params: {}, query: {}, body: { url: 3 } })).toThrow(/url/);
   });
 
   it('decode rejects malformed integers', () => {

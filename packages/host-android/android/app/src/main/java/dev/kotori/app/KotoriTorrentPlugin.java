@@ -4,9 +4,14 @@ import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
+import android.speech.tts.TextToSpeech;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -33,6 +38,7 @@ import java.net.Socket;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -94,6 +100,43 @@ public class KotoriTorrentPlugin extends Plugin {
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, TorrentSession> sessions = new ConcurrentHashMap<>();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // --- Japanese TTS (Android System WebView has no working window.speechSynthesis) ---
+    private static final String ONLINE_TTS_URL = "https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=";
+    /** The online endpoint rejects long `q` values; longer text is split and played back to back. */
+    private static final int ONLINE_TTS_MAX_CHARS = 180;
+    private static final int TTS_MAX_TEXT_CHARS = 2000;
+    private static final int TTS_CACHE_MAX_FILES = 400;
+    /** Lazily created on the main thread; `null` until the first `speakText`. */
+    private TextToSpeech tts;
+    private volatile boolean ttsInitDone = false;
+    private volatile boolean ttsInitFailed = false;
+    private volatile boolean ttsJapaneseSupported = false;
+    /** Language the engine is currently set to (main thread only). */
+    private String ttsCurrentLang;
+    /** Reused player for the online fallback (main thread only). */
+    private MediaPlayer ttsMediaPlayer;
+    /** Request queued while the TTS engine binds (main thread only; newest wins). */
+    private PendingSpeech pendingSpeech;
+    /** Bumped by every speak / stop so stale online downloads never start playing. */
+    private final AtomicInteger ttsToken = new AtomicInteger();
+
+    private static final class PendingSpeech {
+        final PluginCall call;
+        final String text;
+        final String lang;
+        final float rate;
+        final int token;
+
+        PendingSpeech(PluginCall call, String text, String lang, float rate, int token) {
+            this.call = call;
+            this.text = text;
+            this.lang = lang;
+            this.rate = rate;
+            this.token = token;
+        }
+    }
     private final byte[] peerId = generatePeerId();
 
     private static byte[] generatePeerId() {
@@ -184,6 +227,377 @@ public class KotoriTorrentPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Failed to open external link: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Speak `text` (`lang` default `ja-JP`, `rate` default 0.95). Uses the system
+     * `TextToSpeech` engine when it has Japanese voice data, otherwise (engine
+     * missing / failed to bind / `LANG_MISSING_DATA` / `speak` error) downloads
+     * the phrase from the online Google TTS endpoint (cached in
+     * `cacheDir/tts_cache`) and plays it with `MediaPlayer`.
+     * Resolves `{ ok, engine: "system" | "online" }` once playback has started.
+     */
+    @PluginMethod
+    public void speakText(PluginCall call) {
+        String raw = call.getString("text", "");
+        String text = raw == null ? "" : raw.trim();
+        if (text.isEmpty()) {
+            call.reject("text is required");
+            return;
+        }
+        if (text.length() > TTS_MAX_TEXT_CHARS) text = text.substring(0, TTS_MAX_TEXT_CHARS);
+        String langArg = call.getString("lang", "ja-JP");
+        final String lang = langArg == null || langArg.trim().isEmpty() ? "ja-JP" : langArg.trim();
+        Float rateArg = call.getFloat("rate", 0.95f);
+        float r = rateArg == null || rateArg.isNaN() ? 0.95f : rateArg;
+        final float rate = Math.max(0.25f, Math.min(4.0f, r));
+        final String finalText = text;
+        final int token = ttsToken.incrementAndGet();
+        mainHandler.post(() -> {
+            stopTtsMediaPlayer();
+            if (!ttsInitDone) {
+                // First call (or engine still binding): queue the newest request and flush it from OnInitListener.
+                supersedePending();
+                pendingSpeech = new PendingSpeech(call, finalText, lang, rate, token);
+                if (tts == null) initTts();
+                return;
+            }
+            speakNow(call, finalText, lang, rate, token);
+        });
+    }
+
+    @PluginMethod
+    public void stopSpeech(PluginCall call) {
+        ttsToken.incrementAndGet();
+        mainHandler.post(() -> {
+            supersedePending();
+            try {
+                if (tts != null) tts.stop();
+            } catch (Exception ignored) {
+                // engine already gone
+            }
+            stopTtsMediaPlayer();
+            call.resolve();
+        });
+    }
+
+    /** Main thread. */
+    private void initTts() {
+        try {
+            tts = new TextToSpeech(getContext().getApplicationContext(), status -> mainHandler.post(() -> onTtsInit(status)));
+        } catch (Exception e) {
+            tts = null;
+            ttsInitFailed = true;
+            ttsInitDone = true;
+            flushPendingSpeech();
+        }
+    }
+
+    /** Main thread. */
+    private void onTtsInit(int status) {
+        if (status == TextToSpeech.SUCCESS && tts != null) {
+            int res;
+            try {
+                res = tts.setLanguage(Locale.JAPAN);
+            } catch (Exception e) {
+                res = TextToSpeech.LANG_NOT_SUPPORTED;
+            }
+            ttsJapaneseSupported = res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED;
+            ttsCurrentLang = ttsJapaneseSupported ? "ja" : null;
+            try {
+                tts.setAudioAttributes(
+                    new AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                );
+            } catch (Exception ignored) {
+                // older engines: default stream is fine
+            }
+        } else {
+            ttsInitFailed = true;
+            ttsJapaneseSupported = false;
+            if (tts != null) {
+                try {
+                    tts.shutdown();
+                } catch (Exception ignored) {
+                    // ignore
+                }
+            }
+            tts = null;
+        }
+        ttsInitDone = true;
+        flushPendingSpeech();
+    }
+
+    /** Main thread: speak the request queued while the engine was binding. */
+    private void flushPendingSpeech() {
+        PendingSpeech p = pendingSpeech;
+        pendingSpeech = null;
+        if (p == null) return;
+        if (p.token != ttsToken.get()) {
+            resolveSuperseded(p.call);
+            return;
+        }
+        speakNow(p.call, p.text, p.lang, p.rate, p.token);
+    }
+
+    /** Main thread. */
+    private void supersedePending() {
+        PendingSpeech p = pendingSpeech;
+        pendingSpeech = null;
+        if (p != null) resolveSuperseded(p.call);
+    }
+
+    private static void resolveSuperseded(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("ok", false);
+        out.put("reason", "superseded");
+        call.resolve(out);
+    }
+
+    private static boolean isJapanese(String lang) {
+        String l = lang.toLowerCase(Locale.ROOT);
+        return l.equals("ja") || l.startsWith("ja-") || l.startsWith("ja_");
+    }
+
+    /** Main thread: system engine first, online audio otherwise. */
+    private void speakNow(PluginCall call, String text, String lang, float rate, int token) {
+        if (tts != null && ttsInitDone && !ttsInitFailed) {
+            boolean supported;
+            if (isJapanese(lang)) {
+                supported = ttsJapaneseSupported;
+                if (supported && !"ja".equals(ttsCurrentLang)) {
+                    try {
+                        tts.setLanguage(Locale.JAPAN);
+                        ttsCurrentLang = "ja";
+                    } catch (Exception e) {
+                        supported = false;
+                    }
+                }
+            } else {
+                int res;
+                try {
+                    res = tts.setLanguage(Locale.forLanguageTag(lang));
+                } catch (Exception e) {
+                    res = TextToSpeech.LANG_NOT_SUPPORTED;
+                }
+                supported = res != TextToSpeech.LANG_MISSING_DATA && res != TextToSpeech.LANG_NOT_SUPPORTED;
+                ttsCurrentLang = supported ? lang : null;
+            }
+            if (supported) {
+                try {
+                    tts.setSpeechRate(rate);
+                    int r = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "kotori_tts_" + System.currentTimeMillis());
+                    if (r == TextToSpeech.SUCCESS) {
+                        JSObject out = new JSObject();
+                        out.put("ok", true);
+                        out.put("engine", "system");
+                        call.resolve(out);
+                        return;
+                    }
+                } catch (Exception ignored) {
+                    // fall through to the online engine
+                }
+            }
+            // Silence a system utterance that may still be playing before switching engines.
+            try {
+                tts.stop();
+            } catch (Exception ignored) {
+                // ignore
+            }
+        }
+        speakOnline(call, text, lang, rate, token);
+    }
+
+    /** Online Japanese TTS fallback: fetch (or reuse cached) MP3 segments off the main thread, then play them in order. */
+    private void speakOnline(PluginCall call, String text, String lang, float rate, int token) {
+        final String tl = lang.split("[-_]")[0].toLowerCase(Locale.ROOT);
+        executor.execute(() -> {
+            List<File> files = new ArrayList<>();
+            try {
+                File cacheDir = new File(getContext().getCacheDir(), "tts_cache");
+                if (!cacheDir.isDirectory() && !cacheDir.mkdirs()) throw new IOException("cannot create " + cacheDir);
+                for (String segment : splitForOnlineTts(text)) {
+                    if (token != ttsToken.get()) {
+                        resolveSuperseded(call);
+                        return;
+                    }
+                    files.add(fetchOnlineTts(cacheDir, segment, tl));
+                }
+                pruneTtsCache(cacheDir);
+            } catch (Exception e) {
+                call.reject("Japanese TTS unavailable: no system voice data and online speech failed (" + e.getMessage() + ")", e);
+                return;
+            }
+            mainHandler.post(() -> {
+                if (token != ttsToken.get()) {
+                    resolveSuperseded(call);
+                    return;
+                }
+                try {
+                    playTtsFiles(files, 0, rate, token);
+                    JSObject out = new JSObject();
+                    out.put("ok", true);
+                    out.put("engine", "online");
+                    call.resolve(out);
+                } catch (Exception e) {
+                    stopTtsMediaPlayer();
+                    call.reject("Failed to play online TTS audio: " + e.getMessage(), e);
+                }
+            });
+        });
+    }
+
+    /** Split at sentence / clause punctuation so each request stays under {@link #ONLINE_TTS_MAX_CHARS}. */
+    private static List<String> splitForOnlineTts(String text) {
+        List<String> out = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int lastBreak = -1;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            current.append(c);
+            if ("。！？!?、，,；;…\n ".indexOf(c) >= 0) lastBreak = current.length();
+            if (current.length() >= ONLINE_TTS_MAX_CHARS) {
+                int cut = lastBreak > 0 ? lastBreak : current.length();
+                String head = current.substring(0, cut).trim();
+                if (!head.isEmpty()) out.add(head);
+                String rest = current.substring(cut);
+                current.setLength(0);
+                current.append(rest);
+                lastBreak = -1;
+            }
+        }
+        String tail = current.toString().trim();
+        if (!tail.isEmpty()) out.add(tail);
+        return out;
+    }
+
+    /** Cached MP3 for one segment (SHA-256 of language + text); downloads on a cache miss. */
+    private static File fetchOnlineTts(File cacheDir, String segment, String tl) throws Exception {
+        String key = bytesToHex(MessageDigest.getInstance("SHA-256").digest((tl + "\u0000" + segment).getBytes(StandardCharsets.UTF_8)));
+        File mp3 = new File(cacheDir, key + ".mp3");
+        if (mp3.isFile() && mp3.length() > 0) {
+            //noinspection ResultOfMethodCallIgnored
+            mp3.setLastModified(System.currentTimeMillis());
+            return mp3;
+        }
+        String url = ONLINE_TTS_URL + URLEncoder.encode(tl, "UTF-8") + "&q=" + URLEncoder.encode(segment, "UTF-8");
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        File tmp = new File(cacheDir, key + ".part");
+        try {
+            conn.setInstanceFollowRedirects(true);
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(15_000);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+            conn.setRequestProperty("Accept", "audio/mpeg,audio/*;q=0.9,*/*;q=0.5");
+            int status = conn.getResponseCode();
+            if (status != HttpURLConnection.HTTP_OK) throw new IOException("HTTP " + status);
+            long written = 0;
+            try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(tmp)) {
+                byte[] buf = new byte[16384];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                    written += n;
+                }
+            }
+            if (written == 0) throw new IOException("empty audio response");
+            if (!tmp.renameTo(mp3)) throw new IOException("cannot write " + mp3);
+            return mp3;
+        } finally {
+            conn.disconnect();
+            if (tmp.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                tmp.delete();
+            }
+        }
+    }
+
+    /** Keep the cache bounded (oldest files first). */
+    private static void pruneTtsCache(File cacheDir) {
+        File[] files = cacheDir.listFiles((dir, name) -> name.endsWith(".mp3"));
+        if (files == null || files.length <= TTS_CACHE_MAX_FILES) return;
+        Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+        for (int i = 0; i < files.length - TTS_CACHE_MAX_FILES; i++) {
+            //noinspection ResultOfMethodCallIgnored
+            files[i].delete();
+        }
+    }
+
+    /** Main thread: play `files[index..]` back to back on the reusable player. */
+    private void playTtsFiles(List<File> files, int index, float rate, int token) throws IOException {
+        if (index >= files.size() || token != ttsToken.get()) return;
+        if (ttsMediaPlayer == null) ttsMediaPlayer = new MediaPlayer();
+        else ttsMediaPlayer.reset();
+        ttsMediaPlayer.setAudioAttributes(
+            new AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .build()
+        );
+        ttsMediaPlayer.setDataSource(files.get(index).getAbsolutePath());
+        ttsMediaPlayer.prepare();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                ttsMediaPlayer.setPlaybackParams(ttsMediaPlayer.getPlaybackParams().setSpeed(rate));
+            } catch (Exception ignored) {
+                // some decoders reject speed changes; play at 1.0×
+            }
+        }
+        ttsMediaPlayer.setOnCompletionListener(mp -> {
+            try {
+                playTtsFiles(files, index + 1, rate, token);
+            } catch (Exception ignored) {
+                stopTtsMediaPlayer();
+            }
+        });
+        ttsMediaPlayer.start();
+    }
+
+    /** Main thread. */
+    private void stopTtsMediaPlayer() {
+        if (ttsMediaPlayer == null) return;
+        try {
+            ttsMediaPlayer.setOnCompletionListener(null);
+            if (ttsMediaPlayer.isPlaying()) ttsMediaPlayer.stop();
+            ttsMediaPlayer.reset();
+        } catch (Exception e) {
+            try {
+                ttsMediaPlayer.release();
+            } catch (Exception ignored) {
+                // ignore
+            }
+            ttsMediaPlayer = null;
+        }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        ttsToken.incrementAndGet();
+        pendingSpeech = null;
+        if (tts != null) {
+            try {
+                tts.stop();
+                tts.shutdown();
+            } catch (Exception ignored) {
+                // ignore
+            }
+            tts = null;
+        }
+        if (ttsMediaPlayer != null) {
+            try {
+                ttsMediaPlayer.release();
+            } catch (Exception ignored) {
+                // ignore
+            }
+            ttsMediaPlayer = null;
+        }
+        ttsInitDone = false;
+        ttsInitFailed = false;
+        ttsJapaneseSupported = false;
+        ttsCurrentLang = null;
+        super.handleOnDestroy();
     }
 
     /**

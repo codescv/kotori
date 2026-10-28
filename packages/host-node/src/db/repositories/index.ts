@@ -1,5 +1,6 @@
 /** Repository bundle over one `node:sqlite` database. */
 import type { Database } from '../sqlite';
+import { DictionaryRepository } from './dictionaries';
 import { DownloadRepository } from './downloads';
 import { EpisodeRepository } from './episodes';
 import { ExplanationRepository } from './explanations';
@@ -18,9 +19,13 @@ export interface Repositories {
   readonly explanations: ExplanationRepository;
   readonly threads: ThreadRepository;
   readonly downloads: DownloadRepository;
+  readonly dictionaries: DictionaryRepository;
 }
 
 export function createRepositories(db: Database): Repositories {
+  const dictionaries = new DictionaryRepository(db);
+  // Half-finished dictionary imports (crash / quit mid-import) are never resumed.
+  dictionaries.purgeIncompleteImports();
   return {
     series: new SeriesRepository(db),
     episodes: new EpisodeRepository(db),
@@ -30,10 +35,11 @@ export function createRepositories(db: Database): Repositories {
     explanations: new ExplanationRepository(db),
     threads: new ThreadRepository(db),
     downloads: new DownloadRepository(db),
+    dictionaries,
   };
 }
 
-export { DownloadRepository, EpisodeRepository, ExplanationRepository, PageRepository, SeriesRepository, ThreadRepository, TrackRepository, VolumeRepository };
+export { DictionaryRepository, DownloadRepository, EpisodeRepository, ExplanationRepository, PageRepository, SeriesRepository, ThreadRepository, TrackRepository, VolumeRepository };
 export type { EpisodeRecord } from './episodes';
 export type { SeriesRecord } from './series';
 export type { TrackRecord } from './tracks';

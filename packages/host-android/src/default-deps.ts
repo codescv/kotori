@@ -39,6 +39,7 @@ import type {
   PickFilesOptions,
   TorrentProgressEvent,
 } from './deps';
+import type { NativeSpeechPlugin } from './native-tts';
 import { bytesToStream } from './storage/unzip-stream';
 import { dirname, isWithin, joinPath, safeFileName } from './paths';
 import { createCapacitorFs } from './storage/files';
@@ -70,6 +71,9 @@ interface KotoriTorrentNativePlugin {
   pauseTorrent(options: { taskId: string }): Promise<void>;
   cancelTorrent(options: { taskId: string; deleteFiles: boolean }): Promise<void>;
   selectFiles(options: { taskId: string; fileIndexes: number[] }): Promise<TorrentProgressEvent>;
+  /** System `TextToSpeech` with an online Japanese audio fallback (see `native-tts.ts`). */
+  speakText(options: { text: string; lang?: string; rate?: number }): Promise<{ ok: boolean; engine?: 'system' | 'online'; reason?: string }>;
+  stopSpeech(): Promise<void>;
   addListener(
     eventName: 'torrentProgress',
     listenerFunc: (event: TorrentProgressEvent) => void,
@@ -78,6 +82,15 @@ interface KotoriTorrentNativePlugin {
 
 const FilePicker = registerPlugin<FilePickerPlugin>('FilePicker');
 const KotoriTorrent = registerPlugin<KotoriTorrentNativePlugin>('KotoriTorrent');
+
+/** Native TTS methods of `KotoriTorrentPlugin`; `undefined` off the native Android platform. */
+export function nativeSpeechPlugin(): NativeSpeechPlugin | undefined {
+  if (Capacitor.getPlatform() !== 'android') return undefined;
+  return {
+    speakText: (options) => KotoriTorrent.speakText(options),
+    stopSpeech: () => KotoriTorrent.stopSpeech(),
+  };
+}
 
 function createNativeTorrentEngine(): AndroidTorrentEngine {
   return {

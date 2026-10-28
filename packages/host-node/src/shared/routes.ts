@@ -12,6 +12,7 @@ import type {
   AiCallOptions,
   AiSettings,
   AnimeImportRequest,
+  DictionaryImportSource,
   DownloadRequest,
   ExplainRequest,
   FollowUpRequest,
@@ -28,6 +29,7 @@ import type {
   PlaybackProgress,
   PlatformHost,
   SettingsPatch,
+  VocabEntry,
 } from '@kotori/core';
 
 export const API_PREFIX = '/api' as const;
@@ -57,11 +59,14 @@ export interface WireRequest {
   readonly body?: unknown;
 }
 
-type HostGroup = 'settings' | 'anime' | 'manga' | 'ai' | 'downloads' | 'files';
+type HostGroup = 'settings' | 'anime' | 'manga' | 'ai' | 'downloads' | 'files' | 'dict';
+
+/** Group API object (`dict` is optional on `PlatformHost`, so strip `undefined`). */
+type GroupApi<G extends HostGroup> = NonNullable<PlatformHost[G]>;
 
 type MethodNames<G extends HostGroup> = {
-  [K in keyof PlatformHost[G]]-?: NonNullable<PlatformHost[G][K]> extends (...args: never[]) => unknown ? K : never;
-}[keyof PlatformHost[G]] &
+  [K in keyof GroupApi<G>]-?: NonNullable<GroupApi<G>[K]> extends (...args: never[]) => unknown ? K : never;
+}[keyof GroupApi<G>] &
   string;
 
 /** `'anime.getCues'`, `'ai.explain'`, … — every method of every `PlatformHost` group. */
@@ -74,8 +79,8 @@ export type RoutedMethodKey = Exclude<HostMethodKey, ClientOnlyMethodKey>;
 
 export type HostMethod<K extends HostMethodKey> = K extends `${infer G}.${infer M}`
   ? G extends HostGroup
-    ? M extends keyof PlatformHost[G]
-      ? NonNullable<PlatformHost[G][M]>
+    ? M extends keyof GroupApi<G>
+      ? NonNullable<GroupApi<G>[M]>
       : never
     : never
   : never;
@@ -145,6 +150,47 @@ function field<T>(wire: WireRequest, key: string): T {
   const b = wire.body;
   if (typeof b !== 'object' || b === null) throw new TypeError('request body must be a JSON object');
   return (b as Record<string, unknown>)[key] as T;
+}
+
+const BASE64_CHUNK = 0x8000;
+
+/** Uint8Array → base64 (browser-safe, chunked so large buffers do not overflow the stack). */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + BASE64_CHUNK));
+  return btoa(binary);
+}
+
+/** base64 → Uint8Array (browser-safe). */
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+/** JSON body of `dict.importZip`: `bytes` travels as `bytesBase64`. */
+function encodeImportSource(source: DictionaryImportSource): Record<string, unknown> {
+  const { bytes, ...rest } = source;
+  return bytes === undefined ? { ...rest } : { ...rest, bytesBase64: bytesToBase64(bytes) };
+}
+
+function decodeImportSource(wire: WireRequest): DictionaryImportSource {
+  const b = wire.body;
+  if (typeof b !== 'object' || b === null) throw new TypeError('request body must be a JSON object');
+  const { bytesBase64, ...rest } = b as Record<string, unknown> & { bytesBase64?: unknown };
+  const out: Record<string, unknown> = {};
+  for (const key of ['filePath', 'url', 'presetId', 'fileName', 'attribution', 'indexUrl'] as const) {
+    const v = rest[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string') throw new TypeError(`${key} must be a string`);
+    out[key] = v;
+  }
+  if (bytesBase64 !== undefined && bytesBase64 !== null) {
+    if (typeof bytesBase64 !== 'string') throw new TypeError('bytesBase64 must be a base64 string');
+    out['bytes'] = base64ToBytes(bytesBase64);
+  }
+  return out as DictionaryImportSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +519,49 @@ export const ROUTES: RouteTable = {
     path: '/api/files/open-external',
     encode: (url: string) => req({}, {}, { url }),
     decode: (w) => [String(field<string>(w, 'url'))],
+  },
+
+  // --- dict --------------------------------------------------------------------
+  'dict.list': { method: 'GET', path: '/api/dict', encode: () => req(), decode: () => [] },
+  'dict.importZip': {
+    method: 'POST',
+    path: '/api/dict/import',
+    encode: (source: DictionaryImportSource) => req({}, {}, encodeImportSource(source)),
+    decode: (w) => [decodeImportSource(w)],
+  },
+  'dict.update': {
+    method: 'PATCH',
+    path: '/api/dict/:dictId',
+    encode: (id: Id, patch: { enabled?: boolean; priority?: number }) => req({ dictId: id }, {}, patch),
+    decode: (w) => {
+      const b = (w.body ?? {}) as Record<string, unknown>;
+      const patch: { enabled?: boolean; priority?: number } = {};
+      if (typeof b['enabled'] === 'boolean') patch.enabled = b['enabled'];
+      if (typeof b['priority'] === 'number') patch.priority = b['priority'];
+      return [p(w, 'dictId'), patch];
+    },
+  },
+  'dict.remove': {
+    method: 'DELETE',
+    path: '/api/dict/:dictId',
+    encode: (id: Id) => req({ dictId: id }),
+    decode: (w) => [p(w, 'dictId')],
+  },
+  'dict.enrichVocab': {
+    method: 'POST',
+    path: '/api/dict/enrich',
+    encode: (vocab: readonly VocabEntry[]) => req({}, {}, { vocab }),
+    decode: (w) => [field<readonly VocabEntry[] | undefined>(w, 'vocab') ?? []],
+  },
+  'dict.lookupPrefix': {
+    method: 'POST',
+    path: '/api/dict/lookup',
+    encode: (text: string, maxLength?: number) => req({}, {}, maxLength === undefined ? { text } : { text, maxLength }),
+    decode: (w) => {
+      const text = String(field<string>(w, 'text') ?? '');
+      const maxLength = field<number | undefined>(w, 'maxLength');
+      return typeof maxLength === 'number' ? [text, maxLength] : [text];
+    },
   },
 };
 

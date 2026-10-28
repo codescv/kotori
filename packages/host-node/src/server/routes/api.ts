@@ -9,7 +9,7 @@ import { KotoriError } from '@kotori/core';
 import { ROUTES, ROUTE_KEYS, errorEnvelope, httpStatusForCode, okEnvelope, serialiseError, type RoutedMethodKey, type WireRequest } from '../../shared';
 import type { ServerContext } from '../context';
 
-export type HostGroupName = 'settings' | 'anime' | 'manga' | 'ai' | 'downloads' | 'files';
+export type HostGroupName = 'settings' | 'anime' | 'manga' | 'ai' | 'downloads' | 'files' | 'dict';
 
 /** Methods whose trailing argument is `AiCallOptions` (client disconnect → abort). */
 const SIGNAL_METHODS: ReadonlySet<RoutedMethodKey> = new Set(['ai.explain', 'ai.followUp', 'ai.ocrBubble', 'ai.pageGuide']);

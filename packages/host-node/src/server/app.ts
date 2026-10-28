@@ -13,6 +13,7 @@ import { localOnlyGuard } from './guard';
 import { mountAiRoutes } from './routes/ai';
 import { mountAnimeRoutes } from './routes/anime';
 import { errorResponse } from './routes/api';
+import { mountDictRoutes } from './routes/dict';
 import { mountDownloadsRoutes } from './routes/downloads';
 import { mountEventRoutes } from './routes/events';
 import { mountFilesRoutes } from './routes/files';
@@ -63,6 +64,7 @@ export function createApp(ctx: ServerContext): Hono {
   mountAiRoutes(app, ctx);
   mountDownloadsRoutes(app, ctx);
   mountFilesRoutes(app, ctx);
+  mountDictRoutes(app, ctx);
 
   app.all(`${API_PREFIX}/*`, (c) => c.json({ ok: false, error: { code: 'not-found', message: `No route ${c.req.method} ${c.req.path}` } }, 404));
 
