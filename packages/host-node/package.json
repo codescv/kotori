@@ -1,6 +1,6 @@
 {
   "name": "@kotori/host-node",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "description": "Kotori desktop host (macOS / Linux): pure Node.js server (node:sqlite, HTTP Range video streaming, pure-TS BitTorrent engine, ffmpeg subtitle extraction) + browser REST client implementing PlatformHost.",
   "license": "MIT",
   "type": "module",
