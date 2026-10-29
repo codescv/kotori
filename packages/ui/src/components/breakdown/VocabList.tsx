@@ -10,7 +10,7 @@
  * 3. `empty`     — pitch / frequency when available; with zero dictionaries
  *                  the card is exactly the AI-only card (no placeholders).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Id, VocabCandidate, VocabEnrichment, VocabEntry } from '@kotori/core';
 import { useOptionalHost } from '../../host/HostContext';
 import type { Translate } from '../../i18n';
@@ -21,12 +21,27 @@ import { DictSenses } from './DictSenses';
 import { FreqBadge, formatRank, pickFrequencies, PitchAccentBadge } from './PitchAccentBadge';
 import { RubyText, tileSegments } from './RubyText';
 
+export interface VocabItemProps {
+  readonly item: VocabEntry;
+  readonly linked?: boolean | undefined;
+  readonly primaryLinked?: boolean | undefined;
+  readonly index?: number | undefined;
+  readonly compact?: boolean | undefined;
+  readonly enrichment?: VocabEnrichment | undefined;
+  readonly onSelect?: ((charIndex: number) => void) | undefined;
+  readonly t: Translate;
+}
+
 export interface VocabListProps {
   readonly vocab: readonly VocabEntry[];
   readonly linkedIds: ReadonlySet<Id>;
+  readonly focusedVocabId?: Id | undefined;
+  readonly primaryLinkedId?: Id | undefined;
   readonly onSelect: (charIndex: number) => void;
   readonly t: Translate;
-  /** Precomputed enrichment (tests / callers that already have it); otherwise fetched via `useDictStore`. */
+  /** Precomputed enrichment map (e.g. lifted in `AiBreakdownPanel`); otherwise fetched via `useDictStore`. */
+  readonly enrichments?: ReadonlyMap<string, VocabEnrichment> | undefined;
+  /** Precomputed enrichment record (tests / callers that already have it); otherwise fetched via `useDictStore`. */
   readonly enrichment?: Readonly<Record<string, VocabEnrichment>> | undefined;
 }
 
@@ -58,38 +73,75 @@ export function vocabSpeechText(v: VocabEntry, e?: VocabEnrichment): string {
   return direct || v.lemma || v.surface;
 }
 
+function isReadonlyMap(
+  v: ReadonlyMap<string, VocabEnrichment> | Readonly<Record<string, VocabEnrichment>>,
+): v is ReadonlyMap<string, VocabEnrichment> {
+  return v instanceof Map || typeof (v as ReadonlyMap<string, VocabEnrichment>).get === 'function';
+}
+
+function recordToMap(rec: Readonly<Record<string, VocabEnrichment>> | undefined): ReadonlyMap<string, VocabEnrichment> | undefined {
+  if (!rec) return undefined;
+  return new Map(Object.entries(rec));
+}
+
 /**
  * Render-time dictionary enrichment for `vocab` (LRU-cached in `useDictStore`,
  * re-fetched when `vocab` or `dictSetRevision` changes). `undefined` while
  * loading, without a host, or when `override` is given (then `override`).
  */
-export function useVocabEnrichment(vocab: readonly VocabEntry[], override?: Readonly<Record<string, VocabEnrichment>>): Readonly<Record<string, VocabEnrichment>> | undefined {
+export function useVocabEnrichment(
+  vocab: readonly VocabEntry[],
+  override?: ReadonlyMap<string, VocabEnrichment> | Readonly<Record<string, VocabEnrichment>>,
+): ReadonlyMap<string, VocabEnrichment> | undefined {
   const host = useOptionalHost();
   const revision = useDictStore((s) => s.dictSetRevision);
-  const [state, setState] = useState<{ vocab: readonly VocabEntry[]; value: Readonly<Record<string, VocabEnrichment>> | undefined }>(() => ({
-    vocab,
-    value: host && !override ? useDictStore.getState().peekEnrichment(host, vocab) : undefined,
-  }));
+  const overrideMap = useMemo<ReadonlyMap<string, VocabEnrichment> | undefined>(() => {
+    if (!override) return undefined;
+    return isReadonlyMap(override) ? override : new Map(Object.entries(override));
+  }, [override]);
+  const [state, setState] = useState<{
+    vocab: readonly VocabEntry[];
+    raw: Readonly<Record<string, VocabEnrichment>> | undefined;
+    value: ReadonlyMap<string, VocabEnrichment> | undefined;
+  }>(() => {
+    const raw = host && !override ? useDictStore.getState().peekEnrichment(host, vocab) : undefined;
+    return { vocab, raw, value: recordToMap(raw) };
+  });
   useEffect(() => {
     if (override || !host || vocab.length === 0) return;
     let alive = true;
     const store = useDictStore.getState();
     const cached = store.peekEnrichment(host, vocab);
     if (cached) {
-      setState((s) => (s.vocab === vocab && s.value === cached ? s : { vocab, value: cached }));
+      setState((s) => (s.vocab === vocab && s.raw === cached ? s : { vocab, raw: cached, value: recordToMap(cached) }));
       return;
     }
-    store
-      .enrich(host, vocab)
-      .then((value) => {
-        if (alive) setState({ vocab, value });
-      })
-      .catch(() => {});
+    void (async () => {
+      try {
+        if (host.dict) {
+          await store.ensureLoaded(host);
+          if (!alive || useDictStore.getState().dictSetRevision !== revision) return;
+        }
+        const afterLoad = store.peekEnrichment(host, vocab);
+        if (afterLoad) {
+          setState((s) =>
+            s.vocab === vocab && s.raw === afterLoad ? s : { vocab, raw: afterLoad, value: recordToMap(afterLoad) },
+          );
+          return;
+        }
+        const raw = await store.enrich(host, vocab);
+        if (alive && useDictStore.getState().dictSetRevision === revision) {
+          setState({ vocab, raw, value: recordToMap(raw) });
+        }
+      } catch {
+        // Ignore dictionary RPC errors; cards degrade cleanly to AI-only state.
+      }
+    })();
     return () => {
       alive = false;
     };
   }, [host, vocab, revision, override]);
-  if (override) return override;
+  if (overrideMap) return overrideMap;
   return state.vocab === vocab ? state.value : undefined;
 }
 
@@ -176,7 +228,27 @@ function UncertainCandidates({ candidates, t }: { readonly candidates: readonly 
   );
 }
 
-function VocabItem({ v, linked, onSelect, t, e }: { readonly v: VocabEntry; readonly linked: boolean; readonly onSelect: (i: number) => void; readonly t: Translate; readonly e: VocabEnrichment | undefined }) {
+export function VocabItem({
+  item: v,
+  linked = false,
+  primaryLinked = false,
+  index = 0,
+  compact = false,
+  enrichment: e,
+  onSelect,
+  t,
+}: VocabItemProps) {
+  const ref = useRef<HTMLLIElement>(null);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    const firstRun = !mountedRef.current;
+    mountedRef.current = true;
+    if (firstRun && index === 0) return;
+    if (primaryLinked && ref.current && typeof ref.current.scrollIntoView === 'function') {
+      ref.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [primaryLinked, index]);
+
   const enriched = hasDictData(e);
   const status = enriched ? e.status : 'empty';
   const kanaSurface = KANA_ONLY.test(v.surface);
@@ -185,11 +257,17 @@ function VocabItem({ v, linked, onSelect, t, e }: { readonly v: VocabEntry; read
   const kanaLabel = v.lemmaReading || v.surface;
   return (
     <li
-      className={cx('k-vocab', linked && 'is-linked', enriched && `is-dict-${status}`)}
-      data-testid={`vocab-${v.id}`}
+      ref={ref}
+      className={cx('k-vocab', compact && 'k-vocab--compact', linked && 'is-linked', enriched && `is-dict-${status}`)}
+      data-testid={compact ? `chunk-vocab-${v.id}` : `vocab-${v.id}`}
       data-dict-status={enriched ? status : undefined}
       aria-current={linked || undefined}
-      onClick={() => v.charSpan[1] > v.charSpan[0] && onSelect(v.charSpan[0])}
+      onClick={(ev) => {
+        ev.stopPropagation();
+        if (v.charSpan[1] > v.charSpan[0]) {
+          onSelect?.(v.charSpan[0]);
+        }
+      }}
     >
       <div className="k-vocab__head">
         <span className="k-vocab__lemma">
@@ -197,9 +275,9 @@ function VocabItem({ v, linked, onSelect, t, e }: { readonly v: VocabEntry; read
         </span>
         <button
           type="button"
-          className="k-vocab__tts"
+          className={cx('k-vocab__tts', compact && 'k-chunk-card__tts')}
           title={t('dict.tts')}
-          data-testid={`vocab-tts-${v.id}`}
+          data-testid={compact ? `chunk-vocab-tts-${v.id}` : `vocab-tts-${v.id}`}
           onPointerDown={stop}
           onTouchStart={stop}
           onClick={(ev) => {
@@ -210,13 +288,31 @@ function VocabItem({ v, linked, onSelect, t, e }: { readonly v: VocabEntry; read
           🔊
         </button>
         {pitches.length > 0 && <PitchAccentBadge pitches={pitches} />}
-        <span className={cx('k-pos', `k-pos--${v.partOfSpeech}`)}>{t(`pos.${v.partOfSpeech}`)}</span>
+        {!compact && <span className={cx('k-pos', `k-pos--${v.partOfSpeech}`)}>{t(`pos.${v.partOfSpeech}`)}</span>}
         {freqs.map((f) => (
           <FreqBadge key={f.dictId} badge={f} kanaLabel={kanaLabel} />
         ))}
-        {v.jlpt && freqs.length === 0 && <span className="k-jlpt">{v.jlpt}</span>}
+        {!compact && v.jlpt && freqs.length === 0 && <span className="k-jlpt">{v.jlpt}</span>}
       </div>
-      {enriched ? (
+      {compact ? (
+        <>
+          <div className="k-vocab__meaning k-vocab__ctx" data-testid={`chunk-vocab-meaning-${v.id}`}>
+            {v.surface !== v.lemma && (
+              <span className="k-vocab__surface" lang="ja">
+                {v.surface} ←{' '}
+              </span>
+            )}
+            {v.meaning}
+            {v.conjugation && (
+              <span className="k-vocab__conj-chip" title={t('breakdown.conjugation')}>
+                {v.conjugation}
+              </span>
+            )}
+          </div>
+          {enriched && status === 'matched' && <DictSenses groups={e.senseGroups} limit={2} showLabel={false} />}
+          {enriched && status === 'uncertain' && <UncertainCandidates candidates={e.candidates ?? []} t={t} />}
+        </>
+      ) : enriched ? (
         <>
           <div className="k-vocab__meaning k-vocab__ctx" data-testid={`vocab-meaning-${v.id}`}>
             <span className="k-vocab__label">{t('dict.contextMeaning')}：</span>
@@ -263,14 +359,31 @@ function VocabItem({ v, linked, onSelect, t, e }: { readonly v: VocabEntry; read
   );
 }
 
-export function VocabList({ vocab, linkedIds, onSelect, t, enrichment }: VocabListProps) {
-  const enrichments = useVocabEnrichment(vocab, enrichment);
+export function VocabList({ vocab, linkedIds, focusedVocabId, primaryLinkedId, onSelect, t, enrichments, enrichment }: VocabListProps) {
+  const resolved = useVocabEnrichment(vocab, enrichments ?? enrichment);
+  const firstLinkedId = useMemo(() => {
+    for (const id of linkedIds) return id;
+    return undefined;
+  }, [linkedIds]);
+  const primaryId = focusedVocabId ?? primaryLinkedId ?? firstLinkedId;
   if (vocab.length === 0) return null;
   return (
     <ul className="k-vocab-list">
-      {vocab.map((v) => (
-        <VocabItem key={v.id} v={v} linked={linkedIds.has(v.id)} onSelect={onSelect} t={t} e={enrichments?.[v.id]} />
-      ))}
+      {vocab.map((v, i) => {
+        const isLinked = linkedIds.has(v.id) || focusedVocabId === v.id;
+        return (
+          <VocabItem
+            key={v.id}
+            item={v}
+            index={i}
+            linked={isLinked}
+            primaryLinked={isLinked && v.id === primaryId}
+            enrichment={resolved?.get(v.id)}
+            onSelect={onSelect}
+            t={t}
+          />
+        );
+      })}
     </ul>
   );
 }

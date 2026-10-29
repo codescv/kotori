@@ -8,40 +8,38 @@
  * kana chunks), and 📘 textbook form when it equals the surface with no 🔥
  * evolution. Romaji is shown only with `settings.anime.showRomaji`.
  */
-import { memo, useEffect, useRef } from 'react';
-import type { SemanticChunk, VocabEntry } from '@kotori/core';
+import { memo, useEffect, useMemo, useRef } from 'react';
+import type { Id, SemanticChunk, VocabEnrichment, VocabEntry } from '@kotori/core';
 import type { Translate } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
-import { speakJapanese } from '../../lib/tts';
 import { cx } from '../m3/cx';
 import { kanaToRomaji } from './romaji';
 import { RubyText } from './RubyText';
-import { vocabSpeechText } from './VocabList';
+import { VocabItem } from './VocabList';
 
 export interface ChunkCardProps {
   readonly chunk: SemanticChunk;
   readonly index: number;
   readonly active: boolean;
   readonly vocab: readonly VocabEntry[];
+  readonly enrichments?: ReadonlyMap<string, VocabEnrichment> | undefined;
+  readonly focusedVocabId?: Id | undefined;
   readonly onSelect: (chunkId: string) => void;
+  readonly onSelectChar?: ((charIndex: number) => void) | undefined;
   readonly t: Translate;
 }
 
-function ChunkCardImpl({ chunk, index, active, vocab, onSelect, t }: ChunkCardProps) {
+function ChunkCardImpl({ chunk, index, active, vocab, enrichments, focusedVocabId, onSelect, onSelectChar, t }: ChunkCardProps) {
   const ref = useRef<HTMLElement>(null);
   const mountedRef = useRef(false);
   const showRomaji = useSettingsStore((s) => s.settings.anime.showRomaji ?? false);
+  const orderedVocab = useMemo(() => [...vocab].sort((a, b) => a.charSpan[0] - b.charSpan[0]), [vocab]);
   useEffect(() => {
     const firstRun = !mountedRef.current;
     mountedRef.current = true;
     // The first card is already in view at the top: scrolling it "into view"
     // on open would push the sticky sentence / translation off-screen.
     if (firstRun && index === 0) return;
-    // When the P2 InstantDictPopup is expanded at the top of the panel, do not
-    // auto-scroll down — otherwise the sticky sentence obscures the popup.
-    if (ref.current?.closest('.k-breakdown')?.querySelector('[data-testid="instant-dict-popup"]:not(.is-collapsed)')) {
-      return;
-    }
     if (active && ref.current && typeof ref.current.scrollIntoView === 'function') {
       ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
@@ -114,27 +112,18 @@ function ChunkCardImpl({ chunk, index, active, vocab, onSelect, t }: ChunkCardPr
       <p className="k-chunk-card__meaning">{chunk.meaning}</p>
       {chunk.nuance && <p className="k-chunk-card__nuance">💡 {chunk.nuance}</p>}
       {chunk.alignment === 'unaligned' && <p className="k-chunk-card__warn">{t('breakdown.unaligned')}</p>}
-      {active && vocab.length > 0 && (
+      {active && orderedVocab.length > 0 && (
         <ul className="k-chunk-card__vocab">
-          {vocab.map((v) => (
-            <li key={v.id} className="k-chunk-card__vocab-item">
-              <span lang="ja">{v.lemma}</span>
-              <button
-                type="button"
-                className="k-vocab__tts k-chunk-card__tts"
-                title={t('dict.tts')}
-                data-testid={`chunk-vocab-tts-${v.id}`}
-                onPointerDown={(ev) => ev.stopPropagation()}
-                onTouchStart={(ev) => ev.stopPropagation()}
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  speakJapanese(vocabSpeechText(v));
-                }}
-              >
-                🔊
-              </button>{' '}
-              <span className="k-muted">{v.meaning}</span>
-            </li>
+          {orderedVocab.map((v) => (
+            <VocabItem
+              key={v.id}
+              item={v}
+              compact
+              enrichment={enrichments?.get(v.id)}
+              linked={focusedVocabId === v.id}
+              onSelect={onSelectChar}
+              t={t}
+            />
           ))}
         </ul>
       )}

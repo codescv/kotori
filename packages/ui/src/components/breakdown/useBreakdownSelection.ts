@@ -8,7 +8,7 @@
  * so switching characters within the same sentence is 0-latency.
  */
 import { useCallback, useMemo } from 'react';
-import type { CharSpan, Id, SemanticChunk, SentenceExplanation } from '@kotori/core';
+import type { CharSpan, Id, SemanticChunk, SentenceExplanation, VocabEntry } from '@kotori/core';
 import { chunkIndexAt, findVocabAt, vocabForChunk } from '../../lib/explanation';
 import { inferWordSpanAt } from './RubyText';
 
@@ -19,6 +19,8 @@ export interface BreakdownSelection {
   readonly highlightSpan: CharSpan | undefined;
   /** Word-level span focused within the sentence (`RubyText.focusSpan`). */
   readonly focusWordSpan: CharSpan | undefined;
+  /** Vocabulary entry directly covering `focusCharIndex`, if any. */
+  readonly vocabAtFocus: VocabEntry | undefined;
   readonly linkedVocabIds: ReadonlySet<Id>;
   readonly linkedGrammarIds: ReadonlySet<Id>;
   /** Sentence click → focus that character. */
@@ -32,6 +34,7 @@ const EMPTY_SELECTION: Omit<BreakdownSelection, 'selectChar' | 'selectChunk'> = 
   activeChunk: undefined,
   highlightSpan: undefined,
   focusWordSpan: undefined,
+  vocabAtFocus: undefined,
   linkedVocabIds: new Set(),
   linkedGrammarIds: new Set(),
 };
@@ -61,13 +64,14 @@ export function deriveSelection(
   const idx = chunkIndexAt(explanation, focusCharIndex);
   const chunk = idx >= 0 ? explanation.chunks[idx] : undefined;
   if (!chunk) {
-    return { ...EMPTY_SELECTION, focusWordSpan };
+    return { ...EMPTY_SELECTION, focusWordSpan, vocabAtFocus };
   }
   return {
     activeChunkIndex: idx,
     activeChunk: chunk,
     highlightSpan: chunk.charSpan,
     focusWordSpan,
+    vocabAtFocus,
     linkedVocabIds: new Set(vocabForChunk(explanation, chunk).map((v) => v.id)),
     linkedGrammarIds: new Set(explanation.grammar.filter((g) => g.chunkIds.includes(chunk.id)).map((g) => g.id)),
   };

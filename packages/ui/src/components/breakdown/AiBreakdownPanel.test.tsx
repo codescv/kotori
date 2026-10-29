@@ -89,8 +89,10 @@ describe('AiBreakdownPanel – bidirectional chunk highlight', () => {
   it('deriveSelection: no focus → nothing highlighted', () => {
     expect(deriveSelection(EXPL, undefined).activeChunk).toBeUndefined();
     expect(deriveSelection(EXPL, undefined).focusWordSpan).toBeUndefined();
+    expect(deriveSelection(EXPL, undefined).vocabAtFocus).toBeUndefined();
     expect(deriveSelection(EXPL, 0).activeChunk?.id).toBe('c0');
     expect(deriveSelection(EXPL, 1).focusWordSpan).toEqual([0, 2]);
+    expect(deriveSelection(EXPL, 1).vocabAtFocus?.id).toBe('v0');
     expect([...deriveSelection(EXPL, 2).linkedVocabIds]).toEqual(['v1']);
   });
 
@@ -132,13 +134,14 @@ describe('AiBreakdownPanel – bidirectional chunk highlight', () => {
     expect(glyphAt(sentence(), 10)).not.toHaveClass('is-focus'); // 'で'
   });
 
-  it('renders manga bubble crop preview, cultural note card, audio slice replay, and TTS buttons', () => {
+  it('renders manga bubble crop preview, cultural note card, audio slice replay, and conditional TTS / cache meta cleanup', () => {
     let replayed = false;
     const withCultural: SentenceExplanation = {
       ...EXPL,
+      fromCache: true,
       culturalNote: '下北沢（しもきたざわ）是东京著名的独立摇滚与 Livehouse 圣地。',
     };
-    render(
+    const { container, rerender } = render(
       <AiBreakdownPanel
         explanation={withCultural}
         focusCharIndex={0}
@@ -157,9 +160,18 @@ describe('AiBreakdownPanel – bidirectional chunk highlight', () => {
     );
     expect(screen.getByTestId('breakdown-bubble-crop')).toBeInTheDocument();
     expect(screen.getByTestId('breakdown-cultural-note')).toHaveTextContent('下北沢');
-    expect(screen.getByTestId('breakdown-tts-sentence')).toBeInTheDocument();
+    // Cached tag is dropped from the meta row even when explanation.fromCache is true.
+    expect(container.querySelector('.k-tag--muted')).toBeNull();
+    expect(screen.queryByText(t('breakdown.fromCache'))).toBeNull();
+    // Subtitle audio available: slow audio uses "🐢 慢放" and TTS button is hidden.
+    expect(screen.getByTestId('breakdown-slow-audio')).toHaveTextContent('🐢 慢放');
+    expect(screen.queryByTestId('breakdown-tts-sentence')).toBeNull();
     fireEvent.click(screen.getByTestId('breakdown-replay-audio'));
     expect(replayed).toBe(true);
+
+    // Manga / manual sentence without source audio: "🗣️ 朗读" TTS pill is rendered.
+    rerender(<AiBreakdownPanel explanation={withCultural} focusCharIndex={0} onFocusChange={() => {}} t={t} />);
+    expect(screen.getByTestId('breakdown-tts-sentence')).toHaveTextContent('🗣️ 朗读');
   });
 });
 

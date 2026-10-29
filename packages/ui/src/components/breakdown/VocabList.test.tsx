@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformHost, SentenceExplanation, VocabEnrichment, VocabEntry } from '@kotori/core';
 import { HostProvider } from '../../host/HostContext';
@@ -10,9 +9,8 @@ import * as tts from '../../lib/tts';
 import { useBreakdownStore } from '../../stores/breakdown';
 import { enrichmentCacheKey, LruCache, useDictStore } from '../../stores/dict';
 import { glyphAt, resetStores } from '../../test/utils';
-import { BreakdownPanel } from './AiBreakdownPanel';
+import { AiBreakdownPanel, BreakdownPanel } from './AiBreakdownPanel';
 import { ChunkCard } from './ChunkCard';
-import { InstantDictPopup, useInstantLookup } from './InstantDictPopup';
 import { formatRank, freqDictLabel, pickFrequencies, pitchLevels, splitMorae } from './PitchAccentBadge';
 import { VocabList, vocabSpeechText } from './VocabList';
 
@@ -228,46 +226,11 @@ describe('VocabList — three adaptive dictionary states', () => {
   });
 });
 
-function InstantHarness({ sentence, index }: { readonly sentence: string; readonly index: number }) {
-  const [i, setI] = useState(index);
-  const state = useInstantLookup(sentence, i);
-  return (
-    <>
-      <button type="button" data-testid="move" onClick={() => setI(sentence.indexOf('言'))} />
-      <InstantDictPopup state={state} collapsible />
-    </>
-  );
-}
-
-describe('InstantDictPopup — P2 click-to-lookup', () => {
+describe('Unified inline <VocabItem compact /> in ChunkCard & AiBreakdownPanel', () => {
   beforeEach(resetStores);
+  afterEach(() => vi.restoreAllMocks());
 
-  it('shows the longest deinflected prefix match with pitch, frequency and senses', async () => {
-    const host = createMockPlatformHost({ latencyMs: 0 });
-    const sentence = BAND.sentence;
-    render(
-      <HostProvider host={host}>
-        <InstantHarness sentence={sentence} index={sentence.indexOf('食')} />
-      </HostProvider>,
-    );
-    const popup = await screen.findByTestId('instant-dict-popup');
-    await waitFor(() => expect(within(popup).getByTestId('instant-dict-headline').textContent).toContain('食べた ← 食べる'));
-    expect(within(popup).getByTestId('instant-dict-chain')).toBeInTheDocument();
-    expect(within(popup).getByTestId('instant-pitch-badge').textContent).toContain('[2]');
-    expect(within(popup).getByTestId('instant-freq-badge').textContent).toBe('[JPDB #310]');
-    expect(within(popup).getByTestId('instant-dict-senses').textContent).toContain('吃，食用');
-    expect(host.calls.get('dict.lookupPrefix')).toBe(1);
-
-    fireEvent.click(screen.getByTestId('move'));
-    await waitFor(() => expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('言う'));
-
-    fireEvent.click(screen.getByTestId('instant-dict-collapse'));
-    expect(screen.queryByTestId('instant-dict-senses')).toBeNull();
-    fireEvent.click(screen.getByTestId('instant-dict-dismiss'));
-    expect(screen.queryByTestId('instant-dict-popup')).toBeNull();
-  });
-
-  it('BreakdownPanel looks up the tapped character in parallel with the AI call', async () => {
+  it('enriches all sentence vocab in 1 batch RPC, renders compact pitch/freq/senses inside ChunkCard, and removes InstantDictPopup', async () => {
     const host = createMockPlatformHost({ latencyMs: 5 });
     const sentence = BAND.sentence;
     render(
@@ -277,28 +240,56 @@ describe('InstantDictPopup — P2 click-to-lookup', () => {
     );
     let opening: Promise<void> | undefined;
     act(() => {
-      opening = useBreakdownStore.getState().open(host, { sentence, source: { kind: 'manual' }, focusCharIndex: sentence.indexOf('食') });
+      opening = useBreakdownStore.getState().open(host, {
+        sentence,
+        source: { kind: 'manual' },
+        focusCharIndex: sentence.indexOf('食'),
+      });
     });
-    // Visible while the AI breakdown is still loading.
+
+    // Skeleton highlights without InstantDictPopup.
     expect(screen.getByTestId('breakdown-loading')).toBeInTheDocument();
-    const popup = await screen.findByTestId('instant-dict-popup');
-    await waitFor(() => expect(within(popup).getByTestId('instant-dict-headline').textContent).toContain('食べる'));
+    expect(screen.queryByTestId('instant-dict-popup')).toBeNull();
+    expect(host.calls.get('dict.lookupPrefix') ?? 0).toBe(0);
+
     await act(async () => {
       await opening;
     });
-    // AI ready: still shown, now collapsible / dismissible.
     expect(await screen.findByTestId('ai-breakdown-panel')).toBeInTheDocument();
-    expect(screen.getByTestId('instant-dict-popup')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('instant-dict-dismiss'));
     expect(screen.queryByTestId('instant-dict-popup')).toBeNull();
-    // Tapping another word in the sticky sentence header looks it up.
-    fireEvent.click(glyphAt(screen.getByTestId('breakdown-sentence'), sentence.indexOf('バ')));
-    await waitFor(() => expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('バンド'));
+
+    const taberu = vocabByLemma(BAND, '食べる');
+    const compactCard = screen.getByTestId(`chunk-vocab-${taberu.id}`);
+    expect(compactCard).toHaveClass('k-vocab', 'k-vocab--compact', 'is-linked');
+    expect(compactCard).toHaveAttribute('aria-current', 'true');
+
+    const pitch = await within(compactCard).findByTestId('vocab-pitch-badge');
+    expect(pitch.textContent).toContain('[2]');
+    expect(within(compactCard).getByTestId('vocab-freq-badge').textContent).toBe('[JPDB #310]');
+    expect(within(compactCard).getByTestId(`chunk-vocab-tts-${taberu.id}`)).toBeInTheDocument();
+    expect(within(compactCard).getByTestId(`chunk-vocab-meaning-${taberu.id}`).textContent).toContain('食べた ← ');
+
+    const senses = within(compactCard).getByTestId('vocab-dict-senses');
+    expect(senses.textContent).toContain('吃，食用');
+    // Compact mode: showLabel={false}, limit={2}, no POS chip, no 🎯 语境义 prefix, no notes.
+    expect(senses.textContent).not.toContain('📖 词典释义');
+    expect(senses.querySelectorAll('li').length).toBeLessThanOrEqual(2);
+    expect(compactCard.querySelector('.k-pos')).toBeNull();
+    expect(compactCard.textContent).not.toContain('🎯 语境义');
+    expect(compactCard.textContent).not.toContain('💡 语感');
+
+    // Only 1 batch enrichVocab RPC for the whole sentence; switching chunks or opening 词汇 tab triggers 0 extra RPCs.
+    expect(host.calls.get('dict.enrichVocab')).toBe(1);
+    fireEvent.click(screen.getByTestId(`chunk-${BAND.chunks[0]!.id}`));
+    const bando = vocabByLemma(BAND, 'バンド');
+    expect(within(screen.getByTestId(`chunk-vocab-${bando.id}`)).getByTestId('vocab-pitch-badge')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /词汇/ }));
+    expect(within(screen.getByTestId(`vocab-${taberu.id}`)).getByTestId('vocab-pitch-badge')).toBeInTheDocument();
+    expect(host.calls.get('dict.enrichVocab')).toBe(1);
   });
 
-  it('snaps mid-word taps ("ハ" in "ライブハウスで歌う", "子" in "女子", "べ" in "食べた") to the word start for lookup and highlights the full word', async () => {
+  it('highlights full katakana word in BreakdownSkeleton and preserves click focus inside ChunkCard without bubbling or reordering', async () => {
     const host = createMockPlatformHost({ latencyMs: 5 });
-    const sentence = 'ライブハウスで歌う';
     render(
       <HostProvider host={host}>
         <BreakdownPanel />
@@ -306,10 +297,12 @@ describe('InstantDictPopup — P2 click-to-lookup', () => {
     );
     let opening: Promise<void> | undefined;
     act(() => {
-      // Tap middle kana 'ハ' (index 3) inside "ライブハウス" [0, 6).
-      opening = useBreakdownStore.getState().open(host, { sentence, source: { kind: 'manual' }, focusCharIndex: 3 });
+      opening = useBreakdownStore.getState().open(host, {
+        sentence: 'ライブハウスで歌う',
+        source: { kind: 'manual' },
+        focusCharIndex: 3, // 'ハ' inside "ライブハウス" [0, 6)
+      });
     });
-
     const loadingBox = screen.getByTestId('breakdown-loading');
     for (let i = 0; i < 6; i++) {
       expect(glyphAt(loadingBox, i)).toHaveClass('is-focus');
@@ -317,39 +310,85 @@ describe('InstantDictPopup — P2 click-to-lookup', () => {
     expect(glyphAt(loadingBox, 0)).toHaveClass('is-focus-start');
     expect(glyphAt(loadingBox, 5)).toHaveClass('is-focus-end');
     expect(glyphAt(loadingBox, 6)).not.toHaveClass('is-focus');
-
-    const popup = await screen.findByTestId('instant-dict-popup');
-    await waitFor(() => expect(within(popup).getByTestId('instant-dict-headline').textContent).toContain('ライブハウス'));
-    expect(within(popup).getByTestId('instant-dict-senses').textContent).toContain('Livehouse');
-
     await act(async () => {
       await opening;
     });
-    const header = screen.getByTestId('breakdown-sentence');
-    for (let i = 0; i < 6; i++) {
-      expect(glyphAt(header, i)).toHaveClass('is-focus');
-    }
-    expect(glyphAt(header, 0)).toHaveClass('is-focus-start');
-    expect(glyphAt(header, 5)).toHaveClass('is-focus-end');
-    expect(glyphAt(header, 6)).not.toHaveClass('is-focus');
 
-    // Mid-word kanji ('子' in "女子") and okurigana ('べ' in "食べた") also snap to word start in InstantDictPopup.
-    const bandSentence = BAND.sentence;
+    // Open a sentence with a multi-vocab chunk ("待ってくれよ" [4, 10) contains both 待つ [4, 6) and くれる [7, 9)).
+    const waitExpl = explanationFor('ちょっと待ってくれよ、まだ話は終わってないんだから。', 'zh-CN');
+    const matsu = vocabByLemma(waitExpl, '待つ');
+    const kureru = vocabByLemma(waitExpl, 'くれる');
+    const multiChunk = waitExpl.chunks.find((c) => c.vocabIds.includes(matsu.id) && c.vocabIds.includes(kureru.id))!;
+
     act(() => {
       opening = useBreakdownStore.getState().open(host, {
-        sentence: bandSentence,
+        sentence: waitExpl.sentence,
         source: { kind: 'manual' },
-        focusCharIndex: bandSentence.indexOf('子'),
+        focusCharIndex: multiChunk.charSpan[0],
       });
     });
-    await waitFor(() => expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('女子'));
     await act(async () => {
       await opening;
     });
-    fireEvent.click(glyphAt(screen.getByTestId('breakdown-sentence'), bandSentence.indexOf('べ')));
-    await waitFor(() =>
-      expect(within(screen.getByTestId('instant-dict-popup')).getByTestId('instant-dict-headline').textContent).toContain('食べた ← 食べる'),
+
+    const chunkEl = screen.getByTestId(`chunk-${multiChunk.id}`);
+    expect(within(chunkEl).getAllByRole('listitem').map((el) => el.getAttribute('data-testid'))).toEqual([
+      `chunk-vocab-${matsu.id}`,
+      `chunk-vocab-${kureru.id}`,
+    ]);
+    expect(screen.getByTestId(`chunk-vocab-${matsu.id}`)).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId(`chunk-vocab-${kureru.id}`)).not.toHaveAttribute('aria-current');
+
+    // Click くれる ([7, 9)) inside ChunkCard: must NOT bubble to ChunkCard (which would reset focusCharIndex to 4),
+    // and must NOT reorder [待つ, くれる].
+    fireEvent.click(screen.getByTestId(`chunk-vocab-${kureru.id}`));
+    expect(useBreakdownStore.getState().focusCharIndex).toBe(kureru.charSpan[0]);
+    expect(screen.getByTestId(`chunk-vocab-${kureru.id}`)).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId(`chunk-vocab-${matsu.id}`)).not.toHaveAttribute('aria-current');
+    expect(within(chunkEl).getAllByRole('listitem').map((el) => el.getAttribute('data-testid'))).toEqual([
+      `chunk-vocab-${matsu.id}`,
+      `chunk-vocab-${kureru.id}`,
+    ]);
+    const header = screen.getByTestId('breakdown-sentence');
+    expect(glyphAt(header, matsu.charSpan[0])).not.toHaveClass('is-focus');
+    expect(glyphAt(header, kureru.charSpan[0])).toHaveClass('is-focus', 'is-focus-start');
+    expect(glyphAt(header, kureru.charSpan[1] - 1)).toHaveClass('is-focus', 'is-focus-end');
+  });
+
+  it('renders uncertain homograph candidates one-liner in compact mode and auto-scrolls only the primary linked item in VocabList', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const kakeru = vocabByLemma(KAKERU, 'かける');
+    const { unmount } = render(
+      <HostProvider host={host}>
+        <AiBreakdownPanel explanation={KAKERU} focusCharIndex={kakeru.charSpan[0]} onFocusChange={() => {}} t={t} />
+      </HostProvider>,
     );
+    const compactKakeru = screen.getByTestId(`chunk-vocab-${kakeru.id}`);
+    const toggle = await within(compactKakeru).findByTestId('vocab-uncertain-candidates');
+    expect(toggle.textContent).toContain('📖 词典同音候选 (4)');
+    unmount();
+
+    // Auto-scroll guard in VocabList: index 0 does not scroll on initial mount; moving focus scrolls only the primary item.
+    const scrolled: string[] = [];
+    const originalScroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollSpy(this: Element) {
+      const id = this.getAttribute('data-testid');
+      if (id) scrolled.push(id);
+    };
+    try {
+      const bando = vocabByLemma(BAND, 'バンド');
+      const joshi = vocabByLemma(BAND, '女子');
+      const linkedChunk0 = new Set([bando.id, joshi.id]);
+      const { rerender } = render(
+        <VocabList vocab={BAND.vocab} linkedIds={linkedChunk0} focusedVocabId={bando.id} onSelect={() => {}} t={t} />,
+      );
+      expect(scrolled).toEqual([]);
+
+      rerender(<VocabList vocab={BAND.vocab} linkedIds={linkedChunk0} focusedVocabId={joshi.id} onSelect={() => {}} t={t} />);
+      expect(scrolled).toEqual([`vocab-${joshi.id}`]);
+    } finally {
+      Element.prototype.scrollIntoView = originalScroll;
+    }
   });
 });
 
@@ -437,29 +476,27 @@ describe('Vocabulary TTS — disambiguated kana reading & touch propagation', ()
     expect(speakSpy).toHaveBeenCalledWith('かける');
   });
 
-  it('InstantDictPopup instant-dict-tts and ChunkCard chunk-vocab-tts-* speak kana readings', async () => {
+  it('ChunkCard chunk-vocab-tts-* speaks kana readings without selecting the chunk or vocab item', () => {
     const speakSpy = vi.spyOn(tts, 'speakJapanese').mockReturnValue(true);
-    const host = createMockPlatformHost({ latencyMs: 0 });
-    const sentence = BAND.sentence;
-    const popupView = render(
-      <HostProvider host={host}>
-        <InstantHarness sentence={sentence} index={sentence.indexOf('食')} />
-      </HostProvider>,
-    );
-    const popup = await screen.findByTestId('instant-dict-popup');
-    await waitFor(() => expect(within(popup).getByTestId('instant-dict-headline').textContent).toContain('食べる'));
-    fireEvent.click(within(popup).getByTestId('instant-dict-tts'));
-    expect(speakSpy).toHaveBeenCalledWith('たべる');
-    popupView.unmount();
-
-    speakSpy.mockClear();
     const onSelectChunk = vi.fn();
+    const onSelectChar = vi.fn();
     const joshi = vocabByLemma(BAND, '女子');
     const joshiChunk = BAND.chunks.find((c) => c.vocabIds.includes(joshi.id))!;
     const chunkVocab = BAND.vocab.filter((v) => joshiChunk.vocabIds.includes(v.id));
-    render(<ChunkCard chunk={joshiChunk} index={1} active vocab={chunkVocab} onSelect={onSelectChunk} t={t} />);
+    render(
+      <ChunkCard
+        chunk={joshiChunk}
+        index={1}
+        active
+        vocab={chunkVocab}
+        onSelect={onSelectChunk}
+        onSelectChar={onSelectChar}
+        t={t}
+      />,
+    );
     fireEvent.click(screen.getByTestId(`chunk-vocab-tts-${joshi.id}`));
     expect(speakSpy).toHaveBeenCalledWith('じょし');
     expect(onSelectChunk).not.toHaveBeenCalled();
+    expect(onSelectChar).not.toHaveBeenCalled();
   });
 });

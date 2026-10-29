@@ -138,35 +138,27 @@
 .k-dict-candidate__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .k-dict-candidate__hw { font-weight: 600; }
 
-/* P2 instant lookup card. */
-.k-instant-dict {
-  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
-  border-radius: var(--md-sys-shape-corner-medium, 12px);
-  background: color-mix(in srgb, var(--k-primary, var(--md-sys-color-primary)) 8%, var(--md-sys-color-surface-container-low, transparent));
-  border: 1px solid color-mix(in srgb, var(--k-primary, var(--md-sys-color-primary)) 30%, transparent);
+/* Auto-scroll margin in VocabList so the sticky sentence header never obscures the focused word. */
+.k-vocab-list > .k-vocab { scroll-margin: 96px 0 8px; }
+
+/* Inline compact VocabItem cards inside the active ChunkCard. */
+.k-breakdown .k-chunk-card__vocab {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
 }
-.k-instant-dict__bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.k-instant-dict__title { font: var(--md-sys-typescale-label-medium); color: var(--k-primary, var(--md-sys-color-primary)); font-weight: 700; }
-.k-instant-dict__headline { font-size: 16px; }
-.k-instant-dict__surface { color: var(--md-sys-color-on-surface-variant); }
-.k-instant-dict__reading { color: var(--md-sys-color-on-surface-variant); font-size: 13px; }
-.k-instant-dict__btn {
-  border: 0; background: transparent; cursor: pointer;
-  min-width: 32px; min-height: 32px; padding: 4px 8px;
-  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-  touch-action: manipulation; border-radius: 999px; line-height: 1;
-  color: var(--md-sys-color-on-surface-variant); margin-left: 0;
+.k-breakdown .k-vocab--compact {
+  padding: 6px 10px; border-radius: var(--md-sys-shape-corner-small, 8px);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 82%, transparent);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent);
 }
-.k-instant-dict__btn:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
-.k-instant-dict__body { display: flex; flex-direction: column; gap: 4px; }
-.k-instant-dict__badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.k-instant-dict__chain { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.k-instant-dict__reason {
-  font: var(--md-sys-typescale-label-small); padding: 0 6px; border-radius: 6px;
-  background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);
+.k-breakdown .k-vocab--compact:hover {
+  background: color-mix(in srgb, var(--md-sys-color-surface) 94%, transparent);
 }
-.k-instant-dict__others { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font: var(--md-sys-typescale-body-small); }
-.k-instant-dict__other {
-  border: 1px solid var(--md-sys-color-outline-variant); background: transparent; border-radius: 999px;
-  padding: 0 8px; cursor: pointer; color: inherit; font: inherit;
+.k-breakdown .k-vocab--compact.is-linked {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: var(--md-sys-color-primary);
+}
+.k-breakdown .k-vocab--compact .k-vocab__lemma {
+  font-size: 16px; line-height: 1.75;
 }
