@@ -222,8 +222,13 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
     afterEach(() => vi.unstubAllGlobals());
 
     it('合并解析 from the transcript tab while the AI tab was already used switches back to the AI tab', async () => {
-      renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
       const cue = await screen.findByTestId('overlay-cue');
+      expect(container.querySelector('.k-player__hint')).toBeNull();
+      expect(screen.getByRole('button', { name: '播放' })).toHaveAttribute('title', '播放 (Space)');
+      expect(screen.getByRole('button', { name: '上一句 (←)' })).toHaveAttribute('title', '上一句 (←)');
+      expect(screen.getByRole('button', { name: '下一句 (→)' })).toHaveAttribute('title', '下一句 (→)');
+      expect(screen.getByTestId('blind-toggle')).toHaveAttribute('title', '隐藏字幕 (B)');
       fireEvent.click(glyphAt(cue, 2));
       await waitFor(() => expect(useBreakdownStore.getState().status).toBe('ready'));
       expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true');

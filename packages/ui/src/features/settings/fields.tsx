@@ -24,6 +24,24 @@ export function SettingsSection({ title, icon, children, id }: { readonly title:
   );
 }
 
+export function SettingsDisclosure({
+  label,
+  testId,
+  children,
+}: {
+  readonly label?: string;
+  readonly testId?: string;
+  readonly children: ReactNode;
+}) {
+  const t = useT();
+  return (
+    <details className="k-settings-disclosure" data-testid={testId}>
+      <summary className="k-settings-disclosure__summary k-label-large">{label ?? t('settings.advanced')}</summary>
+      <div className="k-settings-disclosure__body k-stack">{children}</div>
+    </details>
+  );
+}
+
 /** Returns `patch(p)` that applies a settings patch via the store, reporting failures. */
 export function usePatchSettings(): (patch: SettingsPatch) => Promise<void> {
   const host = useHost();

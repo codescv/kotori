@@ -68,7 +68,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const [pages, setPages] = useState<MangaPage[] | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [anchor, setAnchor] = useState(0);
-  const [outlines, setOutlines] = useState(mangaSettings.showBlockOutlines);
+  const outlines = mangaSettings.showBlockOutlines;
   const [selectTool, setSelectTool] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
@@ -406,14 +406,20 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
         </h1>
         <button
           type="button"
-          className="k-reader__page k-label-large"
-          data-testid="page-indicator"
+          className={cx('k-reader__page k-reader__page-indicator k-label-large', tocOpen && 'is-active')}
+          aria-pressed={tocOpen}
+          disabled={total <= 0}
+          data-testid="toc-toggle"
           onClick={() => {
-            if (!tocOpen) closeBreakdown();
+            if (!tocOpen) {
+              closeBreakdown();
+              setGuideOpen(false);
+            }
             setTocOpen((v) => !v);
           }}
         >
-          {t('manga.reader.page', { current: pageLabel, total })}
+          <span data-testid="page-indicator">{t('manga.reader.page', { current: pageLabel, total })}</span>
+          <span aria-hidden="true"> ▾</span>
         </button>
         <span className="k-spacer" />
         <Menu
@@ -422,28 +428,20 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
           items={MODES.map((m) => ({ key: m.mode, label: t(`manga.mode.${m.mode}`), selected: m.mode === mode, onSelect: () => void setMode(m.mode) }))}
         />
         <IconButton
-          icon="book"
-          label="页码与目录"
-          selected={tocOpen}
-          disabled={total <= 0}
-          onClick={() => {
-            if (!tocOpen) {
-              closeBreakdown();
-              setGuideOpen(false);
-            }
-            setTocOpen((v) => !v);
-          }}
-          data-testid="toc-toggle"
-        />
-        <IconButton
-          icon="speed"
+          icon="bolt"
           className="k-reader__pre-explain"
           label={t('manga.reader.preExplain')}
           selected={Boolean(mangaSettings.autoPreExplain)}
           onClick={togglePreExplain}
           data-testid="manga-pre-explain-toggle"
         />
-        <IconButton icon={outlines ? 'visibility' : 'visibilityOff'} label={t('manga.reader.outlines')} selected={outlines} onClick={() => setOutlines((o) => !o)} />
+        <IconButton
+          icon={outlines ? 'visibility' : 'visibilityOff'}
+          label={t('manga.reader.outlines')}
+          selected={outlines}
+          data-testid="outlines-toggle"
+          onClick={() => void updateSettings(host, { manga: { showBlockOutlines: !outlines } })}
+        />
         <IconButton
           icon="crop"
           label={t('manga.reader.select')}

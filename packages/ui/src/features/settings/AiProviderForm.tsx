@@ -15,13 +15,12 @@ import { IconButton } from '../../components/m3/IconButton';
 import { Menu } from '../../components/m3/Menu';
 import { CircularProgress } from '../../components/m3/Progress';
 import { SegmentedButton } from '../../components/m3/SegmentedButton';
-import { Slider } from '../../components/m3/Slider';
-import { Switch } from '../../components/m3/Switch';
 import { TextField } from '../../components/m3/TextField';
 import { useHost } from '../../host/HostContext';
 import { useT, type MessageKey } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
 import { showSnackbar } from '../../stores/snackbar';
+import { SettingsDisclosure } from './fields';
 
 export type ProviderKind = AiProviderSettings['provider'];
 export type AuthKind = VertexAuth['kind'];
@@ -53,9 +52,13 @@ export type AiDraftErrors = Partial<
   Record<'apiKey' | 'project' | 'location' | 'accessToken' | 'saJson' | 'expressKey' | 'explainModel' | 'visionModel' | 'thinkingBudget' | 'timeoutMs' | 'authKind', MessageKey>
 >;
 
-/** Settings → draft (missing variant fields get sensible defaults). */
+/** Settings → draft (missing variant fields get sensible defaults; hidden fields are sanitized). */
 export function draftFromSettings(ai: AiSettings): AiDraft {
   const p = ai.provider;
+  const thinkingBudget =
+    ai.thinkingBudget !== undefined && Number.isInteger(ai.thinkingBudget) && ai.thinkingBudget >= 0
+      ? String(ai.thinkingBudget)
+      : '';
   return {
     provider: p.provider,
     gemini: {
@@ -73,12 +76,12 @@ export function draftFromSettings(ai: AiSettings): AiDraft {
       baseUrl: p.provider === 'vertex-ai' ? (p.baseUrl ?? '') : '',
     },
     explainModel: ai.explainModel,
-    visionModel: ai.visionModel,
-    temperature: ai.temperature,
-    thinkingBudget: ai.thinkingBudget === undefined ? '' : String(ai.thinkingBudget),
+    visionModel: ai.visionModel.trim() ? ai.visionModel : ai.explainModel,
+    temperature: Number.isFinite(ai.temperature) ? Math.min(2, Math.max(0, ai.temperature)) : 0.2,
+    thinkingBudget,
     targetLanguage: ai.targetLanguage,
-    cacheEnabled: ai.cacheEnabled,
-    timeoutMs: ai.timeoutMs,
+    cacheEnabled: true,
+    timeoutMs: Number.isInteger(ai.timeoutMs) && ai.timeoutMs >= 1000 ? ai.timeoutMs : 30000,
   };
 }
 
@@ -243,8 +246,28 @@ export function AiProviderForm() {
     setDirty(true);
     setResult(undefined);
   };
-  const editGemini = (patch: Partial<AiDraft['gemini']>): void => edit({ gemini: { ...draft.gemini, ...patch } });
-  const editVertex = (patch: Partial<AiDraft['vertex']>): void => edit({ vertex: { ...draft.vertex, ...patch } });
+  const editGemini = (patch: Partial<AiDraft['gemini']>): void => {
+    setDraft((d) => ({ ...d, gemini: { ...d.gemini, ...patch } }));
+    setDirty(true);
+    setResult(undefined);
+  };
+  const editVertex = (patch: Partial<AiDraft['vertex']>): void => {
+    setDraft((d) => ({ ...d, vertex: { ...d.vertex, ...patch } }));
+    setDirty(true);
+    setResult(undefined);
+  };
+  const editExplainModel = (explainModel: string): void => {
+    setDraft((d) => {
+      const syncVision = d.visionModel === d.explainModel || d.visionModel.trim() === '';
+      return {
+        ...d,
+        explainModel,
+        ...(syncVision ? { visionModel: explainModel } : {}),
+      };
+    });
+    setDirty(true);
+    setResult(undefined);
+  };
 
   const test = async (): Promise<void> => {
     setAttempted(true);
@@ -322,20 +345,6 @@ export function AiProviderForm() {
             error={err('apiKey')}
             trailing={revealBtn}
           />
-          <TextField label={t('settings.ai.baseUrl')} value={draft.gemini.baseUrl} type="url" placeholder="https://generativelanguage.googleapis.com" onValueChange={(baseUrl) => editGemini({ baseUrl })} />
-          <div className="k-ai-form__inline">
-            <span className="k-label-large">{t('settings.ai.apiVersion')}</span>
-            <SegmentedButton<'v1' | 'v1beta'>
-              dense
-              label={t('settings.ai.apiVersion')}
-              value={draft.gemini.apiVersion}
-              onChange={(apiVersion) => editGemini({ apiVersion })}
-              segments={[
-                { value: 'v1beta', label: 'v1beta' },
-                { value: 'v1', label: 'v1' },
-              ]}
-            />
-          </div>
         </div>
       ) : (
         <div className="k-ai-form__group" data-testid="vertex-fields">
@@ -385,11 +394,7 @@ export function AiProviderForm() {
       )}
 
       <div className="k-ai-form__group">
-        <h3 className="k-title-small k-muted">{t('settings.ai.models')}</h3>
-        <div className="k-ai-form__row">
-          <ModelComboField label={t('settings.ai.explainModel')} value={draft.explainModel} onValueChange={(explainModel) => edit({ explainModel })} error={err('explainModel')} />
-          <ModelComboField label={t('settings.ai.visionModel')} value={draft.visionModel} onValueChange={(visionModel) => edit({ visionModel })} error={err('visionModel')} />
-        </div>
+        <ModelComboField label={t('settings.ai.model')} value={draft.explainModel} onValueChange={editExplainModel} error={err('explainModel')} />
         <datalist id="k-ai-model-presets">
           {MODEL_PRESETS.map((m) => (
             <option key={m} value={m} />
@@ -399,27 +404,23 @@ export function AiProviderForm() {
           <span className="k-label-large">{t('settings.ai.targetLanguage')}</span>
           <SegmentedButton<TargetLanguage> dense label={t('settings.ai.targetLanguage')} value={draft.targetLanguage} onChange={(targetLanguage) => edit({ targetLanguage })} segments={LANGS} />
         </div>
-        <Slider label={t('settings.ai.temperature')} value={draft.temperature} min={0} max={2} step={0.1} format={(v) => v.toFixed(1)} onChange={(temperature) => edit({ temperature })} />
-        <div className="k-ai-form__row">
-          <TextField label={t('settings.ai.thinking')} value={draft.thinkingBudget} type="number" min={0} inputMode="numeric" onValueChange={(thinkingBudget) => edit({ thinkingBudget })} error={err('thinkingBudget')} />
-          <TextField
-            label={t('settings.ai.timeout')}
-            value={draft.timeoutMs === 0 ? '' : String(draft.timeoutMs)}
-            type="number"
-            min={1000}
-            step={1000}
-            inputMode="numeric"
-            onValueChange={(v) => edit({ timeoutMs: v.trim() === '' ? 0 : Number(v) })}
-            error={err('timeoutMs')}
-          />
-        </div>
-        <div className="k-ai-form__inline">
-          <Switch label={t('settings.ai.cache')} checked={draft.cacheEnabled} onChange={(cacheEnabled) => edit({ cacheEnabled })} />
+      </div>
+
+      <SettingsDisclosure testId="ai-advanced-disclosure">
+        <TextField
+          label={t('settings.ai.baseUrl')}
+          value={draft.provider === 'gemini-api' ? draft.gemini.baseUrl : draft.vertex.baseUrl}
+          type="url"
+          placeholder={draft.provider === 'gemini-api' ? 'https://generativelanguage.googleapis.com' : 'https://aiplatform.googleapis.com'}
+          onValueChange={(baseUrl) => (draft.provider === 'gemini-api' ? editGemini({ baseUrl }) : editVertex({ baseUrl }))}
+        />
+        <ModelComboField label={t('settings.ai.visionModel')} value={draft.visionModel} onValueChange={(visionModel) => edit({ visionModel })} error={err('visionModel')} />
+        <div>
           <Button variant="text" icon="delete" onClick={() => void clearCache()}>
             {t('settings.ai.clearCache')}
           </Button>
         </div>
-      </div>
+      </SettingsDisclosure>
 
       {result && (
         <p className={result.ok ? 'k-ai-form__result is-ok' : 'k-ai-form__result is-fail'} role="status" data-testid="ai-test-result">

@@ -532,7 +532,13 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
           />
           <div className="k-player__buttons">
             <IconButton icon="prev" label={t('player.prevCue')} onClick={prevRow} />
-            <IconButton icon={clock.playing ? 'pause' : 'play'} variant="filled" label={clock.playing ? t('player.pause') : t('player.play')} onClick={clock.toggle} />
+            <IconButton
+              icon={clock.playing ? 'pause' : 'play'}
+              variant="filled"
+              label={clock.playing ? t('player.pause') : t('player.play')}
+              title={`${clock.playing ? t('player.pause') : t('player.play')} (Space)`}
+              onClick={clock.toggle}
+            />
             <IconButton icon="next" label={t('player.nextCue')} onClick={nextRow} />
             <span className="k-player__time">
               {formatClock(clock.currentMs)} / {formatClock(duration)}
@@ -570,7 +576,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               )}
             />
           </div>
-          {expanded && <p className="k-player__hint k-body-small k-muted">{t('player.keyboardHint')}</p>}
         </div>
 
         {!expanded && <div className="k-player__compact-transcript">{transcript}</div>}
