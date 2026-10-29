@@ -166,4 +166,73 @@ describe('BottomSheet snap points', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(onClose).toHaveBeenCalledTimes(2);
   });
+
+  it('applies non-modal pass-through scrim in peek when modal={false} and restores modal scrim when expanded', () => {
+    let now = 1000;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const onClose = vi.fn();
+      render(
+        <BottomSheet open modal={false} onClose={onClose} title="AI 解析">
+          <p>body</p>
+        </BottomSheet>,
+      );
+      const sheet = screen.getByRole('dialog');
+      const scrim = sheet.parentElement!;
+      expect(scrim).toHaveClass('k-bottom-sheet-scrim', 'is-passthrough');
+      expect(sheet).toHaveAttribute('aria-modal', 'false');
+
+      // Even after the 350ms guard window, scrim mouseDown does NOT close while in non-modal peek.
+      now += 500;
+      fireEvent.mouseDown(scrim);
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Expanding restores modal scrim and aria-modal="true".
+      const handle = screen.getByTestId('bottom-sheet-handle');
+      fireEvent.pointerDown(handle, { clientY: 400, pointerId: 1 });
+      fireEvent.pointerUp(handle, { clientY: 400, pointerId: 1 });
+      expect(sheet).toHaveClass('is-expanded');
+      expect(scrim).not.toHaveClass('is-passthrough');
+      expect(sheet).toHaveAttribute('aria-modal', 'true');
+
+      fireEvent.mouseDown(scrim);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('expands from peek to expanded without negative translateY when dragging upward inside .k-sheet__body', () => {
+    const onChildClick = vi.fn();
+    render(
+      <BottomSheet open modal={false} onClose={() => {}} title="AI 解析">
+        <div data-testid="card" onClick={onChildClick}>
+          意群卡片
+        </div>
+        <button type="button">操作按钮</button>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const card = screen.getByTestId('card');
+    const btn = screen.getByRole('button', { name: '操作按钮' });
+    expect(sheet.dataset['snap']).toBe('peek');
+
+    // Dragging upward starting on an interactive button does NOT auto-expand.
+    fireEvent.touchStart(btn, { touches: [{ clientX: 180, clientY: 500 }] });
+    fireEvent.touchMove(btn, { touches: [{ clientX: 180, clientY: 430 }] });
+    fireEvent.touchEnd(btn, { touches: [], changedTouches: [{ clientX: 180, clientY: 430 }] });
+    expect(sheet.dataset['snap']).toBe('peek');
+
+    // Dragging upward (dy = -60px) inside .k-sheet__body expands to 'expanded' with zero negative translateY.
+    fireEvent.touchStart(card, { touches: [{ clientX: 180, clientY: 500 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 182, clientY: 440 }] });
+    expect(sheet).toHaveClass('is-expanded');
+    expect(sheet.dataset['snap']).toBe('expanded');
+    expect(sheet.style.transform).toBe('');
+    fireEvent.touchEnd(card, { touches: [], changedTouches: [{ clientX: 182, clientY: 440 }] });
+
+    // Accidental child click immediately after drag-to-expand is suppressed.
+    fireEvent.click(card);
+    expect(onChildClick).not.toHaveBeenCalled();
+  });
 });

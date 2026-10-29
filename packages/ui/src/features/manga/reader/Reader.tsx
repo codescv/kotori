@@ -22,6 +22,7 @@ import { IconButton } from '../../../components/m3/IconButton';
 import { Menu } from '../../../components/m3/Menu';
 import { AdaptiveSheet } from '../../../components/m3/Sheet';
 import type { IconName } from '../../../components/m3/Icon';
+import { useIsExpanded, useIsMobilePortrait } from '../../../hooks/useMediaQuery';
 import { useHost } from '../../../host/HostContext';
 import { useT } from '../../../i18n';
 import { buildSpreads, findNextSeriesVolume, formatMangaVolumeTitle, spreadIndexForPage } from '../../../lib/manga';
@@ -79,6 +80,8 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const jumpBackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const stageRef = useRef<HTMLDivElement>(null);
   const stage = useElementSize(stageRef);
+  const isMobilePortrait = useIsMobilePortrait();
+  const isExpanded = useIsExpanded();
 
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
   const breakdownRequest = useBreakdownStore((s) => s.request);
@@ -137,7 +140,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   );
 
   const isPortraitStage = stage.width > 0 && stage.height > 0 && stage.width < stage.height;
-  const isMobileDefault = isPortraitStage || host.info.platform === 'android';
+  const isMobileDefault = isPortraitStage || isMobilePortrait || host.info.platform === 'android';
   const rawMode: MangaReadingMode = volume?.readingMode ?? mangaSettings.defaultReadingMode;
   const mode: MangaReadingMode =
     volume?.readingMode === undefined && isMobileDefault
@@ -154,6 +157,18 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const spreadIdx = spreadIndexForPage(spreads, anchor);
   const spread = spreads[spreadIdx];
   const pageAt = useCallback((i: number) => pages?.[i], [pages]);
+  const leftNeighborSpread = rtl ? spreads[spreadIdx + 1] : spreads[spreadIdx - 1];
+  const rightNeighborSpread = rtl ? spreads[spreadIdx - 1] : spreads[spreadIdx + 1];
+  const leftPeekPage = useMemo(() => {
+    if (!leftNeighborSpread || leftNeighborSpread.pageIndexes.length === 0) return undefined;
+    const idx = rtl ? leftNeighborSpread.pageIndexes[0]! : leftNeighborSpread.pageIndexes[leftNeighborSpread.pageIndexes.length - 1]!;
+    return pageAt(idx);
+  }, [leftNeighborSpread, rtl, pageAt]);
+  const rightPeekPage = useMemo(() => {
+    if (!rightNeighborSpread || rightNeighborSpread.pageIndexes.length === 0) return undefined;
+    const idx = rtl ? rightNeighborSpread.pageIndexes[rightNeighborSpread.pageIndexes.length - 1]! : rightNeighborSpread.pageIndexes[0]!;
+    return pageAt(idx);
+  }, [rightNeighborSpread, rtl, pageAt]);
   const spreadPages = useMemo(() => (spread ? spread.pageIndexes.map((i) => pages?.[i]).filter((p): p is MangaPage => p !== undefined) : []), [spread, pages]);
   const spreadBox = useMemo(
     () => (spread ? computeSpreadLayout(spread, pageAt, mode, stage, effectiveFit) : undefined),
@@ -183,6 +198,29 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
     },
     [rtl, goNext, goPrev],
   );
+  const handleStageBlankOrEdgeTap = useCallback(
+    (side?: 'left' | 'right') => {
+      if (useBreakdownStore.getState().isOpen && !isExpanded) {
+        closeBreakdown();
+        return;
+      }
+      if (side) handleEdgeTap(side);
+      else toggleImmersive();
+    },
+    [isExpanded, closeBreakdown, handleEdgeTap, toggleImmersive],
+  );
+  useEffect(() => {
+    if (
+      breakdownOpen &&
+      breakdownRequest?.source.kind === 'manga' &&
+      breakdownRequest.source.volumeId === volumeId &&
+      breakdownRequest.source.pageIndex !== undefined &&
+      spread &&
+      !spread.pageIndexes.includes(breakdownRequest.source.pageIndex)
+    ) {
+      closeBreakdown();
+    }
+  }, [anchor, spread, breakdownOpen, breakdownRequest, volumeId, closeBreakdown]);
   const onPageNaturalSize = useCallback((pageIndex: number, width: number, height: number) => {
     setPages((ps) => ps?.map((p) => (p.index === pageIndex && (p.width <= 0 || p.height <= 0) ? { ...p, width, height } : p)));
   }, []);
@@ -392,9 +430,124 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const tocPages = tocFilter === 'dialogue' ? dialoguePages : (pages ?? []);
   const progressPct = total > 0 ? Math.round(((anchor + 1) / total) * 100) : 0;
 
+  const renderTocToggle = () => (
+    <button
+      type="button"
+      className={cx('k-reader__page k-reader__page-indicator k-label-large', tocOpen && 'is-active')}
+      aria-pressed={tocOpen}
+      disabled={total <= 0}
+      data-testid="toc-toggle"
+      onClick={() => {
+        if (!tocOpen) {
+          closeBreakdown();
+          setGuideOpen(false);
+        }
+        setTocOpen((v) => !v);
+      }}
+    >
+      <span data-testid="page-indicator">{t('manga.reader.page', { current: pageLabel, total })}</span>
+      <span aria-hidden="true"> ▾</span>
+    </button>
+  );
+
+  const renderLearningTools = () => (
+    <>
+      <IconButton
+        icon="bolt"
+        className="k-reader__pre-explain"
+        label={t('manga.reader.preExplain')}
+        selected={Boolean(mangaSettings.autoPreExplain)}
+        onClick={togglePreExplain}
+        data-testid="manga-pre-explain-toggle"
+      />
+      <IconButton
+        icon={outlines ? 'visibility' : 'visibilityOff'}
+        label={t('manga.reader.outlines')}
+        selected={outlines}
+        data-testid="outlines-toggle"
+        onClick={() => void updateSettings(host, { manga: { showBlockOutlines: !outlines } })}
+      />
+      <IconButton
+        icon="crop"
+        label={t('manga.reader.select')}
+        selected={selectTool}
+        variant={rawPage && !selectTool ? 'tonal' : 'standard'}
+        onClick={() => setSelectTool((s) => !s)}
+        data-testid="select-toggle"
+      />
+      <IconButton
+        icon="sparkle"
+        label={t('manga.reader.guide')}
+        selected={guideOpen}
+        onClick={() => {
+          if (!guideOpen) {
+            closeBreakdown();
+            setTocOpen(false);
+          }
+          setGuideOpen((g) => !g);
+        }}
+        data-testid="guide-toggle"
+      />
+    </>
+  );
+
+  const renderScrubber = () => {
+    if (!pages || spreads.length <= 1) return null;
+    return (
+      <div
+        className="k-reader__scrubber-wrap"
+        onPointerLeave={() => setScrubPreviewSpreadIdx(undefined)}
+      >
+        {scrubPreviewSpreadIdx !== undefined && spreads[scrubPreviewSpreadIdx] && (() => {
+          const previewPageIdx = spreads[scrubPreviewSpreadIdx]!.pageIndexes[0] ?? 0;
+          const previewPage = pages[previewPageIdx];
+          if (!previewPage) return null;
+          return (
+            <div className="k-reader__scrubber-preview" data-testid="scrubber-preview">
+              <img className="k-reader__scrubber-thumb" src={previewPage.imageUrl} alt="" />
+              <div className="k-reader__scrubber-meta">
+                <strong>{`第 ${previewPageIdx + 1} 页`}</strong>
+                {previewPage.blocks[0]?.text && (
+                  <span lang="ja">{previewPage.blocks[0].text}</span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+        <input
+          className={cx('k-reader__scrubber', rtl && 'is-rtl')}
+          type="range"
+          min={0}
+          max={spreads.length - 1}
+          value={spreadIdx}
+          aria-label={t('manga.reader.page', { current: pageLabel, total })}
+          onPointerMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            if (rect.width <= 0) return;
+            const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+            const norm = rtl ? 1 - ratio : ratio;
+            const idx = Math.round(norm * (spreads.length - 1));
+            setScrubPreviewSpreadIdx(idx);
+          }}
+          onChange={(e) => {
+            const idx = Number(e.currentTarget.value);
+            setScrubPreviewSpreadIdx(idx);
+            const s = spreads[idx];
+            if (s?.pageIndexes[0] !== undefined) jumpToPage(s.pageIndexes[0]);
+          }}
+        />
+      </div>
+    );
+  };
+
   return (
     <div
-      className={cx('k-reader', `k-reader--bg-${mangaSettings.background}`, immersive && 'is-immersive')}
+      className={cx(
+        'k-reader',
+        `k-reader--bg-${mangaSettings.background}`,
+        isMobilePortrait && 'k-reader--mobile-portrait',
+        immersive && 'is-immersive',
+      )}
       data-testid="manga-reader"
       data-mode={mode}
       data-immersive={immersive ? 'true' : 'false'}
@@ -404,65 +557,14 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
         <h1 className="k-reader__title k-title-medium" lang="ja" title={volume?.title}>
           {volume ? formatMangaVolumeTitle(volume) : t('common.loading')}
         </h1>
-        <button
-          type="button"
-          className={cx('k-reader__page k-reader__page-indicator k-label-large', tocOpen && 'is-active')}
-          aria-pressed={tocOpen}
-          disabled={total <= 0}
-          data-testid="toc-toggle"
-          onClick={() => {
-            if (!tocOpen) {
-              closeBreakdown();
-              setGuideOpen(false);
-            }
-            setTocOpen((v) => !v);
-          }}
-        >
-          <span data-testid="page-indicator">{t('manga.reader.page', { current: pageLabel, total })}</span>
-          <span aria-hidden="true"> ▾</span>
-        </button>
+        {!isMobilePortrait && renderTocToggle()}
         <span className="k-spacer" />
         <Menu
           trigger={({ toggle }) => <IconButton icon={MODES.find((m) => m.mode === mode)?.icon ?? 'spread'} label={t('manga.reader.mode')} onClick={toggle} />}
           header={t('manga.reader.mode')}
           items={MODES.map((m) => ({ key: m.mode, label: t(`manga.mode.${m.mode}`), selected: m.mode === mode, onSelect: () => void setMode(m.mode) }))}
         />
-        <IconButton
-          icon="bolt"
-          className="k-reader__pre-explain"
-          label={t('manga.reader.preExplain')}
-          selected={Boolean(mangaSettings.autoPreExplain)}
-          onClick={togglePreExplain}
-          data-testid="manga-pre-explain-toggle"
-        />
-        <IconButton
-          icon={outlines ? 'visibility' : 'visibilityOff'}
-          label={t('manga.reader.outlines')}
-          selected={outlines}
-          data-testid="outlines-toggle"
-          onClick={() => void updateSettings(host, { manga: { showBlockOutlines: !outlines } })}
-        />
-        <IconButton
-          icon="crop"
-          label={t('manga.reader.select')}
-          selected={selectTool}
-          variant={rawPage && !selectTool ? 'tonal' : 'standard'}
-          onClick={() => setSelectTool((s) => !s)}
-          data-testid="select-toggle"
-        />
-        <IconButton
-          icon="sparkle"
-          label={t('manga.reader.guide')}
-          selected={guideOpen}
-          onClick={() => {
-            if (!guideOpen) {
-              closeBreakdown();
-              setTocOpen(false);
-            }
-            setGuideOpen((g) => !g);
-          }}
-          data-testid="guide-toggle"
-        />
+        {!isMobilePortrait && renderLearningTools()}
       </header>
 
       <div className="k-reader__body">
@@ -479,7 +581,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
               initialPage={anchor}
               onPageChange={setAnchor}
               renderOverlay={renderOverlay}
-              onBlankTap={toggleImmersive}
+              onBlankTap={() => handleStageBlankOrEdgeTap()}
               preload={Math.max(1, mangaSettings.preloadPages)}
             />
           )}
@@ -496,8 +598,10 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                   onSwipeRight={(rtl ? spreadIdx < spreads.length - 1 : spreadIdx > 0) ? (rtl ? goNext : goPrev) : undefined}
                   leftTurnLabel={(rtl ? spreadIdx < spreads.length - 1 : spreadIdx > 0) ? (rtl ? t('manga.reader.next') : t('manga.reader.prev')) : undefined}
                   rightTurnLabel={(rtl ? spreadIdx > 0 : spreadIdx < spreads.length - 1) ? (rtl ? t('manga.reader.prev') : t('manga.reader.next')) : undefined}
-                  onEdgeTap={handleEdgeTap}
-                  onBlankTap={toggleImmersive}
+                  leftPeekPage={leftPeekPage}
+                  rightPeekPage={rightPeekPage}
+                  onEdgeTap={(side) => handleStageBlankOrEdgeTap(side)}
+                  onBlankTap={() => handleStageBlankOrEdgeTap()}
                   avoidOffsetY={avoidOffsetY}
                 >
                   <SpreadLayout
@@ -553,51 +657,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
               >
                 <span className="k-reader__edge-icon">›</span>
               </button>
-              {spreads.length > 1 && (
-                <div
-                  className="k-reader__scrubber-wrap"
-                  onPointerLeave={() => setScrubPreviewSpreadIdx(undefined)}
-                >
-                  {scrubPreviewSpreadIdx !== undefined && spreads[scrubPreviewSpreadIdx] && (() => {
-                    const previewPageIdx = spreads[scrubPreviewSpreadIdx]!.pageIndexes[0] ?? 0;
-                    const previewPage = pages[previewPageIdx];
-                    if (!previewPage) return null;
-                    return (
-                      <div className="k-reader__scrubber-preview" data-testid="scrubber-preview">
-                        <img className="k-reader__scrubber-thumb" src={previewPage.imageUrl} alt="" />
-                        <div className="k-reader__scrubber-meta">
-                          <strong>{`第 ${previewPageIdx + 1} 页`}</strong>
-                          {previewPage.blocks[0]?.text && (
-                            <span lang="ja">{previewPage.blocks[0].text}</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  <input
-                    className={cx('k-reader__scrubber', rtl && 'is-rtl')}
-                    type="range"
-                    min={0}
-                    max={spreads.length - 1}
-                    value={spreadIdx}
-                    aria-label={t('manga.reader.page', { current: pageLabel, total })}
-                    onPointerMove={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      if (rect.width <= 0) return;
-                      const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                      const norm = rtl ? 1 - ratio : ratio;
-                      const idx = Math.round(norm * (spreads.length - 1));
-                      setScrubPreviewSpreadIdx(idx);
-                    }}
-                    onChange={(e) => {
-                      const idx = Number(e.currentTarget.value);
-                      setScrubPreviewSpreadIdx(idx);
-                      const s = spreads[idx];
-                      if (s?.pageIndexes[0] !== undefined) jumpToPage(s.pageIndexes[0]);
-                    }}
-                  />
-                </div>
-              )}
+              {!isMobilePortrait && renderScrubber()}
             </>
           )}
           {immersive && total > 0 && (
@@ -610,6 +670,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
         <AdaptiveSheet
           open={breakdownOpen}
           onClose={closeBreakdown}
+          modal={false}
           title={t('breakdown.title')}
           closeLabel={t('common.close')}
         >
@@ -717,6 +778,17 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
           onPick={pickGuideBubble}
         />
       </div>
+
+      {isMobilePortrait && (
+        <footer className="k-reader__dock" data-testid="reader-bottom-dock" aria-hidden={immersive}>
+          {pages && mode !== 'webtoon' && spread && spreads.length > 1 && renderScrubber()}
+          <div className="k-reader__dock-bar">
+            {renderTocToggle()}
+            <span className="k-spacer" />
+            {renderLearningTools()}
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

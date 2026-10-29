@@ -12,13 +12,15 @@ export interface SheetProps {
   readonly onClose: () => void;
   readonly title?: ReactNode;
   readonly headerActions?: ReactNode;
+  readonly footer?: ReactNode;
+  readonly modal?: boolean | undefined;
   readonly children?: ReactNode;
   readonly className?: string | undefined;
   readonly closeLabel?: string;
 }
 
 /** Docked (non-modal) side sheet; lives in the layout flow next to content. */
-export function SideSheet({ open, onClose, title, headerActions, children, className, closeLabel = 'close', width }: SheetProps & { readonly width?: number | undefined }) {
+export function SideSheet({ open, onClose, title, headerActions, footer, children, className, closeLabel = 'close', width }: SheetProps & { readonly width?: number | undefined }) {
   return (
     <aside
       className={cx('k-side-sheet', open && 'is-open', className)}
@@ -36,6 +38,7 @@ export function SideSheet({ open, onClose, title, headerActions, children, class
             </div>
           </header>
           <div className="k-sheet__body">{children}</div>
+          {footer !== undefined && <footer className="k-sheet__footer">{footer}</footer>}
         </>
       )}
     </aside>
@@ -56,6 +59,8 @@ export function BottomSheet({
   onClose,
   title,
   headerActions,
+  footer,
+  modal = true,
   children,
   className,
   closeLabel = 'close',
@@ -63,6 +68,8 @@ export function BottomSheet({
 }: SheetProps & { readonly initialSnap?: BottomSheetSnap }) {
   const [dragY, setDragY] = useState(0);
   const [snap, setSnap] = useState<BottomSheetSnap>(initialSnap);
+  const snapRef = useRef<BottomSheetSnap>(snap);
+  snapRef.current = snap;
   const start = useRef<{ y: number; lastY: number; t: number } | null>(null);
   const headerPullRef = useRef<{
     startX: number;
@@ -82,6 +89,7 @@ export function BottomSheet({
     anchorTime: number;
     pointerId?: number | undefined;
     active: boolean;
+    expandedOnPullUp: boolean;
     fromInteractive: boolean;
   } | null>(null);
   const suppressBodyClickRef = useRef(false);
@@ -95,6 +103,7 @@ export function BottomSheet({
     openedAtRef.current = performance.now();
     setDragY(0);
     setSnap(initialSnap);
+    snapRef.current = initialSnap;
     start.current = null;
     headerPullRef.current = null;
     bodyPullRef.current = null;
@@ -114,7 +123,8 @@ export function BottomSheet({
     const bodyEl = bodyRef.current;
     if (!bodyEl) return;
     if (target instanceof Element && target.closest('input[type="range"]')) return;
-    const fromInteractive = target instanceof Element && Boolean(target.closest('button, a, input, textarea, select'));
+    const fromInteractive =
+      target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [role="slider"]'));
     suppressBodyClickRef.current = false;
     bodyPullRef.current = {
       startX: clientX,
@@ -125,6 +135,7 @@ export function BottomSheet({
       anchorTime: performance.now(),
       pointerId,
       active: false,
+      expandedOnPullUp: false,
       fromInteractive,
     };
   };
@@ -133,8 +144,17 @@ export function BottomSheet({
     const state = bodyPullRef.current;
     const bodyEl = bodyRef.current;
     if (!state || !bodyEl) return;
+    const dx = clientX - state.startX;
     const dy = clientY - state.startY;
     state.lastY = clientY;
+
+    if (!state.active && !state.fromInteractive && snapRef.current === 'peek' && dy < -28 && Math.abs(dy) > Math.abs(dx) * 1.15) {
+      snapRef.current = 'expanded';
+      state.expandedOnPullUp = true;
+      openedAtRef.current = -1000;
+      setSnap('expanded');
+      return;
+    }
 
     if (!state.active) {
       if (bodyEl.scrollTop > 1) {
@@ -178,6 +198,12 @@ export function BottomSheet({
     const state = bodyPullRef.current;
     bodyPullRef.current = null;
     if (!state) return;
+    if (state.expandedOnPullUp) {
+      suppressBodyClickRef.current = true;
+      setTimeout(() => {
+        suppressBodyClickRef.current = false;
+      }, 80);
+    }
     if (state.active && state.anchorY !== null) {
       const pullDy = Math.max(0, state.lastY - state.anchorY);
       const velocity = pullDy / Math.max(1, performance.now() - state.anchorTime);
@@ -243,7 +269,18 @@ export function BottomSheet({
   }, [open]);
 
   if (!open) return null;
-  const toggleSnap = (): void => setSnap((s) => (s === 'peek' ? 'expanded' : 'peek'));
+  const expandSnap = (): void => {
+    snapRef.current = 'expanded';
+    openedAtRef.current = -1000;
+    setSnap('expanded');
+  };
+  const toggleSnap = (): void => {
+    if (snapRef.current === 'peek') expandSnap();
+    else {
+      snapRef.current = 'peek';
+      setSnap('peek');
+    }
+  };
 
   const finishHandleDrag = (endY: number): void => {
     const s = start.current;
@@ -253,12 +290,12 @@ export function BottomSheet({
     const velocity = dy / Math.max(1, performance.now() - s.t);
     setDragY(0);
     if (Math.abs(dy) < 6) toggleSnap();
-    else if (dy < -24 || velocity < -0.5) setSnap('expanded');
+    else if (dy < -24 || velocity < -0.5) expandSnap();
     else if (dy >= 56 || (dy >= 24 && velocity > 0.55)) onCloseRef.current();
   };
 
   const isHeaderActionTarget = (target: EventTarget | null): boolean =>
-    target instanceof Element && Boolean(target.closest('.k-sheet__header-actions, button, a, input, select, textarea'));
+    target instanceof Element && Boolean(target.closest('.k-sheet__header-actions, button, a, input, select, textarea, [role="slider"]'));
 
   const moveHeaderPull = (clientX: number, clientY: number, headerEl?: HTMLElement): void => {
     const s = headerPullRef.current;
@@ -277,6 +314,9 @@ export function BottomSheet({
       }
     }
     if (s.active) {
+      if (snapRef.current === 'peek' && dy < -28 && Math.abs(dy) > Math.abs(dx) * 1.15) {
+        expandSnap();
+      }
       setDragY(Math.max(0, dy));
     }
   };
@@ -294,20 +334,23 @@ export function BottomSheet({
       suppressHeaderClickRef.current = false;
     }, 80);
     if (dy >= 56 || (dy >= 24 && velocity > 0.5)) onCloseRef.current();
-    else if (dy < -24 || velocity < -0.5) setSnap('expanded');
+    else if (dy < -24 || velocity < -0.5) expandSnap();
   };
+
+  const isPassthrough = !modal && snap === 'peek';
+  const isModal = modal || snap === 'expanded';
 
   return (
     <div
-      className="k-bottom-sheet-scrim"
+      className={cx('k-bottom-sheet-scrim', isPassthrough && 'is-passthrough')}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && performance.now() - openedAtRef.current >= 350) onClose();
+        if (isModal && e.target === e.currentTarget && performance.now() - openedAtRef.current >= 350) onClose();
       }}
     >
       <div
         className={cx('k-bottom-sheet', snap === 'peek' ? 'is-peek' : 'is-expanded', dragY > 0 && 'is-dragging', className)}
         role="dialog"
-        aria-modal="true"
+        aria-modal={isModal ? 'true' : 'false'}
         aria-label={typeof title === 'string' ? title : undefined}
         data-snap={snap}
         style={dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none', animation: 'none' } : undefined}
@@ -371,78 +414,76 @@ export function BottomSheet({
         >
           <span className="k-bottom-sheet__handle" />
         </div>
-        {(title || headerActions) && (
-          <header
-            className="k-sheet__header"
-            onTouchStart={(e) => {
-              if (e.touches.length !== 1 || isHeaderActionTarget(e.target)) return;
-              const t = e.touches[0]!;
+        <header
+          className="k-sheet__header"
+          onTouchStart={(e) => {
+            if (e.touches.length !== 1 || isHeaderActionTarget(e.target)) return;
+            const t = e.touches[0]!;
+            suppressHeaderClickRef.current = false;
+            headerPullRef.current = {
+              startX: t.clientX,
+              startY: t.clientY,
+              lastY: t.clientY,
+              startTime: performance.now(),
+              active: false,
+            };
+          }}
+          onTouchMove={(e) => {
+            if (!headerPullRef.current || e.touches.length !== 1) return;
+            const t = e.touches[0]!;
+            moveHeaderPull(t.clientX, t.clientY);
+          }}
+          onTouchEnd={(e) => {
+            if (!headerPullRef.current || e.touches.length > 0) return;
+            if (e.changedTouches[0]) headerPullRef.current.lastY = e.changedTouches[0].clientY;
+            finishHeaderPull();
+          }}
+          onTouchCancel={() => {
+            headerPullRef.current = null;
+            setDragY(0);
+          }}
+          onPointerDown={(e) => {
+            if (e.pointerType === 'touch' || e.button !== 0 || isHeaderActionTarget(e.target)) return;
+            suppressHeaderClickRef.current = false;
+            headerPullRef.current = {
+              startX: e.clientX,
+              startY: e.clientY,
+              lastY: e.clientY,
+              startTime: performance.now(),
+              pointerId: e.pointerId,
+              active: false,
+            };
+          }}
+          onPointerMove={(e) => {
+            if (e.pointerType === 'touch' || headerPullRef.current?.pointerId !== e.pointerId) return;
+            moveHeaderPull(e.clientX, e.clientY, e.currentTarget);
+          }}
+          onPointerUp={(e) => {
+            if (e.pointerType === 'touch' || headerPullRef.current?.pointerId !== e.pointerId) return;
+            if (e.clientY !== 0 || headerPullRef.current.startY === 0) headerPullRef.current.lastY = e.clientY;
+            finishHeaderPull();
+          }}
+          onPointerCancel={(e) => {
+            if (e.pointerType === 'touch' || headerPullRef.current?.pointerId !== e.pointerId) return;
+            headerPullRef.current = null;
+            setDragY(0);
+          }}
+          onClickCapture={(e) => {
+            if (suppressHeaderClickRef.current) {
               suppressHeaderClickRef.current = false;
-              headerPullRef.current = {
-                startX: t.clientX,
-                startY: t.clientY,
-                lastY: t.clientY,
-                startTime: performance.now(),
-                active: false,
-              };
-            }}
-            onTouchMove={(e) => {
-              if (!headerPullRef.current || e.touches.length !== 1) return;
-              const t = e.touches[0]!;
-              moveHeaderPull(t.clientX, t.clientY);
-            }}
-            onTouchEnd={(e) => {
-              if (!headerPullRef.current || e.touches.length > 0) return;
-              if (e.changedTouches[0]) headerPullRef.current.lastY = e.changedTouches[0].clientY;
-              finishHeaderPull();
-            }}
-            onTouchCancel={() => {
-              headerPullRef.current = null;
-              setDragY(0);
-            }}
-            onPointerDown={(e) => {
-              if (e.pointerType === 'touch' || e.button !== 0 || isHeaderActionTarget(e.target)) return;
-              suppressHeaderClickRef.current = false;
-              headerPullRef.current = {
-                startX: e.clientX,
-                startY: e.clientY,
-                lastY: e.clientY,
-                startTime: performance.now(),
-                pointerId: e.pointerId,
-                active: false,
-              };
-            }}
-            onPointerMove={(e) => {
-              if (e.pointerType === 'touch' || headerPullRef.current?.pointerId !== e.pointerId) return;
-              moveHeaderPull(e.clientX, e.clientY, e.currentTarget);
-            }}
-            onPointerUp={(e) => {
-              if (e.pointerType === 'touch' || headerPullRef.current?.pointerId !== e.pointerId) return;
-              if (e.clientY !== 0 || headerPullRef.current.startY === 0) headerPullRef.current.lastY = e.clientY;
-              finishHeaderPull();
-            }}
-            onPointerCancel={(e) => {
-              if (e.pointerType === 'touch' || headerPullRef.current?.pointerId !== e.pointerId) return;
-              headerPullRef.current = null;
-              setDragY(0);
-            }}
-            onClickCapture={(e) => {
-              if (suppressHeaderClickRef.current) {
-                suppressHeaderClickRef.current = false;
-                if (!isHeaderActionTarget(e.target)) {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }
+              if (!isHeaderActionTarget(e.target)) {
+                e.stopPropagation();
+                e.preventDefault();
               }
-            }}
-          >
-            <h2 className="k-sheet__title">{title}</h2>
-            <div className="k-sheet__header-actions">
-              {headerActions}
-              <IconButton icon="close" label={closeLabel} onClick={onClose} data-dialog-close />
-            </div>
-          </header>
-        )}
+            }
+          }}
+        >
+          <h2 className="k-sheet__title">{title}</h2>
+          <div className="k-sheet__header-actions">
+            {headerActions}
+            <IconButton icon="close" label={closeLabel} onClick={onClose} data-dialog-close />
+          </div>
+        </header>
         <div
           ref={bodyRef}
           className="k-sheet__body"
@@ -477,6 +518,7 @@ export function BottomSheet({
         >
           {children}
         </div>
+        {footer !== undefined && <footer className="k-sheet__footer">{footer}</footer>}
       </div>
     </div>
   );

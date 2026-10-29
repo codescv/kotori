@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HostProvider } from '../../../host/HostContext';
 import { createMockPlatformHost, type MockPlatformHost } from '../../../host/mock-host';
+import { MOBILE_PORTRAIT_QUERY } from '../../../hooks/useMediaQuery';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { Reader } from './Reader';
@@ -520,5 +521,159 @@ describe('Reader — guide context, HUD & no bubble stepper', () => {
     expect(screen.getByTestId('immersive-page-hud')).toHaveTextContent('2–3 / 10');
     key('f');
     expect(screen.queryByTestId('immersive-page-hud')).toBeNull();
+  });
+});
+
+describe('Reader — mobile one-hand dock, edge-page-peek, non-modal bubble switch & zoom reset', () => {
+  it('renders edge-page-peek with a 16px gap alongside edge-turn-indicator for next and previous pages in RTL', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    key('Home');
+    expect(spread().dataset['pageIndexes']).toBe('0');
+
+    const zp = screen.getByTestId('zoompan');
+    const content = zp.querySelector<HTMLElement>('.k-zoompan__content')!;
+
+    // On page 0 in RTL, pulling rightward from the left edge (dx = +90px -> dragX = +54px, peekWidth = 38px) previews page 1.
+    fireEvent.touchStart(zp, { touches: [{ clientX: 24, clientY: 400 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 114, clientY: 402 }] });
+    const leftPeek = screen.getByTestId('edge-page-peek');
+    expect(leftPeek.dataset['side']).toBe('left');
+    expect(leftPeek.dataset['pageIndex']).toBe('1');
+    expect(leftPeek.dataset['gap']).toBe('16');
+    expect(leftPeek.dataset['armed']).toBe('true');
+    expect(leftPeek.style.width).toBe('38px');
+    expect(content.style.transform).toContain('translate(54px,');
+    expect(screen.getByTestId('edge-turn-indicator').dataset['side']).toBe('left');
+
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(screen.queryByTestId('edge-page-peek')).toBeNull();
+    expect(spread().dataset['pageIndexes']).toBe('1');
+
+    // On page 1 (2nd page) in RTL, pulling leftward from the right edge (dx = -90px -> dragX = -54px, peekWidth = 38px) previews page 0.
+    fireEvent.touchStart(zp, { touches: [{ clientX: 350, clientY: 400 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 260, clientY: 402 }] });
+    const rightPeek = screen.getByTestId('edge-page-peek');
+    expect(rightPeek.dataset['side']).toBe('right');
+    expect(rightPeek.dataset['pageIndex']).toBe('0');
+    expect(rightPeek.dataset['gap']).toBe('16');
+    expect(rightPeek.style.width).toBe('38px');
+    expect(content.style.transform).toContain('translate(-54px,');
+    expect(screen.getByTestId('edge-turn-indicator').dataset['side']).toBe('right');
+
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(screen.queryByTestId('edge-page-peek')).toBeNull();
+    expect(spread().dataset['pageIndexes']).toBe('0');
+  });
+
+  it('moves reader learning controls and scrubber into a single-instance bottom dock when MOBILE_PORTRAIT_QUERY matches', async () => {
+    const origMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string): MediaQueryList =>
+      ({
+        matches: query === MOBILE_PORTRAIT_QUERY,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }) as MediaQueryList) as typeof window.matchMedia;
+    try {
+      const host = createMockPlatformHost({ latencyMs: 0 });
+      setup(host);
+      await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+
+      const reader = screen.getByTestId('manga-reader');
+      expect(reader).toHaveClass('k-reader--mobile-portrait');
+
+      const dock = screen.getByTestId('reader-bottom-dock');
+      expect(dock.querySelector('.k-reader__scrubber')).toBeTruthy();
+      expect(reader.querySelectorAll('.k-reader__scrubber')).toHaveLength(1);
+
+      for (const id of [
+        'toc-toggle',
+        'page-indicator',
+        'manga-pre-explain-toggle',
+        'outlines-toggle',
+        'select-toggle',
+        'guide-toggle',
+      ]) {
+        expect(screen.getAllByTestId(id)).toHaveLength(1);
+        expect(dock.querySelector(`[data-testid="${id}"]`)).toBeTruthy();
+      }
+      expect(screen.getByTestId('page-indicator')).toHaveTextContent('第 2 / 10 页');
+    } finally {
+      window.matchMedia = origMatchMedia;
+    }
+  });
+
+  it('switches bubbles in 1 tap while non-modal peek breakdown is open, and closes on blank/edge tap without turning the page', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+
+    const zp = screen.getByTestId('zoompan');
+    const overlay = await screen.findByTestId('block-overlay-1');
+    const block0 = overlay.querySelector('[data-block-index="0"]') as HTMLElement;
+    const block1 = overlay.querySelector('[data-block-index="1"]') as HTMLElement;
+
+    // 1. Tap first bubble -> non-modal peek BottomSheet opens.
+    fireEvent.click(block0);
+    await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(true));
+    expect(useBreakdownStore.getState().request?.sentence).toBe('おはよう、ことり。');
+    expect(document.querySelector('.k-bottom-sheet-scrim')).toHaveClass('is-passthrough');
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'false');
+
+    // 2. Tap second bubble directly while sheet is open -> switches breakdown in 1 tap!
+    fireEvent.click(block1);
+    await waitFor(() => expect(useBreakdownStore.getState().request?.sentence).toBe('今日も早いね。'));
+    expect(useBreakdownStore.getState().isOpen).toBe(true);
+
+    // 3. Tap left edge while breakdown is open -> closes breakdown WITHOUT turning the page or toggling immersive!
+    fireEvent.touchStart(zp, { touches: [{ clientX: 80, clientY: 200 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(useBreakdownStore.getState().isOpen).toBe(false);
+    expect(spread().dataset['pageIndexes']).toBe('1');
+    expect(screen.getByTestId('manga-reader').dataset['immersive']).toBe('false');
+
+    // 4. Re-open bubble, then tap blank center -> closes breakdown without entering immersive mode.
+    fireEvent.click(block0);
+    await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(true));
+    fireEvent.touchStart(zp, { touches: [{ clientX: 500, clientY: 200 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(useBreakdownStore.getState().isOpen).toBe(false);
+    expect(screen.getByTestId('manga-reader').dataset['immersive']).toBe('false');
+
+    // 5. Re-open bubble, then swipe to next page -> auto-closes breakdown for old page.
+    fireEvent.click(block0);
+    await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(true));
+    fireEvent.touchStart(zp, { touches: [{ clientX: 120, clientY: 220 }] });
+    fireEvent.touchMove(zp, { touches: [{ clientX: 260, clientY: 222 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(spread().dataset['pageIndexes']).toBe('2');
+    await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(false));
+  });
+
+  it('shows zoom-reset-pill when zoomed in (2x) and resets scale to 1.00 on click', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+    const zp = screen.getByTestId('zoompan');
+    expect(screen.queryByTestId('zoom-reset-pill')).toBeNull();
+
+    // Double-tap to zoom to 2.00x.
+    fireEvent.touchStart(zp, { touches: [{ clientX: 500, clientY: 400 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    fireEvent.touchStart(zp, { touches: [{ clientX: 504, clientY: 402 }] });
+    fireEvent.touchEnd(zp, { touches: [] });
+    expect(zp.dataset['scale']).toBe('2.00');
+
+    const pill = screen.getByTestId('zoom-reset-pill');
+    expect(pill).toHaveTextContent('1×');
+    fireEvent.click(pill);
+    expect(zp.dataset['scale']).toBe('1.00');
+    expect(screen.queryByTestId('zoom-reset-pill')).toBeNull();
   });
 });
