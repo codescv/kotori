@@ -31,3 +31,10 @@ export const MOBILE_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height:
 export function useIsMobileLandscape(): boolean {
   return useMediaQuery(MOBILE_LANDSCAPE_QUERY);
 }
+
+/** Phones held in portrait (< 840px wide in portrait orientation). */
+export const MOBILE_PORTRAIT_QUERY = '(max-width: 839px) and (orientation: portrait)';
+
+export function useIsMobilePortrait(): boolean {
+  return useMediaQuery(MOBILE_PORTRAIT_QUERY);
+}
