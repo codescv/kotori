@@ -429,13 +429,35 @@ describe('Reader — guide context, HUD & no bubble stepper', () => {
     expect(req?.contextAfter).toEqual(['[ことり] 朝の空気が好きなんだ。']);
   });
 
-  it('gives the silent pre-explain toggle a ⚡ icon distinct from ✨ 陪读本页, and shows a page HUD in immersive mode', async () => {
-    setup();
+  it('gives the silent pre-explain toggle a ⚡ bolt icon distinct from ✨ 陪读本页, persists outlines, and shows a page HUD in immersive mode', async () => {
+    const host = setup();
     await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
+    const toc = screen.getByTestId('toc-toggle');
+    expect(toc).toHaveClass('k-reader__page-indicator');
+    expect(toc).toHaveTextContent('▾');
+    expect(screen.getByTestId('page-indicator')).toHaveTextContent('第 2–3 / 10 页');
+
     const pre = screen.getByTestId('manga-pre-explain-toggle');
     const guide = screen.getByTestId('guide-toggle');
     expect(pre).toHaveClass('k-reader__pre-explain');
+    expect(pre.querySelector('path')?.getAttribute('d')).toContain('M11 21h-1l1-7');
     expect(pre.querySelector('svg')?.innerHTML).not.toBe(guide.querySelector('svg')?.innerHTML);
+
+    // Opening guide then clicking toc-toggle closes guide and opens TOC.
+    fireEvent.click(guide);
+    expect(guide).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(toc);
+    expect(toc).toHaveAttribute('aria-pressed', 'true');
+    expect(guide).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(toc);
+
+    // Outlines toggle persists to settings.manga.showBlockOutlines.
+    const outlinesBtn = screen.getByTestId('outlines-toggle');
+    const initialOutlines = useSettingsStore.getState().settings.manga.showBlockOutlines;
+    fireEvent.click(outlinesBtn);
+    await waitFor(async () => {
+      expect((await host.settings.get()).manga.showBlockOutlines).toBe(!initialOutlines);
+    });
 
     expect(screen.queryByTestId('immersive-page-hud')).toBeNull();
     key('f');

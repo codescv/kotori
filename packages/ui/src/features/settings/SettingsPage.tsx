@@ -1,17 +1,16 @@
 /**
- * Settings: AI provider, dictionaries, appearance, anime, manga, downloads,
- * library and an about line. Two columns on expanded windows, one column on phones.
+ * Settings: 5 focused cards (AI provider, dictionaries, learning & reading,
+ * appearance, library & downloads) plus a full-width about/update footer.
+ * Two columns on expanded windows, one column on phones.
  */
 import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { AiProviderForm } from './AiProviderForm';
-import { AnimeSection } from './AnimeSection';
 import { AppearanceSection } from './AppearanceSection';
-import { DownloadsSection } from './DownloadsSection';
 import { SettingsSection } from './fields';
-import { LibrarySection } from './LibrarySection';
-import { MangaSection } from './MangaSection';
+import { LearningSection } from './LearningSection';
+import { MediaSection } from './MediaSection';
 import { DictionarySection } from './sections/DictionarySection';
 import { UpdateSection } from '../updater/UpdateBanner';
 import './settings.css';
@@ -34,35 +33,32 @@ export function SettingsPage() {
           <SettingsSection id="settings-dictionary" icon="book" title={t('settings.section.dictionary')}>
             <DictionarySection />
           </SettingsSection>
-          <SettingsSection id="settings-anime" icon="movie" title={t('settings.section.anime')}>
-            <AnimeSection />
-          </SettingsSection>
-          <SettingsSection id="settings-downloads" icon="download" title={t('settings.section.downloads')}>
-            <DownloadsSection />
+          <SettingsSection id="settings-learning" icon="translate" title={t('settings.section.learning')}>
+            <LearningSection />
           </SettingsSection>
         </div>
         <div className="k-settings__column">
           <SettingsSection id="settings-appearance" icon="palette" title={t('settings.section.appearance')}>
             <AppearanceSection />
           </SettingsSection>
-          <SettingsSection id="settings-manga" icon="book" title={t('settings.section.manga')}>
-            <MangaSection />
-          </SettingsSection>
-          <SettingsSection id="settings-library" icon="folder" title={t('settings.section.library')}>
-            <LibrarySection />
-          </SettingsSection>
-          <SettingsSection id="settings-about" icon="tune" title={t('settings.section.about')}>
-            <p className="k-body-medium" data-testid="settings-about-origin">
-              {t('settings.about.nameOrigin')}
-            </p>
-            <p className="k-body-medium" data-testid="settings-about-platform">
-              {t('settings.about.platform', { platform: info.platform, os: info.os, version: info.version })}
-            </p>
-            <p className="k-body-small k-muted">{t('settings.about.dataDir', { dir: info.dataDir })}</p>
-            <UpdateSection />
+          <SettingsSection id="settings-media" icon="folder" title={t('settings.section.media')}>
+            <MediaSection />
           </SettingsSection>
         </div>
       </div>
+      <footer id="settings-about" data-testid="settings-about" className="k-settings__footer">
+        <UpdateSection />
+        <div className="k-settings__footer-meta k-body-small k-muted">
+          <p data-testid="settings-about-origin">{t('settings.about.nameOrigin')}</p>
+          <p>
+            <span data-testid="settings-about-platform">
+              {t('settings.about.platform', { platform: info.platform, os: info.os, version: info.version })}
+            </span>
+            {' · '}
+            <span>{t('settings.about.dataDir', { dir: info.dataDir })}</span>
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

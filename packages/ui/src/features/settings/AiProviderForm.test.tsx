@@ -120,27 +120,58 @@ describe('AiProviderForm — Vertex AI', () => {
     expect(useSettingsStore.getState().settings.ai.provider.provider).toBe('vertex-ai');
   });
 
-  it('supports selecting models from dropdown menu, manual input, and editing API timeout', async () => {
+  it('supports selecting models, locks visionModel until customized in advanced, and edits active baseUrl / clearCache', async () => {
     const host = await setup();
-    // No duplicate preset chip row: presets live only in the dropdown menu.
-    expect(screen.queryByRole('button', { name: 'gemini-3.8-flash' })).toBeNull();
-    // Open dropdown menu on explainModel and select gemini-3.8-flash
-    fireEvent.click(screen.getByRole('button', { name: '解析模型 options' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.8-flash' }));
-    expect(screen.getByLabelText('解析模型')).toHaveValue('gemini-3.8-flash');
+    // Removed noisy fields are absent from the UI.
+    expect(screen.queryByLabelText('Temperature')).toBeNull();
+    expect(screen.queryByLabelText('思考预算（token，0 = 关闭）')).toBeNull();
+    expect(screen.queryByLabelText('API 超时时间（ms，≥ 1000）')).toBeNull();
+    expect(screen.queryByRole('switch', { name: '缓存解析结果' })).toBeNull();
+    expect(screen.queryByText('API 版本')).toBeNull();
 
-    // Manual input on visionModel
+    // Advanced disclosure is collapsed by default.
+    const adv = screen.getByTestId('ai-advanced-disclosure') as HTMLDetailsElement;
+    expect(adv.open).toBe(false);
+
+    // Select gemini-3.8-flash on top-level 模型 → visionModel updates in lockstep while uncustomized.
+    fireEvent.click(screen.getByRole('button', { name: '模型 options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.8-flash' }));
+    expect(screen.getByLabelText('模型')).toHaveValue('gemini-3.8-flash');
+    expect(screen.getByLabelText('视觉模型')).toHaveValue('gemini-3.8-flash');
+
+    // Open ▸ 高级 and customize 视觉模型 + Base URL + 清空解析缓存.
+    fireEvent.click(adv.querySelector('summary')!);
     type('视觉模型', 'gemini-custom-vision');
     expect(screen.getByLabelText('视觉模型')).toHaveValue('gemini-custom-vision');
 
-    // Edit API timeout (ms)
-    type('API 超时时间（ms，≥ 1000）', '45000');
+    // Changing 模型 afterwards preserves customized 视觉模型.
+    type('模型', 'gemini-3.5-flash-lite');
+    expect(screen.getByLabelText('视觉模型')).toHaveValue('gemini-custom-vision');
+
+    // Clearing 视觉模型 and editing 模型 re-syncs visionModel in lockstep.
+    type('视觉模型', '');
+    type('模型', 'gemini-3.8-flash');
+    expect(screen.getByLabelText('视觉模型')).toHaveValue('gemini-3.8-flash');
+
+    // Re-customize visionModel and set Gemini baseUrl in ▸ 高级, plus test clearCache.
+    const clearSpy = vi.spyOn(host.ai, 'clearCache');
+    type('视觉模型', 'gemini-custom-vision');
+    type('Base URL（可选，代理用）', 'https://proxy.example.com');
+    fireEvent.click(screen.getByRole('button', { name: '清空解析缓存' }));
+    await waitFor(() => expect(clearSpy).toHaveBeenCalledTimes(1));
+
     type('API Key', 'AIza-key');
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(async () => expect((await host.settings.get()).ai.timeoutMs).toBe(45000));
+    await waitFor(async () => expect((await host.settings.get()).ai.visionModel).toBe('gemini-custom-vision'));
     const saved = (await host.settings.get()).ai;
     expect(saved.explainModel).toBe('gemini-3.8-flash');
     expect(saved.visionModel).toBe('gemini-custom-vision');
+    expect(saved.provider).toEqual({
+      provider: 'gemini-api',
+      apiKey: 'AIza-key',
+      baseUrl: 'https://proxy.example.com',
+      apiVersion: 'v1beta',
+    });
   });
 });
 
@@ -150,6 +181,26 @@ describe('AiProviderForm — pure helpers', () => {
     expect(isValidServiceAccountJson('{}')).toBe(false);
     expect(isValidServiceAccountJson('not json')).toBe(false);
     expect(isValidServiceAccountJson(JSON.stringify({ client_email: 'a' }))).toBe(false);
+  });
+
+  it('draftFromSettings sanitizes hidden fields so Save is never blocked by stale invalid values', () => {
+    const sanitized = draftFromSettings({
+      ...DEFAULT_SETTINGS.ai,
+      visionModel: '   ',
+      thinkingBudget: -5,
+      timeoutMs: 250,
+      cacheEnabled: false,
+    });
+    expect(sanitized.visionModel).toBe(DEFAULT_SETTINGS.ai.explainModel);
+    expect(sanitized.thinkingBudget).toBe('');
+    expect(sanitized.timeoutMs).toBe(30000);
+    expect(sanitized.cacheEnabled).toBe(true);
+    expect(
+      validateAiDraft(
+        { ...sanitized, gemini: { ...sanitized.gemini, apiKey: 'AIza-valid' } },
+        { vertexAdc: true },
+      ),
+    ).toEqual({});
   });
 
   it('validateAiDraft flags ADC when unavailable, bad thinking budgets, and invalid timeoutMs', () => {

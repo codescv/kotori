@@ -21,6 +21,50 @@
 .k-settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .k-settings-path { font-family: var(--md-ref-typeface-mono); font-size: 13px; }
 
+.k-settings-disclosure {
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  padding-top: 8px;
+}
+.k-settings-disclosure__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.k-settings-disclosure__summary::-webkit-details-marker { display: none; }
+.k-settings-disclosure__summary::before {
+  content: '▸';
+  display: inline-block;
+  transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+.k-settings-disclosure[open] > .k-settings-disclosure__summary::before {
+  transform: rotate(90deg);
+}
+.k-settings-disclosure__summary:hover {
+  color: var(--md-sys-color-primary);
+}
+.k-settings-disclosure__body {
+  padding-top: 12px;
+}
+
+.k-settings__footer {
+  margin-top: 20px;
+  padding: 16px 20px;
+  border-radius: var(--md-sys-shape-corner-large);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.k-shell--compact .k-settings__footer { padding: 14px 16px; }
+.k-settings__footer-meta { display: flex; flex-direction: column; gap: 4px; }
+.k-settings__footer-meta p { margin: 0; }
+
 .k-ai-form { display: flex; flex-direction: column; gap: 16px; }
 .k-ai-form__group { display: flex; flex-direction: column; gap: 12px; }
 .k-ai-form__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
@@ -41,22 +85,24 @@
 }
 .k-seed-swatch:hover { transform: scale(1.08); }
 .k-seed-swatch.is-selected { border-color: var(--md-sys-color-on-surface); box-shadow: 0 0 0 3px var(--md-sys-color-surface), 0 0 0 5px var(--md-sys-color-primary); }
-.k-seed-preview { display: inline-block; width: 24px; height: 24px; margin-right: 12px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant); }
-.k-font-preview { margin: 0; font-size: var(--kotori-jp-sentence-size); line-height: 2; }
+.k-font-preview { margin: 0; font-size: var(--kotori-jp-sentence-size); line-height: 1.6; }
 
-.k-app-icon-groups { display: flex; flex-direction: column; gap: 12px; }
-.k-app-icon-group { display: flex; flex-direction: column; gap: 6px; }
 .k-app-icon-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+@media (min-width: 600px) {
+  .k-app-icon-grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
 }
 .k-app-icon-option {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 8px 6px;
+  justify-content: center;
+  min-height: 44px;
+  padding: 6px;
   border-radius: var(--md-sys-shape-corner-medium);
   border: 2px solid var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface-container);
@@ -77,16 +123,12 @@
   box-shadow: 0 0 0 2px var(--md-sys-color-primary);
 }
 .k-app-icon-option__img {
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   object-fit: cover;
   display: block;
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.2);
-}
-.k-app-icon-option__code {
-  font: var(--md-sys-typescale-label-small);
-  font-weight: 600;
 }
 
 /* 词典与查词 (DictionarySection). */
