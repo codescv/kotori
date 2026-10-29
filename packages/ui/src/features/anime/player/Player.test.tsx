@@ -341,7 +341,8 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
     expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__buttons\s*\{[^}]*gap:\s*1px;[^}]*flex-wrap:\s*nowrap;/s);
     expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__buttons\s+\.k-icon-btn\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;/s);
     expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__time\s*\{[^}]*white-space:\s*nowrap;[^}]*flex-shrink:\s*0;/s);
-    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__speed-btn\s*\{[^}]*height:\s*30px;[^}]*min-width:\s*38px;[^}]*flex-shrink:\s*0;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__speed-btn\s*\{[^}]*height:\s*30px;[^}]*min-width:\s*32px;[^}]*flex-shrink:\s*0;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__speed-btn\s+\.k-icon\s*\{[^}]*display:\s*none;/s);
     expect(playerCss).toMatch(/\.k-player--compact\s+\.k-repeat\s*\{[^}]*flex-shrink:\s*0;[^}]*gap:\s*0;/s);
 
     setViewport(360, 800);

@@ -103,10 +103,10 @@
 .k-player__speed-btn:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
 .k-player__speed-btn.is-changed { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .k-player--compact .k-player__speed-btn {
-  height: 30px; min-width: 38px; padding: 0 4px;
+  height: 30px; min-width: 32px; padding: 0 5px;
   font: var(--md-sys-typescale-label-small); flex-shrink: 0;
 }
-.k-player--compact .k-player__speed-btn .k-icon { width: 15px; height: 15px; }
+.k-player--compact .k-player__speed-btn .k-icon { display: none; }
 .k-player__compact-transcript { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 8px; }
 
 .k-repeat { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
@@ -114,14 +114,13 @@
 .k-player--compact .k-repeat { flex-shrink: 0; gap: 0; }
 .k-player--compact .k-repeat__count { min-width: 22px; font-size: 11px; }
 
-@media (max-width: 380px) {
+@media (max-width: 420px) {
   .k-player--compact .k-player__controls { padding: 4px 4px 0; }
   .k-player--compact .k-player__buttons { gap: 0; }
-  .k-player--compact .k-player__buttons .k-icon-btn { width: 28px; height: 28px; }
-  .k-player--compact .k-player__buttons .k-icon-btn .k-icon { width: 19px; height: 19px; }
+  .k-player--compact .k-player__buttons .k-icon-btn { width: 27px; height: 27px; }
+  .k-player--compact .k-player__buttons .k-icon-btn .k-icon { width: 18px; height: 18px; }
   .k-player--compact .k-player__time { margin-left: 2px; }
-  .k-player--compact .k-player__speed-btn { height: 28px; min-width: 34px; padding: 0 3px; }
-  .k-player--compact .k-player__speed-btn .k-icon { width: 14px; height: 14px; }
+  .k-player--compact .k-player__speed-btn { height: 27px; min-width: 30px; padding: 0 4px; }
   .k-player--compact .k-repeat__count { min-width: 18px; }
 }
 .k-track-delay { display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 16px; border-top: 1px solid var(--md-sys-color-outline-variant); font: var(--md-sys-typescale-label-large); }
