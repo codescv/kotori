@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AiApi, AnimeApi, DictionaryHost, DownloadsApi, HostEvent, MangaApi, SettingsApi } from '@kotori/core';
+import type { AiApi, AnimeApi, DictionaryHost, DownloadsApi, HostEvent, MangaApi, ScreenApi, SettingsApi } from '@kotori/core';
 import { defaultSettings, deepMerge, mergeSettings } from './settings';
 import { DATA_ROOT, createTestHost, type TestHost } from './testing/harness';
 
@@ -79,6 +79,9 @@ const DICT_METHODS: Record<keyof DictionaryHost, true> = {
   enrichVocab: true,
   lookupPrefix: true,
 };
+const SCREEN_METHODS: Record<keyof ScreenApi, true> = {
+  setImmersive: true,
+};
 
 describe('createCapacitorPlatformHost', () => {
   it('reports android info and capabilities', async () => {
@@ -110,6 +113,7 @@ describe('createCapacitorPlatformHost', () => {
       [host.ai, AI_METHODS],
       [host.downloads, DOWNLOAD_METHODS],
       [host.dict ?? {}, DICT_METHODS],
+      [host.screen ?? {}, SCREEN_METHODS],
     ];
     for (const [api, methods] of groups) {
       for (const name of Object.keys(methods)) expect(typeof (api as Record<string, unknown>)[name], name).toBe('function');
@@ -129,6 +133,24 @@ describe('createCapacitorPlatformHost', () => {
     expect(pickFiles).toHaveBeenCalledWith({ accept: ['.srt'], multiple: true });
     await host.files.openExternal?.('https://jimaku.cc');
     expect(openExternal).toHaveBeenCalledWith('https://jimaku.cc');
+  });
+
+  it('forwards screen.setImmersive options and defaults orientation to keep', async () => {
+    const setImmersive = vi.fn(() => Promise.resolve());
+    const { host } = await makeHost({ setImmersive });
+    expect(host.screen).toBeDefined();
+
+    await host.screen?.setImmersive({ immersive: true, orientation: 'landscape' });
+    expect(setImmersive).toHaveBeenNthCalledWith(1, { immersive: true, orientation: 'landscape' });
+
+    await host.screen?.setImmersive({ immersive: false, orientation: 'portrait-then-unlock' });
+    expect(setImmersive).toHaveBeenNthCalledWith(2, { immersive: false, orientation: 'portrait-then-unlock' });
+
+    await host.screen?.setImmersive({ immersive: true });
+    expect(setImmersive).toHaveBeenNthCalledWith(3, { immersive: true, orientation: 'keep' });
+
+    const { host: fallbackHost } = await makeHost();
+    await expect(fallbackHost.screen?.setImmersive({ immersive: false })).resolves.toBeUndefined();
   });
 
   it('rejects with KotoriError codes for missing records', async () => {

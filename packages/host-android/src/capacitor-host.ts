@@ -21,6 +21,7 @@ import type {
   HostEvent,
   MangaApi,
   PlatformHost,
+  ScreenApi,
   SettingsApi,
 } from '@kotori/core';
 import { createAndroidAi } from './ai';
@@ -175,6 +176,15 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
     lookupPrefix: (text, maxLength) => dictService.lookupPrefix(text, maxLength),
   };
 
+  const screen: ScreenApi = {
+    setImmersive: async (opts) => {
+      await deps.setImmersive?.({
+        immersive: opts.immersive,
+        orientation: opts.orientation ?? 'keep',
+      });
+    },
+  };
+
   let disposed: Promise<void> | undefined;
   return {
     info: { platform: 'android', os: 'android', version: deps.version, capabilities: ANDROID_CAPABILITIES, dataDir: deps.dataRoot },
@@ -185,6 +195,7 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
     downloads,
     files,
     dict,
+    screen,
     subscribe(listener) {
       listeners.add(listener);
       return () => {

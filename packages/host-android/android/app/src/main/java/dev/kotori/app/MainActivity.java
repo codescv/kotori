@@ -1,8 +1,11 @@
 package dev.kotori.app;
 
+import android.content.pm.ActivityInfo;
 import android.graphics.Color;
+import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.OrientationEventListener;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -22,6 +25,9 @@ public class MainActivity extends BridgeActivity {
     private float safeRightDp = 0f;
     private float safeBottomDp = 0f;
     private float safeLeftDp = 0f;
+    private boolean immersive = false;
+    private OrientationEventListener portraitUnlockListener;
+    private Runnable portraitUnlockFallbackRunnable;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -68,8 +74,10 @@ public class MainActivity extends BridgeActivity {
 
             ViewCompat.setOnApplyWindowInsetsListener(decorView, (v, windowInsets) -> {
                 Insets bars = windowInsets.getInsets(
-                    WindowInsetsCompat.Type.systemBars()
-                        | WindowInsetsCompat.Type.displayCutout()
+                    this.immersive
+                        ? WindowInsetsCompat.Type.displayCutout()
+                        : (WindowInsetsCompat.Type.systemBars()
+                            | WindowInsetsCompat.Type.displayCutout())
                 );
                 Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
                 boolean kbVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime());
@@ -126,6 +134,110 @@ public class MainActivity extends BridgeActivity {
             ViewCompat.requestApplyInsets(getWindow().getDecorView());
         }
         syncSafeAreaCssVars();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && immersive) {
+            setImmersive(true, "keep");
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        cancelPortraitUnlock();
+        super.onDestroy();
+    }
+
+    public void setImmersive(boolean on, String orientation) {
+        this.immersive = on;
+        cancelPortraitUnlock();
+
+        Window window = getWindow();
+        View decorView = window != null ? window.getDecorView() : null;
+        if (window != null && decorView != null) {
+            WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(window, decorView);
+            if (controller != null) {
+                controller.setSystemBarsBehavior(
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                );
+                if (on) {
+                    controller.hide(WindowInsetsCompat.Type.systemBars());
+                } else {
+                    controller.show(WindowInsetsCompat.Type.systemBars());
+                }
+            }
+            if (on) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+        }
+
+        String mode = orientation == null ? "keep" : orientation;
+        switch (mode) {
+            case "landscape":
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                break;
+            case "portrait-then-unlock":
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
+                portraitUnlockListener = new OrientationEventListener(
+                    this,
+                    SensorManager.SENSOR_DELAY_NORMAL
+                ) {
+                    @Override
+                    public void onOrientationChanged(int deg) {
+                        if (deg != OrientationEventListener.ORIENTATION_UNKNOWN
+                            && ((deg >= 330 || deg <= 30) || (deg >= 150 && deg <= 210))
+                            && !immersive) {
+                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                            disable();
+                            if (portraitUnlockListener == this) {
+                                portraitUnlockListener = null;
+                            }
+                        }
+                    }
+                };
+                if (portraitUnlockListener.canDetectOrientation()) {
+                    portraitUnlockListener.enable();
+                } else {
+                    portraitUnlockListener.disable();
+                    portraitUnlockListener = null;
+                    if (decorView != null) {
+                        portraitUnlockFallbackRunnable = () -> {
+                            portraitUnlockFallbackRunnable = null;
+                            if (!immersive) {
+                                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                            }
+                        };
+                        decorView.postDelayed(portraitUnlockFallbackRunnable, 1500);
+                    }
+                }
+                break;
+            case "keep":
+            default:
+                break;
+        }
+
+        if (decorView != null) {
+            ViewCompat.requestApplyInsets(decorView);
+        }
+    }
+
+    private void cancelPortraitUnlock() {
+        if (portraitUnlockListener != null) {
+            portraitUnlockListener.disable();
+            portraitUnlockListener = null;
+        }
+        if (portraitUnlockFallbackRunnable != null) {
+            Window window = getWindow();
+            if (window != null && window.getDecorView() != null) {
+                window.getDecorView().removeCallbacks(portraitUnlockFallbackRunnable);
+            }
+            portraitUnlockFallbackRunnable = null;
+        }
     }
 
     private void syncSafeAreaCssVars() {

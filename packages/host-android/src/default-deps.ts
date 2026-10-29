@@ -29,7 +29,7 @@
 import { App } from '@capacitor/app';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
-import type { AppIconId } from '@kotori/core';
+import type { AppIconId, ScreenImmersiveOptions, ScreenOrientationMode } from '@kotori/core';
 import { KotoriError } from './adapters/core';
 import type {
   AndroidTorrentEngine,
@@ -59,6 +59,7 @@ interface FilePickerPlugin {
 interface KotoriTorrentNativePlugin {
   openExternal(options: { url: string }): Promise<void>;
   setAppIcon(options: { iconId: AppIconId }): Promise<{ iconId: AppIconId; changed: boolean }>;
+  setImmersive?(options: { immersive: boolean; orientation: ScreenOrientationMode }): Promise<void>;
   startTorrent(options: {
     taskId: string;
     infoHash: string;
@@ -288,6 +289,23 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
         ? {
             setAppIcon: async (iconId: AppIconId) => {
               await KotoriTorrent.setAppIcon({ iconId });
+            },
+          }
+        : {}),
+    ...(overrides.setImmersive
+      ? { setImmersive: overrides.setImmersive }
+      : !overrides.fs && Capacitor.isNativePlatform()
+        ? {
+            setImmersive: async (opts: ScreenImmersiveOptions) => {
+              if (typeof KotoriTorrent.setImmersive !== 'function') return;
+              try {
+                await KotoriTorrent.setImmersive({
+                  immersive: opts.immersive,
+                  orientation: opts.orientation ?? 'keep',
+                });
+              } catch (error) {
+                if (!isUnimplemented(error)) throw KotoriError.wrap(error, 'io');
+              }
             },
           }
         : {}),

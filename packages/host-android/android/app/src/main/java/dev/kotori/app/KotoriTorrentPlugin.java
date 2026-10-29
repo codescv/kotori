@@ -231,6 +231,22 @@ public class KotoriTorrentPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setImmersive(PluginCall call) {
+        final boolean on = Boolean.TRUE.equals(call.getBoolean("immersive", false));
+        String rawOrientation = call.getString("orientation", "keep");
+        final String orientation = rawOrientation == null ? "keep" : rawOrientation;
+        android.app.Activity activity = getActivity();
+        if (!(activity instanceof MainActivity)) {
+            call.resolve();
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            ((MainActivity) activity).setImmersive(on, orientation);
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
     public void openExternal(PluginCall call) {
         String url = call.getString("url");
         if (url == null || url.isEmpty()) {

@@ -1520,6 +1520,18 @@ export interface FilesApi {
   openExternal?(url: string): Promise<void>;
 }
 
+export type ScreenOrientationMode = 'landscape' | 'portrait-then-unlock' | 'keep';
+
+export interface ScreenImmersiveOptions {
+  immersive: boolean;
+  orientation?: ScreenOrientationMode;
+}
+
+export interface ScreenApi {
+  /** Hide/show system bars; optionally lock/unlock screen orientation. Idempotent. */
+  setImmersive(opts: ScreenImmersiveOptions): Promise<void>;
+}
+
 /**
  * The one abstraction between the shared UI and the platform. Implemented by:
  * - `@kotori/host-node/client` → `RestPlatformHost` (browser → local HTTP server)
@@ -1539,6 +1551,7 @@ export interface PlatformHost {
   readonly files: FilesApi;
   /** Local dictionaries (optional until every host wires it; absent ⇒ zero-dict fallback). */
   readonly dict?: DictionaryHost;
+  readonly screen?: ScreenApi;
   /** Push events (download progress, library changes). */
   subscribe(listener: (event: HostEvent) => void): Unsubscribe;
   /** Release sockets / event sources. */

@@ -4,7 +4,7 @@
  * (`fake-indexeddb`, in-memory `FsOps`, fake `fetch`, controllable clock).
  */
 
-import type { AppIconId } from '@kotori/core';
+import type { AppIconId, ScreenImmersiveOptions } from '@kotori/core';
 
 /** One directory entry / stat result. `path` is absolute (path or URI). */
 export interface FsEntry {
@@ -121,6 +121,8 @@ export interface CapacitorHostDeps {
   readonly openExternal: (url: string) => Promise<void>;
   /** Switch Android launcher icon alias (`KotoriTorrentPlugin.setAppIcon`). */
   readonly setAppIcon?: (iconId: AppIconId) => Promise<void>;
+  /** Hide/show Android system bars and optionally lock/unlock screen orientation (`KotoriTorrentPlugin.setImmersive`). */
+  readonly setImmersive?: (opts: ScreenImmersiveOptions) => Promise<void>;
   /** Native directory picker; `undefined` when cancelled. */
   readonly pickDirectory: () => Promise<string | undefined>;
   /** Native file picker; `[]` when cancelled. Returned paths must be readable by `fs`. */
