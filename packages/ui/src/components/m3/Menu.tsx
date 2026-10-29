@@ -1,5 +1,6 @@
 /** M3 menu anchored to a trigger; closes on outside click / Esc / selection. */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { registerBackInterceptor } from '../../app/routes';
 import { cx } from './cx';
 import { Icon, type IconName } from './Icon';
 
@@ -26,15 +27,27 @@ export function Menu({ trigger, items, align = 'end', className, header, childre
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
+    return registerBackInterceptor(() => {
+      setOpen(false);
+      return true;
+    });
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
     document.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
     };
   }, [open]);
   return (

@@ -18,11 +18,11 @@ export interface SheetProps {
 }
 
 /** Docked (non-modal) side sheet; lives in the layout flow next to content. */
-export function SideSheet({ open, onClose, title, headerActions, children, className, closeLabel = 'close', width = 420 }: SheetProps & { readonly width?: number }) {
+export function SideSheet({ open, onClose, title, headerActions, children, className, closeLabel = 'close', width }: SheetProps & { readonly width?: number | undefined }) {
   return (
     <aside
       className={cx('k-side-sheet', open && 'is-open', className)}
-      style={{ ['--k-side-sheet-width' as string]: `${width}px` }}
+      style={width !== undefined ? { ['--k-side-sheet-width' as string]: `${width}px` } : undefined}
       aria-hidden={!open}
       aria-label={typeof title === 'string' ? title : undefined}
     >
@@ -153,7 +153,7 @@ export function BottomSheet({
 }
 
 /** SideSheet on expanded windows (≥ 840 × 500 px), BottomSheet below. */
-export function AdaptiveSheet({ initialSnap, ...props }: SheetProps & { readonly width?: number; readonly initialSnap?: BottomSheetSnap }) {
+export function AdaptiveSheet({ initialSnap, ...props }: SheetProps & { readonly width?: number | undefined; readonly initialSnap?: BottomSheetSnap }) {
   const expanded = useIsExpanded();
   return expanded ? <SideSheet {...props} /> : <BottomSheet {...props} {...(initialSnap ? { initialSnap } : {})} />;
 }

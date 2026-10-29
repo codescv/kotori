@@ -1,18 +1,19 @@
 /**
  * Episode player: `<video>` + clickable subtitle overlay + transcript /
- * AI-breakdown drawer (docked side sheet ≥ 840 px, bottom sheet on phones).
+ * AI-breakdown drawer (immersive full-bleed landscape/fullscreen with floating
+ * HUD + docked side drawer, desktop expanded split-pane, phone portrait sheet).
  *
  * Keyboard: Space play/pause · ←/→ previous/next line · R repeat line ·
- * B hide/show subtitles · Esc close breakdown. Progress is saved fire-and-forget.
+ * B hide/show subtitles · Esc close drawer / breakdown / fullscreen.
  *
- * Stage gestures: single tap play/pause (deferred 240 ms so a double-tap can
- * cancel it) · double-tap left/right 35 % previous/next line · double-tap
- * centre fullscreen (on the whole `.k-player`, so the breakdown sheet stays
- * visible) · long-press 2× speed.
+ * Stage gestures: single tap toggles HUD (immersive) or play/pause (portrait /
+ * expanded, deferred 240 ms so double-tap cancels it) · double-tap left/right
+ * 35 % previous/next line · double-tap centre play/pause (immersive) or
+ * fullscreen (portrait / expanded) · long-press 2× speed.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AnimeEpisode, SubtitleCue, SubtitleTrack, TranscriptRow } from '@kotori/core';
-import { BreakdownPanel } from '../../../components/breakdown/AiBreakdownPanel';
+import { BreakdownPanel, type AudioSliceReplay } from '../../../components/breakdown/AiBreakdownPanel';
 import { cx } from '../../../components/m3/cx';
 import { Icon } from '../../../components/m3/Icon';
 import { IconButton } from '../../../components/m3/IconButton';
@@ -22,21 +23,22 @@ import { BottomSheet, SideSheet } from '../../../components/m3/Sheet';
 import { Tabs, useTabSwipe } from '../../../components/m3/Tabs';
 import { useHost } from '../../../host/HostContext';
 import { useAsync } from '../../../host/useAsync';
-import { useIsExpanded } from '../../../hooks/useMediaQuery';
+import { useIsExpanded, useIsMobileLandscape } from '../../../hooks/useMediaQuery';
 import { useT } from '../../../i18n';
 import { buildTranscriptRows, formatAnimeEpisodeTitle, formatAnimeSeriesTitle, formatClock } from '../../../lib/cues';
 import { useBackInterceptor, useRouteStore } from '../../../app/routes';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
+import { PlayerHud } from './PlayerHud';
 import { RepeatControls, useRepeat } from './RepeatControls';
 import { SubtitleOverlay } from './SubtitleOverlay';
 import { SubtitleTrackMenu } from './SubtitleTrackMenu';
 import { activeRowIndex, TranscriptPanel } from './TranscriptPanel';
+import { useFullscreenState } from './useFullscreenState';
 import { useMediaClock, usePlayerSync } from './usePlayerSync';
 import { useSubtitleBreakdown } from './useSubtitleBreakdown';
 import { useSubtitlePreExplain } from './useSubtitlePreExplain';
-import type { AudioSliceReplay } from '../../../components/breakdown/AiBreakdownPanel';
 import './player.css';
 
 type PanelTab = 'transcript' | 'breakdown';
@@ -52,6 +54,7 @@ export function pickDefaultTrack(episode: AnimeEpisode, preferred: readonly stri
 }
 
 const EMPTY_CUES: readonly SubtitleCue[] = [];
+const RATES = [0.5, 0.75, 0.9, 1, 1.25, 1.5] as const;
 
 /** `1×`, `0.75×`, `1.25×` — compact playback-rate label for the speed button. */
 export function formatRate(rate: number): string {
@@ -78,9 +81,17 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const host = useHost();
   const t = useT();
   const expanded = useIsExpanded();
+  const mobileLandscape = useIsMobileLandscape();
+  const playerRef = useRef<HTMLDivElement>(null);
+  const { fullscreen, immersive, exit: exitFullscreen, toggle: toggleFullscreen } = useFullscreenState(
+    playerRef,
+    host.screen,
+    mobileLandscape,
+  );
+  const layout: 'immersive' | 'expanded' | 'portrait' = immersive ? 'immersive' : expanded ? 'expanded' : 'portrait';
+
   const animeSettings = useSettingsStore((s) => s.settings.anime);
   const updateSettings = useSettingsStore((s) => s.update);
-  const openAnime = useRouteStore((s) => s.openAnime);
   const episodeId = episode.id;
 
   const seriesQ = useAsync(() => host.anime.getSeries(seriesId), [host, seriesId]);
@@ -105,10 +116,20 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const sb = useSubtitleBreakdown({ episodeId, trackId, contextCues: rowCues, sceneHint: seriesQ.data?.title });
 
   const [blind, setBlind] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [expandedPanelOpen, setExpandedPanelOpen] = useState(true);
+  const [immersiveDrawerOpen, setImmersiveDrawerOpen] = useState(() => useBreakdownStore.getState().isOpen);
   const [panelTab, setPanelTab] = useState<PanelTab>('transcript');
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [pauseAt, setPauseAt] = useState<number | undefined>(undefined);
+  const [hudVisible, setHudVisible] = useState(true);
+  const [hudNonce, setHudNonce] = useState(0);
+  const [scrubbing, setScrubbing] = useState(false);
+
+  const immersiveRef = useRef(immersive);
+  immersiveRef.current = immersive;
+  const hudVisibleRef = useRef(hudVisible);
+  hudVisibleRef.current = hudVisible;
+
   const repeat = useRepeat(clock.currentMs, clock.seek, animeSettings.seekPaddingMs);
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
   const breakdownRequest = useBreakdownStore((s) => s.request);
@@ -121,30 +142,107 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   }
   const sideSheetSwipe = useTabSwipe<PanelTab>(['transcript', 'breakdown'], panelTab, setPanelTab);
 
+  const bumpHudTimer = useCallback(() => {
+    setHudNonce((n) => n + 1);
+  }, []);
+
+  const wakeHud = useCallback(() => {
+    setHudVisible(true);
+    setHudNonce((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!immersive) {
+      setHudVisible(true);
+      setScrubbing(false);
+    }
+  }, [immersive]);
+
+  useEffect(() => {
+    if (!scrubbing) return;
+    const stop = (): void => setScrubbing(false);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    return () => {
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+  }, [scrubbing]);
+
+  // Auto-hide HUD after 3500 ms when playing or when the learning drawer is open;
+  // stay pinned when paused with the drawer closed unless manually tapped away.
+  useEffect(() => {
+    if (!immersive || !hudVisible) return;
+    if ((!clock.playing && !immersiveDrawerOpen) || scrubbing) return;
+    const id = setTimeout(() => {
+      const menuOpen = Boolean(playerRef.current?.querySelector('[role="menu"]'));
+      const dialogOpen = typeof document !== 'undefined' && Boolean(document.querySelector('.k-dialog-scrim'));
+      if (!menuOpen && !dialogOpen) {
+        setHudVisible(false);
+      } else {
+        setHudNonce((n) => n + 1);
+      }
+    }, 3500);
+    return () => clearTimeout(id);
+  }, [immersive, hudVisible, hudNonce, clock.playing, immersiveDrawerOpen, scrubbing]);
+
+  const closeImmersiveDrawer = useCallback(() => {
+    closeBreakdown();
+    setImmersiveDrawerOpen(false);
+  }, [closeBreakdown]);
+
+  const toggleImmersiveDrawer = useCallback(() => {
+    setImmersiveDrawerOpen((open) => {
+      if (open) {
+        closeBreakdown();
+      } else if (!useBreakdownStore.getState().isOpen) {
+        setPanelTab('transcript');
+      }
+      return !open;
+    });
+  }, [closeBreakdown]);
+
   useBackInterceptor(() => {
-    if (useBreakdownStore.getState().isOpen) {
+    const bdOpen = useBreakdownStore.getState().isOpen;
+    if (immersive && (immersiveDrawerOpen || bdOpen)) {
+      closeBreakdown();
+      setImmersiveDrawerOpen(false);
+      return true;
+    }
+    if (!immersive && bdOpen) {
       closeBreakdown();
       setPanelTab('transcript');
+      return true;
+    }
+    if (fullscreen) {
+      exitFullscreen();
       return true;
     }
     return false;
   });
 
-  // Opening a breakdown brings its tab forward (expanded) / its sheet up (compact).
+  // Opening a breakdown brings its tab forward (expanded / immersive) or its sheet up (portrait).
   // Any new request (e.g. 合并解析 from the transcript tab while the panel is
   // already open) also switches to the AI tab.
   useEffect(() => {
     if (breakdownOpen) {
-      setPanelOpen(true);
+      setExpandedPanelOpen(true);
+      setImmersiveDrawerOpen(true);
       setPanelTab('breakdown');
     }
   }, [breakdownOpen]);
   useEffect(() => {
     if (breakdownRequest) {
-      setPanelOpen(true);
+      setExpandedPanelOpen(true);
+      setImmersiveDrawerOpen(true);
       setPanelTab('breakdown');
     }
   }, [breakdownRequest]);
+  useEffect(() => {
+    if (immersive && breakdownOpen) {
+      setImmersiveDrawerOpen(true);
+    }
+  }, [immersive, breakdownOpen]);
   useEffect(() => () => useBreakdownStore.getState().close(), []);
 
   // Register audio slice replay handler for the AI Breakdown panel (`🔊 原声`,
@@ -261,6 +359,9 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const onOverlayChar = useCallback(
     (cue: SubtitleCue, i: number) => {
       clock.pause();
+      if (immersiveRef.current) {
+        setHudVisible(false);
+      }
       sb.openCue(cue, i);
     },
     [clock, sb],
@@ -275,19 +376,19 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     [clock, sb, pauseOnTranscriptClick],
   );
 
-  const playerRef = useRef<HTMLDivElement>(null);
-  const toggleFullscreen = useCallback(() => {
-    if (typeof document !== 'undefined' && document.fullscreenElement) {
-      void document.exitFullscreen?.().catch(() => {});
-      return;
-    }
-    // Whole player (not just the stage) so the breakdown sheet stays visible.
-    void playerRef.current?.requestFullscreen?.().catch(() => {});
-  }, []);
+  const onTracksChanged = useCallback(
+    (id?: string) => {
+      reloadEpisode();
+      if (id) setTrackId(id);
+      setCuesNonce((n) => n + 1);
+    },
+    [reloadEpisode],
+  );
 
   // Touch & pointer precision listening gestures:
   // - Long-press (450 ms) on video stage -> temporary 2.0x speed
-  // - Double-tap / double-click left 35% -> prevRow, right 35% -> nextRow, center 30% -> fullscreen
+  // - Double-tap / double-click left 35% -> prevRow, right 35% -> nextRow,
+  //   center 30% -> play/pause (immersive) or fullscreen (portrait / expanded)
   const [longPressFast, setLongPressFast] = useState(false);
   const [gestureToast, setGestureToast] = useState<string | undefined>(undefined);
   const savedRateRef = useRef<number>(1);
@@ -310,7 +411,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     if (longPressFast) {
       clock.setRate(savedRateRef.current);
       setLongPressFast(false);
-      // The release of a long-press must not also toggle play/pause.
+      // The release of a long-press must not also toggle play/pause or HUD.
       suppressClickRef.current = true;
     }
   }, [clock, longPressFast]);
@@ -322,7 +423,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     }
   }, []);
 
-  // Single tap → play/pause after 240 ms; a second tap (double-tap / dblclick) cancels it.
+  // Single tap → toggle HUD (immersive) or play/pause (portrait/expanded) after
+  // 240 ms; a second tap (double-tap / dblclick) cancels it cleanly.
   const onVideoClick = useCallback(
     (e: React.MouseEvent<HTMLVideoElement>) => {
       clearTapTimer();
@@ -333,16 +435,37 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       if (e.detail >= 2) return;
       tapTimerRef.current = setTimeout(() => {
         tapTimerRef.current = undefined;
-        clockRef.current.toggle();
+        if (immersiveRef.current) {
+          setHudVisible((v) => {
+            const next = !v;
+            if (next) setHudNonce((n) => n + 1);
+            return next;
+          });
+        } else {
+          clockRef.current.toggle();
+        }
       }, 240);
     },
     [clearTapTimer],
   );
 
+  const onStagePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!immersiveRef.current || e.pointerType !== 'mouse') return;
+      const dx = e.movementX || 0;
+      const dy = e.movementY || 0;
+      if (Math.hypot(dx, dy) < 2) return;
+      const target = e.target as HTMLElement | null;
+      if (!hudVisibleRef.current && target?.closest('.k-sub-line')) return;
+      wakeHud();
+    },
+    [wakeHud],
+  );
+
   const onStagePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest('.k-sub-line')) return;
+      if (target?.closest('.k-sub-line, button, input, .k-menu, .k-menu-anchor')) return;
       if (longPressTimerRef.current !== undefined) clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = setTimeout(() => {
         savedRateRef.current = clock.rate;
@@ -357,7 +480,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const onStageDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest('.k-sub-line')) return;
+      if (target?.closest('.k-sub-line, button, input, .k-menu, .k-menu-anchor')) return;
       clearTapTimer();
       const rect = e.currentTarget.getBoundingClientRect();
       const relX = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
@@ -367,11 +490,14 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       } else if (relX > 0.65) {
         nextRow();
         flashGestureToast('⏭ 下一句');
+      } else if (immersive) {
+        clock.toggle();
+        flashGestureToast(clock.playing ? '⏸' : '▶');
       } else {
         toggleFullscreen();
       }
     },
-    [prevRow, nextRow, flashGestureToast, clearTapTimer, toggleFullscreen],
+    [prevRow, nextRow, flashGestureToast, clearTapTimer, immersive, clock, toggleFullscreen],
   );
 
   useEffect(
@@ -393,35 +519,47 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
         case ' ':
           e.preventDefault();
           clock.toggle();
+          if (immersiveRef.current) bumpHudTimer();
           break;
         case 'ArrowLeft':
           e.preventDefault();
           prevRow();
+          if (immersiveRef.current) bumpHudTimer();
           break;
         case 'ArrowRight':
           e.preventDefault();
           nextRow();
+          if (immersiveRef.current) bumpHudTimer();
           break;
         case 'r':
         case 'R':
           toggleRepeatCue();
+          if (immersiveRef.current) bumpHudTimer();
           break;
         case 'b':
         case 'B':
           setBlind((b) => !b);
+          if (immersiveRef.current) bumpHudTimer();
           break;
-        case 'Escape':
-          if (useBreakdownStore.getState().isOpen) {
+        case 'Escape': {
+          const bdOpen = useBreakdownStore.getState().isOpen;
+          if (immersive && (immersiveDrawerOpen || bdOpen)) {
+            closeBreakdown();
+            setImmersiveDrawerOpen(false);
+          } else if (bdOpen) {
             closeBreakdown();
             setPanelTab('transcript');
+          } else if (fullscreen) {
+            exitFullscreen();
           }
           break;
+        }
         default:
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clock, prevRow, nextRow, toggleRepeatCue, closeBreakdown]);
+  }, [clock, prevRow, nextRow, toggleRepeatCue, closeBreakdown, bumpHudTimer, immersive, immersiveDrawerOpen, fullscreen, exitFullscreen]);
 
   const preferExplainingOnMount =
     (explainedAtMsRef.current !== undefined && Math.abs(clock.currentMs - explainedAtMsRef.current) < 500) ||
@@ -446,45 +584,103 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   );
 
   const duration = clock.durationMs || episode.durationMs || 0;
+  const formattedSeriesTitle = formatAnimeSeriesTitle(seriesQ.data);
+  const seriesTitle = formattedSeriesTitle || episode.parsedName.title || episode.title;
+  const episodeTitle = formatAnimeEpisodeTitle(episode, formattedSeriesTitle);
 
   return (
-    <div ref={playerRef} className={cx('k-player', expanded ? 'k-player--expanded' : 'k-player--compact')} data-testid="player">
+    <div
+      ref={playerRef}
+      className={cx(
+        'k-player',
+        layout === 'immersive' ? 'k-player--immersive' : layout === 'expanded' ? 'k-player--expanded' : 'k-player--compact',
+        layout === 'immersive' && immersiveDrawerOpen && 'is-drawer-open',
+      )}
+      data-testid="player"
+    >
       <div className="k-player__main">
-        <header className="k-player__header">
-          <IconButton icon="back" label={t('common.back')} onClick={() => useRouteStore.getState().goBack()} />
-          <div className="k-player__title">
-            <span className="k-title-medium" lang="ja" title={seriesQ.data?.title}>
-              {formatAnimeSeriesTitle(seriesQ.data) || episode.parsedName.title || episode.title}
-            </span>
-            <span className="k-body-small k-muted" title={episode.fileName}>
-              {episode.parsedName.episode !== undefined ? `#${episode.parsedName.episode} · ` : ''}
-              {formatAnimeEpisodeTitle(episode, formatAnimeSeriesTitle(seriesQ.data))}
-            </span>
-          </div>
-          <span className="k-spacer" />
-          <SubtitleTrackMenu
-            episode={episode}
-            trackId={trackId}
-            onSelectTrack={setTrackId}
-            onTracksChanged={(id) => {
-              reloadEpisode();
-              if (id) setTrackId(id);
-              setCuesNonce((n) => n + 1);
-            }}
-            t={t}
-          />
-          {expanded && <IconButton icon="list" label={t('player.transcript')} selected={panelOpen} onClick={() => setPanelOpen((o) => !o)} />}
-        </header>
+        {layout !== 'immersive' && (
+          <header className="k-player__header">
+            <IconButton icon="back" label={t('common.back')} onClick={() => useRouteStore.getState().goBack()} />
+            <div className="k-player__title">
+              <span className="k-title-medium" lang="ja" title={seriesQ.data?.title}>
+                {seriesTitle}
+              </span>
+              <span className="k-body-small k-muted" title={episode.fileName}>
+                {episode.parsedName.episode !== undefined ? `#${episode.parsedName.episode} · ` : ''}
+                {episodeTitle}
+              </span>
+            </div>
+            <span className="k-spacer" />
+            <SubtitleTrackMenu
+              episode={episode}
+              trackId={trackId}
+              onSelectTrack={setTrackId}
+              onTracksChanged={onTracksChanged}
+              t={t}
+            />
+            {layout === 'expanded' && (
+              <IconButton icon="list" label={t('player.transcript')} selected={expandedPanelOpen} onClick={() => setExpandedPanelOpen((o) => !o)} />
+            )}
+          </header>
+        )}
 
         <div
           className="k-player__stage"
           onDoubleClick={onStageDoubleClick}
+          onPointerMove={onStagePointerMove}
           onPointerDown={onStagePointerDown}
           onPointerUp={endLongPress}
           onPointerLeave={endLongPress}
           onPointerCancel={endLongPress}
         >
-          <video ref={videoRef} className="k-player__video" src={episode.mediaUrl} playsInline preload="metadata" onClick={onVideoClick} />
+          <video
+            ref={videoRef}
+            className="k-player__video"
+            src={episode.mediaUrl}
+            playsInline
+            preload="metadata"
+            aria-label={immersive ? t(hudVisible ? 'player.hideControls' : 'player.showControls') : undefined}
+            onClick={onVideoClick}
+          />
+          {immersive && (
+            <PlayerHud
+              visible={hudVisible}
+              seriesTitle={seriesTitle}
+              seriesRawTitle={seriesQ.data?.title}
+              episode={episode}
+              episodeTitle={episodeTitle}
+              trackId={trackId}
+              onSelectTrack={setTrackId}
+              onTracksChanged={onTracksChanged}
+              drawerOpen={immersiveDrawerOpen}
+              onToggleDrawer={toggleImmersiveDrawer}
+              onBack={() => useRouteStore.getState().goBack()}
+              playing={clock.playing}
+              currentMs={clock.currentMs}
+              durationMs={duration}
+              rate={clock.rate}
+              formatRate={formatRate}
+              onTogglePlay={clock.toggle}
+              onPrevCue={prevRow}
+              onNextCue={nextRow}
+              onSeek={clock.seek}
+              onScrubbingChange={setScrubbing}
+              onSelectRate={clock.setRate}
+              repeat={repeat}
+              onToggleRepeatCue={toggleRepeatCue}
+              onToggleAb={toggleAb}
+              canAb={selected.size > 0}
+              autoPreExplain={Boolean(animeSettings.autoPreExplain)}
+              onTogglePreExplain={togglePreExplain}
+              blind={blind}
+              onToggleBlind={() => setBlind((b) => !b)}
+              canExitFullscreen={fullscreen || Boolean(host.screen)}
+              onToggleFullscreen={toggleFullscreen}
+              onActivity={wakeHud}
+              t={t}
+            />
+          )}
           {blind && (
             <div className="k-player__subs-hidden" data-testid="subs-hidden-badge" aria-live="polite">
               <Icon name="visibilityOff" size={14} /> 已隐藏视频字幕
@@ -516,76 +712,89 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             blindHint={t('player.blindHint')}
           />
         </div>
-        {clock.simulated && <p className="k-player__notice">{t('player.mediaError')}</p>}
+        {layout !== 'immersive' && clock.simulated && <p className="k-player__notice">{t('player.mediaError')}</p>}
 
-        <div className="k-player__controls">
-          <input
-            className="k-player__scrub"
-            type="range"
-            min={0}
-            max={Math.max(1, duration)}
-            step={100}
-            value={Math.min(clock.currentMs, Math.max(1, duration))}
-            aria-label="seek"
-            onChange={(e) => clock.seek(Number(e.currentTarget.value))}
-            style={{ ['--k-scrub-pct' as string]: `${duration ? (clock.currentMs / duration) * 100 : 0}%` }}
-          />
-          <div className="k-player__buttons">
-            <IconButton icon="prev" label={t('player.prevCue')} onClick={prevRow} />
-            <IconButton
-              icon={clock.playing ? 'pause' : 'play'}
-              variant="filled"
-              label={clock.playing ? t('player.pause') : t('player.play')}
-              title={`${clock.playing ? t('player.pause') : t('player.play')} (Space)`}
-              onClick={clock.toggle}
+        {layout !== 'immersive' && (
+          <div className="k-player__controls">
+            <input
+              className="k-player__scrub"
+              type="range"
+              min={0}
+              max={Math.max(1, duration)}
+              step={100}
+              value={Math.min(clock.currentMs, Math.max(1, duration))}
+              aria-label="seek"
+              onChange={(e) => clock.seek(Number(e.currentTarget.value))}
+              style={{ ['--k-scrub-pct' as string]: `${duration ? (clock.currentMs / duration) * 100 : 0}%` }}
             />
-            <IconButton icon="next" label={t('player.nextCue')} onClick={nextRow} />
-            <span className="k-player__time" data-testid="player-time">
-              {formatClock(clock.currentMs)} / {formatClock(duration)}
-            </span>
-            <span className="k-spacer" />
-            <RepeatControls repeat={repeat} onToggleCue={toggleRepeatCue} onToggleAb={toggleAb} canAb={selected.size > 0} t={t} />
-            <IconButton
-              icon="sparkle"
-              label={t('player.preExplain')}
-              selected={Boolean(animeSettings.autoPreExplain)}
-              data-testid="pre-explain-toggle"
-              onClick={togglePreExplain}
-            />
-            <IconButton
-              icon={blind ? 'visibilityOff' : 'visibility'}
-              label={t('player.blind')}
-              selected={blind}
-              data-testid="blind-toggle"
-              onClick={() => setBlind((b) => !b)}
-            />
-            <Menu
-              items={[0.5, 0.75, 0.9, 1, 1.25, 1.5].map((r) => ({ key: String(r), label: `${r}×`, selected: clock.rate === r, onSelect: () => clock.setRate(r) }))}
-              trigger={({ toggle }) => (
-                <button
-                  type="button"
-                  className={cx('k-player__speed-btn', clock.rate !== 1 && 'is-changed')}
-                  aria-label={`${t('player.speed')} ${clock.rate}×`}
-                  title={`${t('player.speed')} ${clock.rate}×`}
-                  data-testid="speed-button"
-                  onClick={toggle}
-                >
-                  <Icon name="speed" size={18} />
-                  <span className="k-player__speed-label">{formatRate(clock.rate)}</span>
-                </button>
-              )}
-            />
+            <div className="k-player__buttons">
+              <IconButton icon="prev" label={t('player.prevCue')} onClick={prevRow} />
+              <IconButton
+                icon={clock.playing ? 'pause' : 'play'}
+                variant="filled"
+                label={clock.playing ? t('player.pause') : t('player.play')}
+                title={`${clock.playing ? t('player.pause') : t('player.play')} (Space)`}
+                onClick={clock.toggle}
+              />
+              <IconButton icon="next" label={t('player.nextCue')} onClick={nextRow} />
+              <span className="k-player__time" data-testid="player-time">
+                {formatClock(clock.currentMs)} / {formatClock(duration)}
+              </span>
+              <span className="k-spacer" />
+              <RepeatControls repeat={repeat} onToggleCue={toggleRepeatCue} onToggleAb={toggleAb} canAb={selected.size > 0} t={t} />
+              <IconButton
+                icon="sparkle"
+                label={t('player.preExplain')}
+                selected={Boolean(animeSettings.autoPreExplain)}
+                data-testid="pre-explain-toggle"
+                onClick={togglePreExplain}
+              />
+              <IconButton
+                icon={blind ? 'visibilityOff' : 'visibility'}
+                label={t('player.blind')}
+                selected={blind}
+                data-testid="blind-toggle"
+                onClick={() => setBlind((b) => !b)}
+              />
+              <Menu
+                items={RATES.map((r) => ({ key: String(r), label: `${r}×`, selected: clock.rate === r, onSelect: () => clock.setRate(r) }))}
+                trigger={({ toggle }) => (
+                  <button
+                    type="button"
+                    className={cx('k-player__speed-btn', clock.rate !== 1 && 'is-changed')}
+                    aria-label={`${t('player.speed')} ${clock.rate}×`}
+                    title={`${t('player.speed')} ${clock.rate}×`}
+                    data-testid="speed-button"
+                    onClick={toggle}
+                  >
+                    <Icon name="speed" size={18} />
+                    <span className="k-player__speed-label">{formatRate(clock.rate)}</span>
+                  </button>
+                )}
+              />
+              <IconButton
+                icon="fullscreen"
+                label={t('player.fullscreen')}
+                data-testid="fullscreen-toggle"
+                onClick={toggleFullscreen}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
-        {!expanded && <div className="k-player__compact-transcript">{transcript}</div>}
+        {layout === 'portrait' && <div className="k-player__compact-transcript">{transcript}</div>}
       </div>
 
-      {expanded ? (
+      {layout === 'portrait' ? (
+        <BottomSheet open={breakdownOpen} onClose={closeBreakdown} title={t('breakdown.title')} closeLabel={t('common.close')}>
+          <BreakdownPanel />
+        </BottomSheet>
+      ) : (
         <SideSheet
-          open={panelOpen}
-          onClose={() => setPanelOpen(false)}
-          width={440}
+          className="k-player__drawer"
+          open={layout === 'immersive' ? immersiveDrawerOpen : expandedPanelOpen}
+          onClose={layout === 'immersive' ? closeImmersiveDrawer : () => setExpandedPanelOpen(false)}
+          width={expanded ? 440 : undefined}
           closeLabel={t('common.close')}
           title={
             <Tabs<PanelTab>
@@ -602,10 +811,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             {panelTab === 'transcript' ? transcript : <BreakdownPanel />}
           </div>
         </SideSheet>
-      ) : (
-        <BottomSheet open={breakdownOpen} onClose={closeBreakdown} title={t('breakdown.title')} closeLabel={t('common.close')}>
-          <BreakdownPanel />
-        </BottomSheet>
       )}
     </div>
   );

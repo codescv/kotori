@@ -24,3 +24,10 @@ export const EXPANDED_QUERY = '(min-width: 840px) and (min-height: 500px)';
 export function useIsExpanded(): boolean {
   return useMediaQuery(EXPANDED_QUERY);
 }
+
+/** Phones held in landscape (e.g. 915×412, 844×390, 800×360, DPI-scaled ≤ 560px tall). */
+export const MOBILE_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 560px)';
+
+export function useIsMobileLandscape(): boolean {
+  return useMediaQuery(MOBILE_LANDSCAPE_QUERY);
+}
