@@ -186,19 +186,20 @@
 .k-zoompan__edge-arrow { font-size: 22px; line-height: 1; font-weight: 700; }
 .k-zoompan__edge-text { font-weight: 600; }
 .k-zoompan__peek {
-  position: absolute; top: 0; bottom: 0; z-index: 4;
+  position: absolute; z-index: 4;
   overflow: hidden; pointer-events: none; user-select: none;
-  background: var(--md-sys-color-surface-container-low);
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 75%, transparent);
 }
 .k-zoompan__peek--left {
   left: 0;
-  border-right: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 75%, transparent);
+  border-left: 0;
   border-radius: 0 8px 8px 0;
   box-shadow: 4px 0 14px rgb(0 0 0 / 0.35);
 }
 .k-zoompan__peek--right {
   right: 0;
-  border-left: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 75%, transparent);
+  border-right: 0;
   border-radius: 8px 0 0 8px;
   box-shadow: -4px 0 14px rgb(0 0 0 / 0.35);
 }
@@ -206,7 +207,7 @@
   border-color: var(--md-sys-color-primary);
 }
 .k-zoompan__peek-img {
-  position: absolute; top: 0; height: 100%; max-width: none; pointer-events: none;
+  position: absolute; top: 0; display: block; max-width: none; object-fit: fill; pointer-events: none;
 }
 .k-zoompan__peek--left .k-zoompan__peek-img { right: 0; }
 .k-zoompan__peek--right .k-zoompan__peek-img { left: 0; }

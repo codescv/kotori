@@ -542,6 +542,7 @@ describe('Reader — mobile one-hand dock, edge-page-peek, non-modal bubble swit
     expect(leftPeek.dataset['side']).toBe('left');
     expect(leftPeek.dataset['pageIndex']).toBe('1');
     expect(leftPeek.dataset['gap']).toBe('16');
+    expect(leftPeek.dataset['scale']).toBe('1.00');
     expect(leftPeek.dataset['armed']).toBe('true');
     expect(leftPeek.style.width).toBe('38px');
     expect(content.style.transform).toContain('translate(54px,');
@@ -558,6 +559,7 @@ describe('Reader — mobile one-hand dock, edge-page-peek, non-modal bubble swit
     expect(rightPeek.dataset['side']).toBe('right');
     expect(rightPeek.dataset['pageIndex']).toBe('0');
     expect(rightPeek.dataset['gap']).toBe('16');
+    expect(rightPeek.dataset['scale']).toBe('1.00');
     expect(rightPeek.style.width).toBe('38px');
     expect(content.style.transform).toContain('translate(-54px,');
     expect(screen.getByTestId('edge-turn-indicator').dataset['side']).toBe('right');
@@ -565,6 +567,72 @@ describe('Reader — mobile one-hand dock, edge-page-peek, non-modal bubble swit
     fireEvent.touchEnd(zp, { touches: [] });
     expect(screen.queryByTestId('edge-page-peek')).toBeNull();
     expect(spread().dataset['pageIndexes']).toBe('0');
+  });
+
+  it('aligns edge-page-peek top, height, and image scale with the current page at 1x and 2x zoom', async () => {
+    const origW = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const origH = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 390 });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 707 });
+    try {
+      const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+      setup(host);
+      await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+      const zp = screen.getByTestId('zoompan');
+      const pageCanvas = zp.querySelector<HTMLElement>('.k-page-canvas')!;
+      // 1200x1700 page fit to 390px width -> cw = 390, ch = 552.5, centered in sh = 707 -> top = 77.25 (77px), height = 553px.
+      expect(pageCanvas.style.width).toBe('390px');
+      expect(pageCanvas.style.height).toBe('552.5px');
+
+      // 1x pull rightward from left edge: dx = +100px -> dragX = +60px -> currentLeft = 60px -> peekWidth = 44px (16px gap).
+      fireEvent.touchStart(zp, { touches: [{ clientX: 20, clientY: 350 }] });
+      fireEvent.touchMove(zp, { touches: [{ clientX: 120, clientY: 352 }] });
+      const peek1x = screen.getByTestId('edge-page-peek');
+      const peekImg1x = peek1x.querySelector<HTMLElement>('.k-zoompan__peek-img')!;
+      const peekBadge1x = peek1x.querySelector<HTMLElement>('.k-zoompan__peek-badge')!;
+      expect(peek1x.dataset['scale']).toBe('1.00');
+      expect(peek1x.style.top).toBe('77px');
+      expect(peek1x.style.height).toBe('553px');
+      expect(peek1x.style.width).toBe('44px');
+      expect(peekImg1x.style.width).toBe('390px');
+      expect(peekImg1x.style.height).toBe('553px');
+      expect(peekImg1x.style.objectFit).toBe('fill');
+      expect(peekBadge1x.style.bottom).toBe('12px');
+
+      fireEvent.touchCancel(zp);
+      expect(screen.queryByTestId('edge-page-peek')).toBeNull();
+      expect(spread().dataset['pageIndexes']).toBe('1');
+
+      // Double-tap center (195, 353.5) to zoom to 2.00x (scaledW = 780, scaledH = 1105, maxX = 195, maxY = 199).
+      fireEvent.touchStart(zp, { touches: [{ clientX: 195, clientY: 353.5 }] });
+      fireEvent.touchEnd(zp, { touches: [] });
+      fireEvent.touchStart(zp, { touches: [{ clientX: 195, clientY: 353.5 }] });
+      fireEvent.touchEnd(zp, { touches: [] });
+      expect(zp.dataset['scale']).toBe('2.00');
+
+      // Pan to left boundary (+195) with vertical pan (+80) and pull overscroll +100px (dragX = +60px).
+      fireEvent.touchStart(zp, { touches: [{ clientX: 20, clientY: 270 }] });
+      fireEvent.touchMove(zp, { touches: [{ clientX: 30, clientY: 350 }] });
+      fireEvent.touchMove(zp, { touches: [{ clientX: 315, clientY: 350 }] });
+      const peek2x = screen.getByTestId('edge-page-peek');
+      const peekImg2x = peek2x.querySelector<HTMLElement>('.k-zoompan__peek-img')!;
+      const peekBadge2x = peek2x.querySelector<HTMLElement>('.k-zoompan__peek-badge')!;
+      // currentTop = 707/2 + 80 - 1105/2 = -119; currentLeft = 390/2 + 195 + 60 - 780/2 = 60 -> peekWidth = 44px.
+      expect(peek2x.dataset['scale']).toBe('2.00');
+      expect(peek2x.style.top).toBe('-119px');
+      expect(peek2x.style.height).toBe('1105px');
+      expect(peek2x.style.width).toBe('44px');
+      expect(peekImg2x.style.width).toBe('780px');
+      expect(peekImg2x.style.height).toBe('1105px');
+      expect(peekBadge2x.style.bottom).toBe('291px');
+
+      fireEvent.touchCancel(zp);
+    } finally {
+      if (origW) Object.defineProperty(HTMLElement.prototype, 'clientWidth', origW);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+      if (origH) Object.defineProperty(HTMLElement.prototype, 'clientHeight', origH);
+      else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    }
   });
 
   it('moves reader learning controls and scrubber into a single-instance bottom dock when MOBILE_PORTRAIT_QUERY matches', async () => {

@@ -561,13 +561,36 @@ export function ZoomPan({
   const edgeArmed = Math.abs(pullX) >= 42;
   const peekSide: 'left' | 'right' = pullX > 0 ? 'left' : 'right';
   const peekPage = Math.abs(pullX) >= 8 ? (peekSide === 'left' ? leftPeekPage : rightPeekPage) : undefined;
-  const peekWidth = Math.max(0, Math.round(Math.abs(dragX) - PEEK_GAP_PX));
-  const peekStageWidth =
+  const sw =
     stageSize && stageSize.width > 0
       ? stageSize.width
       : containerRef.current && containerRef.current.clientWidth > 0
         ? containerRef.current.clientWidth
         : 390;
+  const sh =
+    stageSize && stageSize.height > 0
+      ? stageSize.height
+      : containerRef.current && containerRef.current.clientHeight > 0
+        ? containerRef.current.clientHeight
+        : 707;
+  const cw = contentSize && contentSize.width > 0 ? contentSize.width : sw;
+  const ch = contentSize && contentSize.height > 0 ? contentSize.height : sh;
+  const scaledW = cw * view.scale;
+  const scaledH = ch * view.scale;
+  const currentTop = sh / 2 + view.y + avoidOffsetY - scaledH / 2;
+  const currentLeft = sw / 2 + view.x + dragX - scaledW / 2;
+  const currentRight = sw / 2 + view.x + dragX + scaledW / 2;
+  const peekBaseH = ch;
+  const peekBaseW =
+    peekPage && peekPage.width > 0 && peekPage.height > 0 ? ch * (peekPage.width / peekPage.height) : cw;
+  const peekImgWidth = Math.round(peekBaseW * view.scale);
+  const peekImgHeight = Math.round(peekBaseH * view.scale);
+  const peekTop = Math.round(currentTop);
+  const peekWidth =
+    peekSide === 'left'
+      ? Math.max(0, Math.round(currentLeft - PEEK_GAP_PX))
+      : Math.max(0, Math.round(sw - (currentRight + PEEK_GAP_PX)));
+  const badgeBottom = Math.max(12, Math.round(peekTop + peekImgHeight - sh + 12));
 
   return (
     <div
@@ -666,8 +689,14 @@ export function ZoomPan({
           data-page-index={peekPage.index}
           data-armed={edgeArmed ? 'true' : 'false'}
           data-gap={PEEK_GAP_PX}
+          data-scale={view.scale.toFixed(2)}
           aria-hidden="true"
-          style={{ width: `${peekWidth}px` }}
+          style={{
+            top: `${peekTop}px`,
+            width: `${peekWidth}px`,
+            height: `${peekImgHeight}px`,
+            ...(peekSide === 'left' ? { left: 0 } : { right: 0 }),
+          }}
         >
           <img
             className="k-zoompan__peek-img"
@@ -675,13 +704,14 @@ export function ZoomPan({
             alt=""
             draggable={false}
             style={{
-              width: `${peekStageWidth}px`,
-              height: '100%',
-              objectFit: 'contain',
-              objectPosition: peekSide === 'left' ? 'right center' : 'left center',
+              width: `${peekImgWidth}px`,
+              height: `${peekImgHeight}px`,
+              top: 0,
+              objectFit: 'fill',
+              ...(peekSide === 'left' ? { right: 0 } : { left: 0 }),
             }}
           />
-          <span className="k-zoompan__peek-badge">{`p.${peekPage.index + 1}`}</span>
+          <span className="k-zoompan__peek-badge" style={{ bottom: `${badgeBottom}px` }}>{`p.${peekPage.index + 1}`}</span>
         </div>
       )}
       {edgeTargetLabel !== undefined && (
