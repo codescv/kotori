@@ -367,8 +367,64 @@ describe('Reader — Android default width-fit & touch gestures', () => {
 
     expect(screen.queryByTestId('edge-turn-indicator')).toBeNull();
     expect(spread().dataset['pageIndexes']).toBe('2');
-    // Turning the page preserves zoom at 2.00x instead of resetting to 1.00x
+    // Turning the page preserves zoom at 2.00x AND starts at the RTL reading-start right edge (-maxX = -500) + top (+maxY).
     expect(zp.dataset['scale']).toBe('2.00');
+    const content = zp.querySelector<HTMLElement>('.k-zoompan__content')!;
+    const match = /^translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(2\)$/.exec(content.style.transform);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(-500);
+    expect(Number(match![2])).toBeCloseTo(1016.67, 1);
+  });
+
+  it('snaps zoomed page turns to the reading-direction start edge in RTL vs LTR (next and prev)', async () => {
+    const origW = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const origH = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 360 });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 500 });
+    try {
+      const host = createMockPlatformHost({ latencyMs: 0, platform: 'android' });
+      setup(host);
+      await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1'));
+      const zp = screen.getByTestId('zoompan');
+      const content = zp.querySelector<HTMLElement>('.k-zoompan__content')!;
+
+      // Double-tap to zoom to 2.00x. On a 360×500 portrait stage with 1200×1700 pages, fit="width" gives cw=360, ch=510 -> maxX=180, maxY=260.
+      fireEvent.touchStart(zp, { touches: [{ clientX: 180, clientY: 250 }] });
+      fireEvent.touchEnd(zp, { touches: [] });
+      fireEvent.touchStart(zp, { touches: [{ clientX: 182, clientY: 251 }] });
+      fireEvent.touchEnd(zp, { touches: [] });
+      expect(zp.dataset['scale']).toBe('2.00');
+
+      // RTL next page (ArrowLeft -> page 2): starts at right edge (x = -180) and top (y = +260).
+      key('ArrowLeft');
+      expect(spread().dataset['pageIndexes']).toBe('2');
+      expect(content.style.transform).toBe('translate(-180px, 260px) scale(2)');
+
+      // RTL previous page (ArrowRight -> page 1): starts at left edge (x = +180) and top (y = +260).
+      key('ArrowRight');
+      expect(spread().dataset['pageIndexes']).toBe('1');
+      expect(content.style.transform).toBe('translate(180px, 260px) scale(2)');
+
+      // Switch to single-ltr and verify LTR mirrors RTL.
+      fireEvent.click(screen.getByRole('button', { name: '阅读模式' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: /单页（左→右）/ }));
+      await waitFor(() => expect(screen.getByTestId('manga-reader').dataset['mode']).toBe('single-ltr'));
+
+      // LTR next page (ArrowRight -> page 2): starts at left edge (x = +180) and top (y = +260).
+      key('ArrowRight');
+      expect(spread().dataset['pageIndexes']).toBe('2');
+      expect(content.style.transform).toBe('translate(180px, 260px) scale(2)');
+
+      // LTR previous page (ArrowLeft -> page 1): starts at right edge (x = -180) and top (y = +260).
+      key('ArrowLeft');
+      expect(spread().dataset['pageIndexes']).toBe('1');
+      expect(content.style.transform).toBe('translate(-180px, 260px) scale(2)');
+    } finally {
+      if (origW) Object.defineProperty(HTMLElement.prototype, 'clientWidth', origW);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+      if (origH) Object.defineProperty(HTMLElement.prototype, 'clientHeight', origH);
+      else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    }
   });
 });
 

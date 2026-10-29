@@ -56,6 +56,8 @@ export interface ZoomPanProps {
   readonly className?: string | undefined;
   /** Changing this key resets zoom (e.g. on page turn). */
   readonly resetKey?: string | number;
+  /** Whether reading direction is right-to-left (default `true`). */
+  readonly rtl?: boolean | undefined;
   /** Rendered content box size at scale=1 (in CSS px). */
   readonly contentSize?: ElementSize | undefined;
   /** Stage viewport size (in CSS px). */
@@ -152,6 +154,7 @@ export function ZoomPan({
   disabled,
   className,
   resetKey,
+  rtl,
   contentSize,
   stageSize,
   onSwipeLeft,
@@ -163,6 +166,7 @@ export function ZoomPan({
   rightTurnLabel,
 }: ZoomPanProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const pendingEdgeSnapRef = useRef<'left' | 'right' | null>(null);
 
   const initialY = useCallback((): number => {
     const ch = contentSize?.height ?? 0;
@@ -180,13 +184,20 @@ export function ZoomPan({
 
   const [lastKey, setLastKey] = useState(resetKey);
   if (lastKey !== resetKey) {
+    const goingForward = typeof resetKey === 'number' && typeof lastKey === 'number' ? resetKey >= lastKey : true;
+    const snapSide: 'left' | 'right' = ((rtl ?? true) ? goingForward : !goingForward) ? 'right' : 'left';
     setLastKey(resetKey);
     const keptScale = viewRef.current.scale > 1.01 ? viewRef.current.scale : 1;
-    const nextY =
-      keptScale > 1.01
-        ? Math.max(0, ((contentSize?.height ?? 0) * keptScale - (stageSize?.height ?? 0)) / 2)
-        : initialY();
-    const nextView = { scale: keptScale, x: 0, y: nextY };
+    const sw = (stageSize && stageSize.width > 0 ? stageSize.width : containerRef.current?.clientWidth) || 1000;
+    const sh = (stageSize && stageSize.height > 0 ? stageSize.height : containerRef.current?.clientHeight) || 800;
+    const cw = contentSize && contentSize.width > 0 ? contentSize.width : sw;
+    const ch = contentSize && contentSize.height > 0 ? contentSize.height : sh;
+    const maxX = Math.max(0, (cw * keptScale - sw) / 2);
+    const maxY = Math.max(0, (ch * keptScale - sh) / 2);
+    const nextX = keptScale > 1.01 ? (snapSide === 'right' ? -maxX : maxX) : 0;
+    const nextY = keptScale > 1.01 ? maxY : initialY();
+    pendingEdgeSnapRef.current = keptScale > 1.01 ? snapSide : null;
+    const nextView = { scale: keptScale, x: nextX, y: nextY };
     setView(nextView);
     viewRef.current = nextView;
     if (dragX !== 0) setDragX(0);
@@ -235,6 +246,24 @@ export function ZoomPan({
     [contentSize, stageSize],
   );
 
+  // Re-snap zoomed edge+top when contentSize / stageSize updates asynchronously after a page turn.
+  useEffect(() => {
+    const side = pendingEdgeSnapRef.current;
+    if (side !== null && viewRef.current.scale > 1.01) {
+      const scale = viewRef.current.scale;
+      const sw = (stageSize && stageSize.width > 0 ? stageSize.width : containerRef.current?.clientWidth) || 1000;
+      const sh = (stageSize && stageSize.height > 0 ? stageSize.height : containerRef.current?.clientHeight) || 800;
+      const cw = contentSize && contentSize.width > 0 ? contentSize.width : sw;
+      const ch = contentSize && contentSize.height > 0 ? contentSize.height : sh;
+      const maxX = Math.max(0, (cw * scale - sw) / 2);
+      const maxY = Math.max(0, (ch * scale - sh) / 2);
+      const targetX = side === 'right' ? -maxX : maxX;
+      if (viewRef.current.x !== targetX || viewRef.current.y !== maxY) {
+        updateView({ scale, x: targetX, y: maxY });
+      }
+    }
+  }, [contentSize?.width, contentSize?.height, stageSize?.width, stageSize?.height, updateView]);
+
   // Re-clamp vertical alignment if contentSize / stageSize updates at 1× scale.
   useEffect(() => {
     if (viewRef.current.scale <= 1.01) {
@@ -246,6 +275,7 @@ export function ZoomPan({
 
   const zoomAt = useCallback(
     (factor: number, cx: number, cy: number, rect: BoxRect) => {
+      pendingEdgeSnapRef.current = null;
       updateView((v) => {
         const scale = clampScale(v.scale * factor);
         if (scale <= 1.01) return { scale: 1, x: 0, y: initialY() };
@@ -302,6 +332,7 @@ export function ZoomPan({
     suppressClick.current = false;
     if (pts.length >= 2) {
       cancelPendingBlockTapPick();
+      pendingEdgeSnapRef.current = null;
       const a = pts[0]!;
       const b = pts[1]!;
       pinchRef.current = {
@@ -329,6 +360,7 @@ export function ZoomPan({
   const syncPointsMove = (pts: readonly Point[], rect: BoxRect) => {
     if (pts.length >= 2) {
       cancelPendingBlockTapPick();
+      pendingEdgeSnapRef.current = null;
       const a = pts[0]!;
       const b = pts[1]!;
       if (!pinchRef.current) {
@@ -378,6 +410,7 @@ export function ZoomPan({
 
       if (!movedRef.current && Math.hypot(dx, dy) > 8) {
         cancelPendingBlockTapPick();
+        pendingEdgeSnapRef.current = null;
         movedRef.current = true;
         setGesturing(true);
       }
@@ -470,8 +503,10 @@ export function ZoomPan({
         if (!prevTap.onBlock) {
           onBlankTap?.();
         }
-        if (viewRef.current.scale > 1.01) updateView({ scale: 1, x: 0, y: initialY() });
-        else zoomAt(2, tapX, tapY, rect);
+        if (viewRef.current.scale > 1.01) {
+          pendingEdgeSnapRef.current = null;
+          updateView({ scale: 1, x: 0, y: initialY() });
+        } else zoomAt(2, tapX, tapY, rect);
         return;
       }
 
@@ -533,8 +568,10 @@ export function ZoomPan({
         const rect = resolveRect(e.currentTarget);
         const relX = (e.clientX - rect.left) / Math.max(1, rect.width);
         if (!isBlockElement(e.target) && viewRef.current.scale <= 1.01 && (relX <= 0.28 || relX >= 0.72)) return;
-        if (viewRef.current.scale > 1.01) updateView({ scale: 1, x: 0, y: initialY() });
-        else zoomAt(2, e.clientX, e.clientY, rect);
+        if (viewRef.current.scale > 1.01) {
+          pendingEdgeSnapRef.current = null;
+          updateView({ scale: 1, x: 0, y: initialY() });
+        } else zoomAt(2, e.clientX, e.clientY, rect);
       }}
       onTouchStart={(e) => {
         if (disabled) return;

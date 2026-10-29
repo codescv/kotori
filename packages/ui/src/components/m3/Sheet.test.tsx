@@ -45,7 +45,7 @@ describe('BottomSheet snap points', () => {
     expect(sheet).toHaveClass('is-peek');
   });
 
-  it('drag up expands, drag down from expanded returns to peek, and a long drag down from peek closes', () => {
+  it('drag up expands, and dragging down on the handle dismisses directly even from expanded', () => {
     const onClose = vi.fn();
     render(
       <BottomSheet open onClose={onClose} title="AI 解析">
@@ -62,13 +62,8 @@ describe('BottomSheet snap points', () => {
 
     fireEvent.pointerDown(handle, { clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientY: 180, pointerId: 1 });
+    expect(sheet.style.transform).toBe('translateY(80px)');
     fireEvent.pointerUp(handle, { clientY: 180, pointerId: 1 });
-    expect(sheet).toHaveClass('is-peek');
-    expect(onClose).not.toHaveBeenCalled();
-
-    fireEvent.pointerDown(handle, { clientY: 100, pointerId: 1 });
-    fireEvent.pointerMove(handle, { clientY: 700, pointerId: 1 });
-    fireEvent.pointerUp(handle, { clientY: 700, pointerId: 1 });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -79,5 +74,96 @@ describe('BottomSheet snap points', () => {
       </BottomSheet>,
     );
     expect(screen.getByRole('dialog')).toHaveClass('is-expanded');
+  });
+
+  it('pulls down to dismiss from .k-sheet__body when at scrollTop === 0 and suppresses accidental child click', () => {
+    const onClose = vi.fn();
+    const onChildClick = vi.fn();
+    render(
+      <BottomSheet open onClose={onClose} title="AI 解析">
+        <button type="button" onClick={onChildClick}>
+          词汇按钮
+        </button>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    const btn = screen.getByRole('button', { name: '词汇按钮' });
+    body.scrollTop = 0;
+
+    fireEvent.touchStart(body, { touches: [{ clientX: 200, clientY: 300 }] });
+    fireEvent.touchMove(body, { touches: [{ clientX: 202, clientY: 390 }] });
+    expect(sheet.style.transform).toBe('translateY(90px)');
+    fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 202, clientY: 390 }] });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(btn);
+    expect(onChildClick).not.toHaveBeenCalled();
+  });
+
+  it('scrolls up from scrollTop > 0 to 0 and seamlessly transitions into pull-to-dismiss in the same gesture, without dismissing while scrollTop > 0', () => {
+    const onClose = vi.fn();
+    render(
+      <BottomSheet open onClose={onClose} title="AI 解析">
+        <div style={{ height: 1200 }}>long breakdown</div>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+
+    // 1. Scrolling while scrollTop stays > 0 never translates or dismisses the sheet.
+    body.scrollTop = 160;
+    fireEvent.touchStart(body, { touches: [{ clientX: 180, clientY: 260 }] });
+    body.scrollTop = 60;
+    fireEvent.touchMove(body, { touches: [{ clientX: 180, clientY: 360 }] });
+    expect(sheet.style.transform).toBe('');
+    fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 180, clientY: 360 }] });
+    expect(onClose).not.toHaveBeenCalled();
+
+    // 2. Scrolling content downward (upward finger motion) when scrollTop > 0 or === 0 never dismisses.
+    body.scrollTop = 40;
+    fireEvent.touchStart(body, { touches: [{ clientX: 180, clientY: 400 }] });
+    body.scrollTop = 140;
+    fireEvent.touchMove(body, { touches: [{ clientX: 180, clientY: 300 }] });
+    fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 180, clientY: 300 }] });
+    expect(onClose).not.toHaveBeenCalled();
+
+    // 3. Starting at scrollTop = 120, scrolling up to scrollTop = 0, then pulling down 90px more dismisses!
+    body.scrollTop = 120;
+    fireEvent.touchStart(body, { touches: [{ clientX: 180, clientY: 240 }] });
+    body.scrollTop = 40;
+    fireEvent.touchMove(body, { touches: [{ clientX: 180, clientY: 320 }] });
+    expect(sheet.style.transform).toBe('');
+
+    // Hit scrollTop = 0 at clientY = 360 -> anchors here!
+    body.scrollTop = 0;
+    fireEvent.touchMove(body, { touches: [{ clientX: 180, clientY: 360 }] });
+    expect(sheet.style.transform).toBe('');
+
+    // Continue pulling down to clientY = 450 (pullDy = 90px >= 56px) -> translates & dismisses on release!
+    fireEvent.touchMove(body, { touches: [{ clientX: 182, clientY: 450 }] });
+    expect(sheet.style.transform).toBe('translateY(90px)');
+    fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 182, clientY: 450 }] });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('supports pull-down-to-dismiss on .k-sheet__header without interfering with the close button', () => {
+    const onClose = vi.fn();
+    render(
+      <BottomSheet open onClose={onClose} title="AI 解析" closeLabel="关闭">
+        <p>body</p>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const header = sheet.querySelector<HTMLElement>('.k-sheet__header')!;
+
+    fireEvent.pointerDown(header, { clientX: 160, clientY: 200, pointerId: 2 });
+    fireEvent.pointerMove(header, { clientX: 162, clientY: 280, pointerId: 2 });
+    expect(sheet.style.transform).toBe('translateY(80px)');
+    fireEvent.pointerUp(header, { clientX: 162, clientY: 280, pointerId: 2 });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

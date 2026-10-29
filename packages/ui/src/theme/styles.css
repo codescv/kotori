@@ -470,13 +470,15 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 /* Peek snap: the bubble / video frame above stays visible on first open. */
 .k-bottom-sheet.is-peek { max-height: 52vh; }
 .k-bottom-sheet.is-expanded { max-height: 88vh; }
+.k-bottom-sheet.is-dragging { transition: none; animation: none; will-change: transform; }
 .k-bottom-sheet__handle-area { display: grid; place-items: center; height: 28px; touch-action: none; cursor: grab; flex: none; outline: none; }
 .k-bottom-sheet__handle-area:focus-visible .k-bottom-sheet__handle { opacity: 1; background: var(--md-sys-color-primary); }
 .k-bottom-sheet__handle { width: 32px; height: 4px; border-radius: 2px; background: var(--md-sys-color-on-surface-variant); opacity: 0.4; transition: width var(--md-sys-motion-duration-short4); }
 .k-bottom-sheet.is-peek .k-bottom-sheet__handle { width: 40px; }
-.k-bottom-sheet .k-sheet__header { min-height: 40px; padding: 0 12px 4px 16px; }
+.k-bottom-sheet .k-sheet__header { min-height: 40px; padding: 0 12px 4px 16px; touch-action: none; user-select: none; }
+.k-bottom-sheet .k-sheet__header-actions { touch-action: manipulation; }
 .k-bottom-sheet .k-sheet__title { font: var(--md-sys-typescale-title-medium); }
-.k-bottom-sheet .k-sheet__body { padding: 0 16px 16px; }
+.k-bottom-sheet .k-sheet__body { padding: 0 16px 16px; overscroll-behavior-y: contain; }
 /* Tab counters inside sheets are informational, not errors (tonal, not red). */
 .k-sheet__body .k-tabs .k-badge,
 .k-side-sheet .k-tabs .k-badge,

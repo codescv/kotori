@@ -489,6 +489,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                 <ZoomPan
                   disabled={selectTool}
                   resetKey={spreadIdx}
+                  rtl={rtl}
                   stageSize={stage}
                   contentSize={spreadBox ? { width: spreadBox.width, height: spreadBox.height } : undefined}
                   onSwipeLeft={(rtl ? spreadIdx > 0 : spreadIdx < spreads.length - 1) ? (rtl ? goPrev : goNext) : undefined}
