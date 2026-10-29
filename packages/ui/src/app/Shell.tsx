@@ -11,7 +11,7 @@ import { cx } from '../components/m3/cx';
 import { Icon, type IconName } from '../components/m3/Icon';
 import { useHost } from '../host/HostContext';
 import { useHostEvents } from '../host/useHostEvents';
-import { useIsExpanded } from '../hooks/useMediaQuery';
+import { useIsExpanded, useIsMobileLandscape } from '../hooks/useMediaQuery';
 import { useT, type MessageKey } from '../i18n';
 import { AnimePage } from '../features/anime/AnimePage';
 import { DownloadsPage } from '../features/downloads/DownloadsPage';
@@ -65,10 +65,11 @@ export function Shell() {
   const personaOpen = useRouteStore((s) => s.personaOpen);
   const setPersonaOpen = useRouteStore((s) => s.setPersonaOpen);
   const expanded = useIsExpanded();
+  const mobileLandscape = useIsMobileLandscape();
   const activeDownloads = useActiveDownloads();
   const inReader = tab === 'manga' && mangaView.kind === 'reader';
   const inPlayer = tab === 'anime' && animeView.kind === 'player';
-  const hideCompactChrome = !expanded && inReader && readerImmersive;
+  const hideCompactChrome = !expanded && ((inReader && readerImmersive) || (inPlayer && mobileLandscape));
   // Immersive player / reader on phones: the bottom NavBar would eat ~17% of the
   // viewport height, and both views have their own back button.
   const hideCompactNav = !expanded && (inReader || inPlayer);

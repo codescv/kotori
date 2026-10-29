@@ -1,6 +1,7 @@
 /** M3 basic dialog: scrim, Esc / scrim click to dismiss, initial focus, headline + actions. */
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { registerBackInterceptor } from '../../app/routes';
 import { cx } from './cx';
 import { Icon, type IconName } from './Icon';
 
@@ -19,6 +20,13 @@ export interface DialogProps {
 
 export function Dialog({ open, onClose, title, icon, children, actions, className, wide, 'data-testid': testId }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    return registerBackInterceptor(() => {
+      onClose();
+      return true;
+    });
+  }, [open, onClose]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -50,5 +58,6 @@ export function Dialog({ open, onClose, title, icon, children, actions, classNam
       </div>
     </div>
   );
-  return typeof document === 'undefined' ? node : createPortal(node, document.body);
+  const portalTarget = (typeof document !== 'undefined' && (document.fullscreenElement as HTMLElement | null)) || (typeof document !== 'undefined' ? document.body : null);
+  return !portalTarget ? node : createPortal(node, portalTarget);
 }

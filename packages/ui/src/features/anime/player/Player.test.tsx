@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../../app/default-settings';
+import { dispatchBackNavigation, useRouteStore } from '../../../app/routes';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { useSnackbarStore } from '../../../stores/snackbar';
@@ -360,8 +361,392 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       expect(screen.getByTestId('repeat-count')).toBeInTheDocument();
       expect(container.querySelector('.k-player__buttons .k-repeat')).not.toBeNull();
       expect(screen.getByTestId('speed-button')).toBeInTheDocument();
+      expect(screen.getByTestId('fullscreen-toggle')).toBeInTheDocument();
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  describe('immersive landscape & fullscreen UX', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it('enters .k-player--immersive automatically in mobile landscape (915×412 and 800×360) with drawer closed by default', async () => {
+      // Ensure HUD center buttons beat `.k-icon-btn` specificity when `styles.css` loads after `player.css`,
+      // and `.k-side-sheet .k-sheet__body` avoids 0px-width scrollIntoView overshoot during open transition.
+      expect(playerCss).toMatch(/\.k-hud\s+\.k-hud__center-btn\s*\{[^}]*width:\s*48px;[^}]*height:\s*48px;/s);
+      expect(playerCss).toMatch(/\.k-hud\s+\.k-hud__center-btn:not\(\.k-icon-btn--filled\)\s*\{[^}]*background:\s*rgb\(0 0 0 \/ 0\.48\);[^}]*color:\s*#fff;/s);
+      expect(playerCss).toMatch(/\.k-hud\s+\.k-hud__play-btn\s*\{[^}]*width:\s*64px;[^}]*height:\s*64px;/s);
+      expect(playerCss).toMatch(/\.k-player--immersive\s+\.k-side-sheet\s+\.k-sheet__body\s*\{[^}]*min-width:\s*298px;/s);
+      expect(playerCss).toMatch(/\.k-player--immersive\s+\.k-side-sheet\s+\.k-breakdown\s*>\s*\.k-breakdown__sentence\s*\{[^}]*position:\s*static;/s);
+
+      for (const [vw, vh] of [
+        [915, 412],
+        [800, 360],
+      ] as const) {
+        setViewport(vw, vh);
+        const { container, unmount } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        await screen.findByTestId('overlay-cue');
+
+        const player = screen.getByTestId('player');
+        expect(player).toHaveClass('k-player--immersive');
+        expect(player).not.toHaveClass('k-player--compact', 'k-player--expanded', 'is-drawer-open');
+        expect(container.querySelector('.k-player__header')).toBeNull();
+        expect(container.querySelector('.k-player__controls')).toBeNull();
+        expect(container.querySelector('.k-player__compact-transcript')).toBeNull();
+        expect(container.querySelector('.k-player__notice')).toBeNull();
+
+        const drawer = container.querySelector('aside.k-side-sheet');
+        expect(drawer).not.toBeNull();
+        expect(drawer).not.toHaveClass('is-open');
+        expect(drawer).toHaveAttribute('aria-hidden', 'true');
+
+        const hud = screen.getByTestId('player-hud');
+        expect(hud).toHaveAttribute('data-visible', 'true');
+        expect(hud).toHaveAttribute('aria-hidden', 'false');
+        expect(within(hud).getByTestId('immersive-drawer-toggle')).toHaveAttribute('aria-pressed', 'false');
+        expect(within(hud).getByTestId('fullscreen-toggle')).toBeInTheDocument();
+
+        // HUD precedes SubtitleOverlay inside .k-player__stage so `.k-hud[data-visible="true"] ~ .k-sub-overlay` lifts subtitles.
+        const stage = container.querySelector('.k-player__stage');
+        const overlay = container.querySelector('.k-sub-overlay');
+        expect(stage?.contains(hud)).toBe(true);
+        expect(stage?.contains(overlay)).toBe(true);
+        expect(Boolean(hud.compareDocumentPosition(overlay!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+
+        unmount();
+      }
+    });
+
+    it('single-tap on video toggles HUD after 240 ms, auto-hides after 3500 ms when playing, stays pinned when paused, and ignores touch pointermove', async () => {
+      setViewport(915, 412);
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
+        this.dispatchEvent(new Event('play'));
+        return Promise.resolve();
+      });
+      try {
+        const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        await screen.findByTestId('overlay-cue');
+
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const hud = screen.getByTestId('player-hud');
+        const video = container.querySelector('video')!;
+        const stage = container.querySelector<HTMLElement>('.k-player__stage')!;
+
+        // Paused with drawer closed: HUD stays pinned past 3500 ms.
+        act(() => {
+          vi.advanceTimersByTime(5000);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+
+        // Explicit single-tap hides HUD after 240 ms without toggling playback.
+        play.mockClear();
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(150);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+        act(() => {
+          vi.advanceTimersByTime(100);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'false');
+        expect(play).not.toHaveBeenCalled();
+
+        // Touch pointermove must NEVER wake the HUD; mouse pointermove (>= 2px) wakes it.
+        const makePointerMove = (pointerType: string, movementX: number, movementY: number): Event => {
+          const ev = new MouseEvent('pointermove', { bubbles: true });
+          Object.defineProperties(ev, {
+            pointerType: { value: pointerType },
+            movementX: { value: movementX },
+            movementY: { value: movementY },
+          });
+          return ev;
+        };
+        fireEvent(stage, makePointerMove('touch', 12, 8));
+        expect(hud).toHaveAttribute('data-visible', 'false');
+        fireEvent(stage, makePointerMove('mouse', 6, 0));
+        expect(hud).toHaveAttribute('data-visible', 'true');
+
+        // Clicking <video> right after mouse wake (< 350 ms) keeps HUD visible instead of re-hiding it,
+        // while a subsequent click when HUD is already visible hides it cleanly.
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'false');
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+
+        // Start playing -> HUD auto-hides after 3500 ms (unless a menu is open).
+        fireEvent.click(within(hud).getByRole('button', { name: '播放' }));
+        expect(within(hud).getByRole('button', { name: '暂停' })).toBeInTheDocument();
+        act(() => {
+          vi.advanceTimersByTime(3400);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+        act(() => {
+          vi.advanceTimersByTime(200);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'false');
+
+        // Wake HUD via single-tap, open speed menu -> auto-hide pauses while menu is open.
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+        fireEvent.click(within(hud).getByTestId('speed-button'));
+        expect(within(hud).getByRole('menu')).toBeInTheDocument();
+        act(() => {
+          vi.advanceTimersByTime(4500);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+      } finally {
+        play.mockRestore();
+      }
+    });
+
+    it('centre double-tap in immersive toggles play/pause without exiting fullscreen or flashing HUD', async () => {
+      setViewport(360, 800);
+      const setImmersive = vi.fn().mockResolvedValue(undefined);
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
+        this.dispatchEvent(new Event('play'));
+        return Promise.resolve();
+      });
+      const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (this: HTMLMediaElement) {
+        this.dispatchEvent(new Event('pause'));
+      });
+      try {
+        const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />, {
+          screen: { setImmersive },
+        });
+        await screen.findByTestId('overlay-cue');
+
+        fireEvent.click(screen.getByTestId('fullscreen-toggle'));
+        expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const video = container.querySelector('video')!;
+        const stage = container.querySelector<HTMLElement>('.k-player__stage')!;
+        const hud = screen.getByTestId('player-hud');
+
+        // Hide HUD via single tap first so we can verify double-tap does not flash it.
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'false');
+
+        play.mockClear();
+        pause.mockClear();
+        vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          width: 800,
+          height: 360,
+          right: 800,
+          bottom: 360,
+          toJSON: () => ({}),
+        });
+
+        // Double-tap centre (x = 400 -> relX = 0.5): cancels single-tap HUD toggle, toggles play!
+        fireEvent.click(video, { detail: 1, clientX: 400, clientY: 180 });
+        fireEvent.click(video, { detail: 2, clientX: 400, clientY: 180 });
+        fireEvent.doubleClick(stage, { detail: 2, clientX: 400, clientY: 180 });
+        act(() => {
+          vi.advanceTimersByTime(350);
+        });
+
+        expect(play).toHaveBeenCalledTimes(1);
+        expect(pause).not.toHaveBeenCalled();
+        expect(screen.getByTestId('gesture-cue-toast')).toHaveTextContent('▶');
+        expect(within(hud).getByRole('button', { name: '暂停', hidden: true })).toBeInTheDocument();
+        expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+        expect(hud).toHaveAttribute('data-visible', 'false');
+        expect(setImmersive).toHaveBeenCalledTimes(1);
+
+        // Second centre double-tap pauses playback without flashing HUD.
+        fireEvent.doubleClick(stage, { detail: 2, clientX: 400, clientY: 180 });
+        expect(pause).toHaveBeenCalledTimes(1);
+        expect(within(hud).getByRole('button', { name: '播放', hidden: true })).toBeInTheDocument();
+        expect(screen.getByTestId('gesture-cue-toast')).toHaveTextContent('⏸');
+        expect(hud).toHaveAttribute('data-visible', 'false');
+      } finally {
+        play.mockRestore();
+        pause.mockRestore();
+      }
+    });
+
+    it('tapping a subtitle glyph in immersive pauses playback, immediately hides HUD, and opens SideSheet on AI 解析 tab', async () => {
+      setViewport(915, 412);
+      const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause');
+      try {
+        const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        const cue = await screen.findByTestId('overlay-cue');
+        const hud = screen.getByTestId('player-hud');
+
+        fireEvent.click(within(hud).getByRole('button', { name: '播放' }));
+        pause.mockClear();
+        expect(hud).toHaveAttribute('data-visible', 'true');
+
+        fireEvent.click(glyphAt(cue, 2));
+
+        expect(pause).toHaveBeenCalled();
+        expect(hud).toHaveAttribute('data-visible', 'false');
+        expect(screen.getByTestId('player')).toHaveClass('k-player--immersive', 'is-drawer-open');
+        expect(container.querySelector('.k-bottom-sheet')).toBeNull();
+
+        const drawer = container.querySelector('aside.k-side-sheet');
+        expect(drawer).toHaveClass('is-open');
+        expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true');
+        await waitFor(() => expect(useBreakdownStore.getState().status).toBe('ready'));
+        expect(within(drawer as HTMLElement).getByTestId('ai-breakdown-panel')).toBeInTheDocument();
+
+        // Toggling the HUD drawer button wakes/keeps HUD and closes the drawer + clears breakdown.
+        fireEvent.click(within(hud).getByTestId('immersive-drawer-toggle'));
+        expect(hud).toHaveAttribute('data-visible', 'true');
+        expect(drawer).not.toHaveClass('is-open');
+        expect(useBreakdownStore.getState().isOpen).toBe(false);
+      } finally {
+        pause.mockRestore();
+      }
+    });
+
+    it('portrait fullscreen-toggle uses host.screen.setImmersive when present and falls back to requestFullscreen when absent', async () => {
+      setViewport(360, 800);
+      const setImmersive = vi.fn().mockResolvedValue(undefined);
+
+      // 1. Native Android bridge (`host.screen` present)
+      const first = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />, {
+        screen: { setImmersive },
+      });
+      await screen.findByTestId('overlay-cue');
+      expect(screen.getByTestId('player')).toHaveClass('k-player--compact');
+      expect(setImmersive).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('fullscreen-toggle'));
+      expect(setImmersive).toHaveBeenCalledTimes(1);
+      expect(setImmersive).toHaveBeenCalledWith({ immersive: true, orientation: 'landscape' });
+      expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+      expect(within(screen.getByTestId('player-hud')).getByTestId('fullscreen-toggle')).toHaveAttribute('aria-label', '退出全屏');
+
+      fireEvent.click(within(screen.getByTestId('player-hud')).getByTestId('fullscreen-toggle'));
+      expect(setImmersive).toHaveBeenCalledTimes(2);
+      expect(setImmersive).toHaveBeenLastCalledWith({ immersive: false, orientation: 'portrait-then-unlock' });
+      expect(screen.getByTestId('player')).toHaveClass('k-player--compact');
+      first.unmount();
+
+      // 2. Web Fullscreen fallback (`host.screen` absent)
+      const requested: Element[] = [];
+      const originalRequest = HTMLElement.prototype.requestFullscreen;
+      HTMLElement.prototype.requestFullscreen = function (this: HTMLElement) {
+        requested.push(this);
+        return Promise.resolve();
+      };
+      try {
+        renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        await screen.findByTestId('overlay-cue');
+        fireEvent.click(screen.getByTestId('fullscreen-toggle'));
+        expect(requested).toHaveLength(1);
+        expect(requested[0]).toBe(screen.getByTestId('player'));
+        expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+      } finally {
+        HTMLElement.prototype.requestFullscreen = originalRequest;
+      }
+    });
+
+    it('unwinds Menu -> drawer -> fullscreen -> route goBack on Back / Escape, and cleans up setImmersive on unmount', async () => {
+      setViewport(360, 800);
+      useRouteStore.getState().openAnime({ kind: 'series', seriesId: 'series-kotori' });
+      useRouteStore.getState().openAnime({ kind: 'player', seriesId: 'series-kotori', episodeId: 'series-kotori-ep1' });
+
+      const setImmersive = vi.fn().mockResolvedValue(undefined);
+      const { container, unmount } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />, {
+        screen: { setImmersive },
+      });
+      const cue = await screen.findByTestId('overlay-cue');
+
+      // Enter native fullscreen, open AI drawer via subtitle glyph, and open speed menu.
+      fireEvent.click(screen.getByTestId('fullscreen-toggle'));
+      expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+      fireEvent.click(glyphAt(cue, 0));
+      await waitFor(() => expect(useBreakdownStore.getState().isOpen).toBe(true));
+      expect(container.querySelector('aside.k-side-sheet')).toHaveClass('is-open');
+
+      fireEvent.click(within(screen.getByTestId('player-hud')).getByTestId('speed-button'));
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+
+      // 1st Back: closes open Menu only.
+      act(() => {
+        expect(dispatchBackNavigation()).toBe(true);
+      });
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(container.querySelector('aside.k-side-sheet')).toHaveClass('is-open');
+      expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+
+      // 2nd Back: closes immersive drawer; stays in fullscreen.
+      act(() => {
+        expect(dispatchBackNavigation()).toBe(true);
+      });
+      expect(container.querySelector('aside.k-side-sheet')).not.toHaveClass('is-open');
+      expect(useBreakdownStore.getState().isOpen).toBe(false);
+      expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+
+      // Escape follows the same drawer -> fullscreen unwind order.
+      fireEvent.click(within(screen.getByTestId('player-hud')).getByTestId('immersive-drawer-toggle'));
+      expect(container.querySelector('aside.k-side-sheet')).toHaveClass('is-open');
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(container.querySelector('aside.k-side-sheet')).not.toHaveClass('is-open');
+      expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.getByTestId('player')).toHaveClass('k-player--compact');
+      expect(setImmersive).toHaveBeenLastCalledWith({ immersive: false, orientation: 'portrait-then-unlock' });
+
+      // Re-enter fullscreen -> Back exits fullscreen -> next Back navigates player -> series.
+      fireEvent.click(screen.getByTestId('fullscreen-toggle'));
+      expect(screen.getByTestId('player')).toHaveClass('k-player--immersive');
+      act(() => {
+        expect(dispatchBackNavigation()).toBe(true);
+      });
+      expect(screen.getByTestId('player')).toHaveClass('k-player--compact');
+      expect(useRouteStore.getState().anime.kind).toBe('player');
+      act(() => {
+        expect(dispatchBackNavigation()).toBe(true);
+      });
+      expect(useRouteStore.getState().anime).toEqual({ kind: 'series', seriesId: 'series-kotori' });
+
+      // Lock fullscreen again and unmount -> restores portrait-then-unlock.
+      fireEvent.click(screen.getByTestId('fullscreen-toggle'));
+      setImmersive.mockClear();
+      unmount();
+      expect(setImmersive).toHaveBeenCalledTimes(1);
+      expect(setImmersive).toHaveBeenCalledWith({ immersive: false, orientation: 'portrait-then-unlock' });
+
+      // Physical mobileLandscape rotation with host.screen -> hides bars with 'keep' and restores 'keep' on unmount.
+      setImmersive.mockClear();
+      setViewport(915, 412);
+      const rotated = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />, {
+        screen: { setImmersive },
+      });
+      await screen.findByTestId('overlay-cue');
+      expect(setImmersive).toHaveBeenCalledTimes(1);
+      expect(setImmersive).toHaveBeenCalledWith({ immersive: true, orientation: 'keep' });
+      setImmersive.mockClear();
+      rotated.unmount();
+      expect(setImmersive).toHaveBeenCalledTimes(1);
+      expect(setImmersive).toHaveBeenCalledWith({ immersive: false, orientation: 'keep' });
+    });
   });
 });

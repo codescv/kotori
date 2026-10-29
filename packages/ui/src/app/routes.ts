@@ -121,11 +121,6 @@ export function useBackInterceptor(fn: BackInterceptor, enabled = true): void {
  * Returns `true` if a layer consumed the back action, or `false` if already at root.
  */
 export function dispatchBackNavigation(): boolean {
-  if (typeof document !== 'undefined' && document.fullscreenElement) {
-    void document.exitFullscreen?.().catch(() => {});
-    return true;
-  }
-
   if (useRouteStore.getState().personaOpen) {
     useRouteStore.getState().setPersonaOpen(false);
     return true;
@@ -136,6 +131,11 @@ export function dispatchBackNavigation(): boolean {
     if (interceptor && interceptor()) {
       return true;
     }
+  }
+
+  if (typeof document !== 'undefined' && document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+    void document.exitFullscreen().catch(() => {});
+    return true;
   }
 
   return useRouteStore.getState().goBack();

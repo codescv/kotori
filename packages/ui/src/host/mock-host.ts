@@ -35,6 +35,7 @@ import {
   type MangaVolume,
   type ParsedSubtitleTrack,
   type PlatformHost,
+  type ScreenApi,
   type SentenceExplanation,
   type SubtitleCue,
   type SubtitleTrack,
@@ -66,6 +67,8 @@ export interface MockHostOptions {
    * `'absent'` = no `host.dict` at all (legacy hosts).
    */
   readonly dictionaries?: 'seeded' | 'empty' | 'absent';
+  /** Optional native screen/orientation controller (Android bridge mock). */
+  readonly screen?: ScreenApi | undefined;
 }
 
 /** Mock host with test hooks. */
@@ -804,6 +807,7 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
     },
 
     ...(dictMode !== 'absent' ? { dict: createMockDictHost({ seeded: dictMode === 'seeded', delay: () => delay(), emit, track, newId }) } : {}),
+    ...(options.screen ? { screen: options.screen } : {}),
 
     subscribe(listener) {
       listeners.add(listener);

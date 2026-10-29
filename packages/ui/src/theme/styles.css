@@ -266,7 +266,7 @@ button:disabled { cursor: default; }
 
 .k-icon-btn {
   position: relative; display: inline-grid; place-items: center; flex: none;
-  width: 40px; height: 40px; border-radius: var(--md-sys-shape-corner-full); border: 0;
+  width: 40px; height: 40px; padding: 0; border-radius: var(--md-sys-shape-corner-full); border: 0;
   background: transparent; color: var(--md-sys-color-on-surface-variant); overflow: hidden;
 }
 .k-icon-btn--small { width: 32px; height: 32px; }
@@ -446,11 +446,11 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-side-sheet {
   flex: none; width: 0; height: 100%; overflow: hidden;
   background: var(--md-sys-color-surface-container-low);
-  border-left: 1px solid var(--md-sys-color-outline-variant);
+  border-left: 0 solid var(--md-sys-color-outline-variant);
   display: flex; flex-direction: column;
   transition: width var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized);
 }
-.k-side-sheet.is-open { width: var(--k-side-sheet-width, 420px); }
+.k-side-sheet.is-open { width: var(--k-side-sheet-width, 420px); border-left-width: 1px; }
 .k-sheet__header { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px 24px; min-height: 64px; }
 .k-sheet__title { flex: 1; margin: 0; font: var(--md-sys-typescale-title-large); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .k-sheet__header-actions { display: flex; align-items: center; gap: 4px; }
