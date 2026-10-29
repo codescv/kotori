@@ -374,6 +374,14 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
     });
 
     it('enters .k-player--immersive automatically in mobile landscape (915×412 and 800×360) with drawer closed by default', async () => {
+      // Ensure HUD center buttons beat `.k-icon-btn` specificity when `styles.css` loads after `player.css`,
+      // and `.k-side-sheet .k-sheet__body` avoids 0px-width scrollIntoView overshoot during open transition.
+      expect(playerCss).toMatch(/\.k-hud\s+\.k-hud__center-btn\s*\{[^}]*width:\s*48px;[^}]*height:\s*48px;/s);
+      expect(playerCss).toMatch(/\.k-hud\s+\.k-hud__center-btn:not\(\.k-icon-btn--filled\)\s*\{[^}]*background:\s*rgb\(0 0 0 \/ 0\.48\);[^}]*color:\s*#fff;/s);
+      expect(playerCss).toMatch(/\.k-hud\s+\.k-hud__play-btn\s*\{[^}]*width:\s*64px;[^}]*height:\s*64px;/s);
+      expect(playerCss).toMatch(/\.k-player--immersive\s+\.k-side-sheet\s+\.k-sheet__body\s*\{[^}]*min-width:\s*298px;/s);
+      expect(playerCss).toMatch(/\.k-player--immersive\s+\.k-side-sheet\s+\.k-breakdown\s*>\s*\.k-breakdown__sentence\s*\{[^}]*position:\s*static;/s);
+
       for (const [vw, vh] of [
         [915, 412],
         [800, 360],
@@ -459,6 +467,24 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
         fireEvent(stage, makePointerMove('touch', 12, 8));
         expect(hud).toHaveAttribute('data-visible', 'false');
         fireEvent(stage, makePointerMove('mouse', 6, 0));
+        expect(hud).toHaveAttribute('data-visible', 'true');
+
+        // Clicking <video> right after mouse wake (< 350 ms) keeps HUD visible instead of re-hiding it,
+        // while a subsequent click when HUD is already visible hides it cleanly.
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'true');
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
+        expect(hud).toHaveAttribute('data-visible', 'false');
+        fireEvent.click(video, { detail: 1 });
+        act(() => {
+          vi.advanceTimersByTime(250);
+        });
         expect(hud).toHaveAttribute('data-visible', 'true');
 
         // Start playing -> HUD auto-hides after 3500 ms (unless a menu is open).

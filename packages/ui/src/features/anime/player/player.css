@@ -250,24 +250,26 @@
 .k-hud__center > button {
   pointer-events: auto;
 }
-.k-hud__center-btn {
+.k-hud .k-hud__center-btn {
   width: 48px;
   height: 48px;
-  background: rgb(0 0 0 / 0.48);
-  color: #fff;
   backdrop-filter: blur(6px);
   box-shadow: var(--md-sys-elevation-1);
 }
-.k-hud__center-btn .k-icon {
+.k-hud .k-hud__center-btn:not(.k-icon-btn--filled) {
+  background: rgb(0 0 0 / 0.48);
+  color: #fff;
+}
+.k-hud .k-hud__center-btn .k-icon {
   width: 28px;
   height: 28px;
 }
-.k-hud__play-btn {
+.k-hud .k-hud__play-btn {
   width: 64px;
   height: 64px;
   box-shadow: var(--md-sys-elevation-2);
 }
-.k-hud__play-btn .k-icon {
+.k-hud .k-hud__play-btn .k-icon {
   width: 34px;
   height: 34px;
 }
@@ -302,7 +304,7 @@
 .k-hud :is(.k-hud__top, .k-hud__bottom) .k-icon-btn:not(.k-menu .k-icon-btn):not(.is-selected):not(.k-icon-btn--filled) {
   color: rgb(255 255 255 / 0.92);
 }
-.k-hud :is(.k-hud__top, .k-hud__bottom) .k-icon-btn:not(.k-menu .k-icon-btn):disabled {
+.k-hud :is(.k-hud__top, .k-hud__center, .k-hud__bottom) .k-icon-btn:not(.k-menu .k-icon-btn):disabled {
   color: rgb(255 255 255 / 0.36);
 }
 .k-hud .k-player__time {
@@ -366,11 +368,11 @@
   .k-hud__center {
     gap: 18px;
   }
-  .k-hud__center-btn {
+  .k-hud .k-hud__center-btn {
     width: 42px;
     height: 42px;
   }
-  .k-hud__play-btn {
+  .k-hud .k-hud__play-btn {
     width: 56px;
     height: 56px;
   }
@@ -427,7 +429,7 @@
   min-width: 0;
 }
 .k-player--immersive .k-side-sheet .k-sheet__body {
-  min-width: 0;
+  min-width: 298px;
   width: 100%;
   padding: 0 max(12px, calc(12px + var(--k-safe-right))) max(12px, var(--k-safe-bottom)) 12px;
   overflow-x: hidden;
@@ -443,6 +445,15 @@
     height: 42px;
     padding: 0 12px;
     font-size: 13px;
+  }
+  .k-player--immersive .k-side-sheet .k-breakdown > .k-breakdown__sentence {
+    position: static;
+    box-shadow: none;
+    font-size: calc(17px * var(--kotori-font-scale));
+    line-height: 1.85;
+  }
+  .k-player--immersive .k-side-sheet .k-chunk-card {
+    scroll-margin-top: 8px;
   }
 }
 

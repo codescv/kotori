@@ -129,6 +129,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   immersiveRef.current = immersive;
   const hudVisibleRef = useRef(hudVisible);
   hudVisibleRef.current = hudVisible;
+  const lastMouseWakeAtRef = useRef(-Infinity);
 
   const repeat = useRepeat(clock.currentMs, clock.seek, animeSettings.seekPaddingMs);
   const breakdownOpen = useBreakdownStore((s) => s.isOpen);
@@ -147,12 +148,14 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   }, []);
 
   const wakeHud = useCallback(() => {
+    hudVisibleRef.current = true;
     setHudVisible(true);
     setHudNonce((n) => n + 1);
   }, []);
 
   useEffect(() => {
     if (!immersive) {
+      hudVisibleRef.current = true;
       setHudVisible(true);
       setScrubbing(false);
     }
@@ -178,6 +181,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       const menuOpen = Boolean(playerRef.current?.querySelector('[role="menu"]'));
       const dialogOpen = typeof document !== 'undefined' && Boolean(document.querySelector('.k-dialog-scrim'));
       if (!menuOpen && !dialogOpen) {
+        hudVisibleRef.current = false;
         setHudVisible(false);
       } else {
         setHudNonce((n) => n + 1);
@@ -360,6 +364,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     (cue: SubtitleCue, i: number) => {
       clock.pause();
       if (immersiveRef.current) {
+        hudVisibleRef.current = false;
         setHudVisible(false);
       }
       sb.openCue(cue, i);
@@ -433,11 +438,20 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
         return;
       }
       if (e.detail >= 2) return;
+      const clickedAt = performance.now();
       tapTimerRef.current = setTimeout(() => {
         tapTimerRef.current = undefined;
         if (immersiveRef.current) {
+          if (clickedAt - lastMouseWakeAtRef.current < 350) {
+            lastMouseWakeAtRef.current = -Infinity;
+            hudVisibleRef.current = true;
+            setHudVisible(true);
+            setHudNonce((n) => n + 1);
+            return;
+          }
           setHudVisible((v) => {
             const next = !v;
+            hudVisibleRef.current = next;
             if (next) setHudNonce((n) => n + 1);
             return next;
           });
@@ -457,6 +471,9 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       if (Math.hypot(dx, dy) < 2) return;
       const target = e.target as HTMLElement | null;
       if (!hudVisibleRef.current && target?.closest('.k-sub-line')) return;
+      if (!hudVisibleRef.current) {
+        lastMouseWakeAtRef.current = performance.now();
+      }
       wakeHud();
     },
     [wakeHud],
