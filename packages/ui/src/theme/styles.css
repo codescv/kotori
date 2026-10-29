@@ -315,7 +315,10 @@ button:disabled { cursor: default; }
 .k-chip-wrap:has(.k-chip__remove) .k-chip { padding-right: 32px; }
 
 /* ---- segmented button ------------------------------------------------------ */
-.k-segmented { display: inline-flex; border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-full); overflow: hidden; max-width: 100%; }
+.k-segmented {
+  display: inline-flex; width: fit-content; align-self: flex-start; max-width: 100%;
+  border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+}
 .k-segmented__item {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 48px; height: 40px; padding: 0 16px; border: 0; background: transparent;
@@ -648,7 +651,7 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 @media (max-width: 839px) {
   .k-chunk-card__surface { font-size: 17px; line-height: 1.7; }
   .k-vocab__lemma { font-size: 16px; }
-  .k-segmented__item { padding: 0 10px; font-size: 13px; min-width: 40px; }
+  .k-segmented__item, .k-segmented--dense .k-segmented__item { padding: 0 10px; font-size: 13px; min-width: 40px; }
   .k-tabs__tab { padding: 0 12px; font-size: 13px; }
   .k-field__box { min-height: 50px; }
   .k-field__leading { margin-left: 10px; }

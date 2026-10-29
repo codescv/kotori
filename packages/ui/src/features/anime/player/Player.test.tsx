@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../../app/default-settings';
@@ -6,6 +8,8 @@ import { useSettingsStore } from '../../../stores/settings';
 import { useSnackbarStore } from '../../../stores/snackbar';
 import { glyphAt, renderWithHost, resetStores } from '../../../test/utils';
 import { formatRate, Player } from './Player';
+
+const playerCss = readFileSync(resolve(import.meta.dirname, './player.css'), 'utf8');
 
 /** Emulate a viewport for `matchMedia` (min/max width/height + orientation). */
 function setViewport(width: number, height: number): void {
@@ -329,5 +333,34 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       expect(host.calls.get('ai.explainBatch')).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByTestId('cue-cached').length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it('keeps player-time non-wrapping and non-shrinking in compact mobile controls', async () => {
+    expect(playerCss).toMatch(/\.k-player__time\s*\{[^}]*white-space:\s*nowrap;[^}]*flex-shrink:\s*0;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__controls\s*\{[^}]*padding:\s*4px\s+6px\s+0;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__buttons\s*\{[^}]*gap:\s*1px;[^}]*flex-wrap:\s*nowrap;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__buttons\s+\.k-icon-btn\s*\{[^}]*width:\s*30px;[^}]*height:\s*30px;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__time\s*\{[^}]*white-space:\s*nowrap;[^}]*flex-shrink:\s*0;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-player__speed-btn\s*\{[^}]*height:\s*30px;[^}]*min-width:\s*38px;[^}]*flex-shrink:\s*0;/s);
+    expect(playerCss).toMatch(/\.k-player--compact\s+\.k-repeat\s*\{[^}]*flex-shrink:\s*0;[^}]*gap:\s*0;/s);
+
+    setViewport(360, 800);
+    try {
+      const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      await screen.findByTestId('overlay-cue');
+      expect(screen.getByTestId('player')).toHaveClass('k-player--compact');
+
+      const timeEl = screen.getByTestId('player-time');
+      expect(timeEl).toHaveClass('k-player__time');
+      expect(timeEl).toHaveTextContent('0:45 / 23:40');
+
+      // Activate single-cue repeat (`R`) and ensure repeat counter + controls render inside compact bar.
+      fireEvent.keyDown(window, { key: 'r' });
+      expect(screen.getByTestId('repeat-count')).toBeInTheDocument();
+      expect(container.querySelector('.k-player__buttons .k-repeat')).not.toBeNull();
+      expect(screen.getByTestId('speed-button')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

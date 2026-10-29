@@ -1,9 +1,14 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HostProvider } from '../../host/HostContext';
 import { createMockPlatformHost, type MockPlatformHost } from '../../host/mock-host';
 import { useSettingsStore } from '../../stores/settings';
 import { SettingsPage } from './SettingsPage';
+
+const baseCss = readFileSync(resolve(import.meta.dirname, '../../theme/styles.css'), 'utf8');
+const settingsCss = readFileSync(resolve(import.meta.dirname, './settings.css'), 'utf8');
 
 async function setup(opts: Parameters<typeof createMockPlatformHost>[0] = {}): Promise<MockPlatformHost> {
   const host = createMockPlatformHost({ latencyMs: 0, ...opts });
@@ -123,5 +128,30 @@ describe('SettingsPage', () => {
     const mobileMedia = within(screen.getByTestId('settings-media'));
     expect(mobileMedia.queryByLabelText('Nyaa 镜像地址')).toBeNull();
     expect(mobileMedia.getByLabelText('mokuro.moe 目录地址')).toBeInTheDocument();
+  });
+
+  it('keeps segmented controls and standalone settings buttons fit-content instead of stretching full row', async () => {
+    expect(baseCss).toMatch(/\.k-segmented\s*\{[^}]*width:\s*fit-content;[^}]*align-self:\s*flex-start;[^}]*max-width:\s*100%;/s);
+    expect(settingsCss).toMatch(/\.k-settings-section__body\s*>\s*\.k-btn[\s\S]*?\.k-settings-field\s*>\s*\.k-btn[\s\S]*?\.k-settings-disclosure__body\s*>\s*\.k-btn[\s\S]*?\.k-dict-settings\s*>\s*\.k-btn[\s\S]*?\{[\s\S]*?align-self:\s*flex-start;\s*width:\s*fit-content;/);
+    expect(settingsCss).toMatch(/@media\s*\(max-width:\s*600px\)\s*\{[\s\S]*?\.k-dict-manage__toolbar-btns\s+\.k-btn\s*\{[^}]*width:\s*100%;/);
+    expect(settingsCss).toMatch(/\.k-ai-form__auth-kinds\s*\{[^}]*flex-wrap:\s*wrap;[^}]*width:\s*fit-content;[^}]*max-width:\s*100%;/s);
+
+    const { container } = render(
+      <HostProvider host={createMockPlatformHost({ latencyMs: 0 })}>
+        <SettingsPage />
+      </HostProvider>,
+    );
+    fireEvent.click(screen.getByRole('radio', { name: 'Vertex AI' }));
+    const segmentedControls = Array.from(container.querySelectorAll<HTMLElement>('.k-segmented'));
+    expect(segmentedControls.length).toBeGreaterThanOrEqual(8);
+    expect(container.querySelector('.k-ai-form__auth-kinds')).toHaveClass('k-segmented');
+
+    const clearCacheBtn = screen.getByTestId('ai-clear-cache-btn');
+    expect(clearCacheBtn).toHaveClass('k-btn');
+    expect(clearCacheBtn.parentElement).toHaveClass('k-settings-disclosure__body');
+
+    const dictManageBtn = screen.getByTestId('dict-manage-btn');
+    expect(dictManageBtn).toHaveClass('k-btn');
+    expect(dictManageBtn.parentElement).toHaveClass('k-row');
   });
 });

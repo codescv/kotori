@@ -540,7 +540,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               onClick={clock.toggle}
             />
             <IconButton icon="next" label={t('player.nextCue')} onClick={nextRow} />
-            <span className="k-player__time">
+            <span className="k-player__time" data-testid="player-time">
               {formatClock(clock.currentMs)} / {formatClock(duration)}
             </span>
             <span className="k-spacer" />

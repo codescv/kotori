@@ -415,11 +415,9 @@ export function AiProviderForm() {
           onValueChange={(baseUrl) => (draft.provider === 'gemini-api' ? editGemini({ baseUrl }) : editVertex({ baseUrl }))}
         />
         <ModelComboField label={t('settings.ai.visionModel')} value={draft.visionModel} onValueChange={(visionModel) => edit({ visionModel })} error={err('visionModel')} />
-        <div>
-          <Button variant="text" icon="delete" onClick={() => void clearCache()}>
-            {t('settings.ai.clearCache')}
-          </Button>
-        </div>
+        <Button variant="text" icon="delete" data-testid="ai-clear-cache-btn" onClick={() => void clearCache()}>
+          {t('settings.ai.clearCache')}
+        </Button>
       </SettingsDisclosure>
 
       {result && (
