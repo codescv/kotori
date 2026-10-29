@@ -1,5 +1,5 @@
 /**
- * AI breakdown panel.
+ * AI breakdown panel (unified 0-tab single flow).
  *
  * `AiBreakdownPanel` is presentational: `{ explanation, focusCharIndex,
  * onFocusChange, onFollowUp }` (+ thread state). The sentence (RubyText) and
@@ -16,27 +16,30 @@
  * mount). Subtitle sources get `🔊 原声`, `🐢 0.75×` slow replay and `🗣 跟读`
  * shadowing (listen → countdown pause of 1.2 × the slice → listen again).
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CharSpan, FollowUpMessage, SentenceExplanation } from '@kotori/core';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
+import type { CharSpan, FollowUpMessage, GrammarPoint, SentenceExplanation, VocabEntry } from '@kotori/core';
 import { useHost } from '../../host/HostContext';
 import { useT, type Translate } from '../../i18n';
 import { useBreakdownStore, type BubbleCropPreview } from '../../stores/breakdown';
 import { useSettingsStore } from '../../stores/settings';
-import { vocabForChunk } from '../../lib/explanation';
+import { grammarForChunk, orphanGrammar, partitionVocabByChunk } from '../../lib/explanation';
 import { speakJapanese } from '../../lib/tts';
 import { AssistantAvatar } from '../AssistantAvatar';
 import { Button } from '../m3/Button';
 import { cx } from '../m3/cx';
 import { IconButton } from '../m3/IconButton';
 import { LinearProgress } from '../m3/Progress';
-import { Tabs } from '../m3/Tabs';
 import { ChunkCard } from './ChunkCard';
 import { FollowUpThread } from './FollowUpThread';
-import { GrammarList } from './GrammarList';
 import { inferWordSpanAt, RubyText } from './RubyText';
 import { useBreakdownSelection } from './useBreakdownSelection';
-import { useVocabEnrichment, VocabList } from './VocabList';
+import { useVocabEnrichment, VocabItem } from './VocabList';
 import './breakdown.css';
+
+const EMPTY_VOCAB: readonly VocabEntry[] = [];
+const EMPTY_GRAMMAR: readonly GrammarPoint[] = [];
+const CHUNK_SWIPE_IGNORE_SELECTOR =
+  'button, a, input, textarea, select, [role="slider"], .k-followup, .k-breakdown__meta, .k-dict-candidates, .k-breakdown__bubble-crop';
 
 /**
  * Audio slice replay as registered by the player. The store types it as
@@ -53,6 +56,14 @@ export const SHADOW_PAUSE_FACTOR = 1.2;
 const SLICE_PADDING_MS = 300;
 
 type ShadowPhase = 'idle' | 'listen' | 'speak' | 'compare';
+
+interface ChunkSwipeStart {
+  readonly x: number;
+  readonly y: number;
+  lastX: number;
+  lastY: number;
+  cancelled: boolean;
+}
 
 /** Nearest scrollable ancestor element (the sheet body), if any. */
 function scrollParentOf(el: HTMLElement | null): HTMLElement | undefined {
@@ -82,8 +93,6 @@ export interface AiBreakdownPanelProps {
   readonly t?: Translate;
   readonly className?: string | undefined;
 }
-
-type Section = 'chunks' | 'vocab' | 'grammar';
 
 function BubbleCropHeader({ preview }: { readonly preview: BubbleCropPreview }) {
   const [expanded, setExpanded] = useState(false);
@@ -148,15 +157,96 @@ export function AiBreakdownPanel({
   const t = tProp ?? tHook;
   const sel = useBreakdownSelection(explanation, focusCharIndex, onFocusChange);
   const enrichments = useVocabEnrichment(explanation.vocab);
+  const { byChunk, orphans } = useMemo(() => partitionVocabByChunk(explanation), [explanation]);
+  const unlinkedGrammar = useMemo(() => orphanGrammar(explanation), [explanation]);
+  const grammarByChunk = useMemo(() => {
+    const map = new Map<string, readonly GrammarPoint[]>();
+    for (const chunk of explanation.chunks) {
+      const items = grammarForChunk(explanation, chunk.id);
+      if (items.length > 0) map.set(chunk.id, items);
+    }
+    return map;
+  }, [explanation]);
+
   const effectiveFocusSpan = useMemo<CharSpan | undefined>(() => {
     if (focusCharIndex === undefined) return undefined;
     return sel.focusWordSpan ?? inferWordSpanAt(explanation.sentence, focusCharIndex, explanation.ruby, 0);
   }, [focusCharIndex, sel.focusWordSpan, explanation.sentence, explanation.ruby]);
-  const [section, setSection] = useState<Section>('chunks');
   const persona = useSettingsStore((s) => s.settings.ai.persona);
   const personaName = persona?.name?.trim();
   const copy = useCallback(() => void navigator.clipboard?.writeText(explanation.sentence).catch(() => {}), [explanation.sentence]);
   const speak = useCallback(() => void speakJapanese(explanation.sentence), [explanation.sentence]);
+
+  // Horizontal chunkSwipe touch gesture (respects 24px viewport edges & interactive exclusions).
+  const swipeStartRef = useRef<ChunkSwipeStart | null>(null);
+  const handleTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) {
+      swipeStartRef.current = null;
+      return;
+    }
+    const touch = e.touches[0]!;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 0;
+    if (touch.clientX <= 24 || (vw > 48 && touch.clientX >= vw - 24)) {
+      swipeStartRef.current = null;
+      return;
+    }
+    if (e.target instanceof Element && e.target.closest(CHUNK_SWIPE_IGNORE_SELECTOR)) {
+      swipeStartRef.current = null;
+      return;
+    }
+    swipeStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      lastX: touch.clientX,
+      lastY: touch.clientY,
+      cancelled: false,
+    };
+  }, []);
+
+  const handleTouchMove = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    if (!start) return;
+    if (e.touches.length !== 1) {
+      swipeStartRef.current = null;
+      return;
+    }
+    const touch = e.touches[0]!;
+    start.lastX = touch.clientX;
+    start.lastY = touch.clientY;
+    if (Math.abs(touch.clientY - start.y) >= 36) {
+      start.cancelled = true;
+    }
+  }, []);
+
+  const handleTouchCancel = useCallback(() => {
+    swipeStartRef.current = null;
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      const start = swipeStartRef.current;
+      swipeStartRef.current = null;
+      if (!start || start.cancelled || explanation.chunks.length === 0) return;
+      const changed = e.changedTouches?.[0];
+      const endX = changed ? changed.clientX : start.lastX;
+      const endY = changed ? changed.clientY : start.lastY;
+      const dx = endX - start.x;
+      const dy = endY - start.y;
+      if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dy) < 36) {
+        const targetIdx =
+          dx < 0
+            ? sel.activeChunkIndex < 0
+              ? 0
+              : Math.min(explanation.chunks.length - 1, sel.activeChunkIndex + 1)
+            : sel.activeChunkIndex < 0
+              ? explanation.chunks.length - 1
+              : Math.max(0, sel.activeChunkIndex - 1);
+        const target = explanation.chunks[targetIdx];
+        if (target) sel.selectChunk(target.id);
+      }
+    },
+    [explanation.chunks, sel],
+  );
 
   // Open at the top (sticky sentence + translation + chunk 1) unless a later
   // chunk is focused — that card then scrolls itself into view.
@@ -221,7 +311,16 @@ export function AiBreakdownPanel({
   const dialogueRelation = explanation.dialogueRelation?.trim();
 
   return (
-    <div ref={rootRef} className={cx('k-breakdown', className)} data-testid="ai-breakdown-panel">
+    <div
+      ref={rootRef}
+      className={cx('k-breakdown', className)}
+      data-testid="ai-breakdown-panel"
+      data-no-tab-swipe=""
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
+    >
       {bubblePreview && <BubbleCropHeader preview={bubblePreview} />}
       {/* Direct child of the scroll content so `position: sticky` keeps it in view. */}
       <div className="k-breakdown__sentence" data-testid="breakdown-sentence">
@@ -344,48 +443,56 @@ export function AiBreakdownPanel({
         )}
       </section>
 
-      <Tabs<Section>
-        className="k-breakdown__tabs"
-        value={section}
-        onChange={setSection}
-        tabs={[
-          { value: 'chunks', label: `${t('breakdown.chunks')} ${explanation.chunks.length}` },
-          { value: 'vocab', label: `${t('breakdown.vocab')} ${explanation.vocab.length}`, badge: sel.linkedVocabIds.size },
-          { value: 'grammar', label: `${t('breakdown.grammar')} ${explanation.grammar.length}`, badge: sel.linkedGrammarIds.size },
-        ]}
-      />
-
       <div className="k-breakdown__section">
-        {section === 'chunks' && (
-          <div className="k-chunk-list" role="list">
-            {explanation.chunks.map((chunk, i) => (
-              <ChunkCard
-                key={chunk.id}
-                chunk={chunk}
-                index={i}
-                active={i === sel.activeChunkIndex}
-                vocab={i === sel.activeChunkIndex ? vocabForChunk(explanation, chunk) : []}
-                enrichments={i === sel.activeChunkIndex ? enrichments : undefined}
-                focusedVocabId={i === sel.activeChunkIndex ? sel.vocabAtFocus?.id : undefined}
-                onSelect={sel.selectChunk}
-                onSelectChar={sel.selectChar}
-                t={t}
-              />
-            ))}
-          </div>
-        )}
-        {section === 'vocab' && (
-          <VocabList
-            vocab={explanation.vocab}
-            linkedIds={sel.linkedVocabIds}
-            focusedVocabId={sel.vocabAtFocus?.id}
-            enrichments={enrichments}
-            onSelect={sel.selectChar}
-            t={t}
-          />
-        )}
-        {section === 'grammar' && (
-          <GrammarList grammar={explanation.grammar} chunks={explanation.chunks} linkedIds={sel.linkedGrammarIds} onSelectChunk={sel.selectChunk} />
+        <div className="k-chunk-list" role="list">
+          {explanation.chunks.map((chunk, i) => (
+            <ChunkCard
+              key={chunk.id}
+              chunk={chunk}
+              index={i}
+              active={i === sel.activeChunkIndex}
+              vocab={byChunk.get(chunk.id) ?? EMPTY_VOCAB}
+              grammar={grammarByChunk.get(chunk.id) ?? EMPTY_GRAMMAR}
+              enrichments={i === sel.activeChunkIndex ? enrichments : undefined}
+              focusedVocabId={i === sel.activeChunkIndex ? sel.vocabAtFocus?.id : undefined}
+              onSelect={sel.selectChunk}
+              onSelectChar={sel.selectChar}
+              t={t}
+            />
+          ))}
+        </div>
+        {(orphans.length > 0 || unlinkedGrammar.length > 0) && (
+          <section className="k-breakdown__orphans" data-testid="breakdown-orphan-vocab">
+            <h4 className="k-breakdown__orphans-title">{t('pos.other')} · {t('breakdown.vocab')}</h4>
+            {orphans.length > 0 && (
+              <ul className="k-chunk-card__vocab">
+                {orphans.map((v) => (
+                  <VocabItem
+                    key={v.id}
+                    item={v}
+                    compact
+                    enrichment={enrichments?.get(v.id)}
+                    linked={sel.vocabAtFocus?.id === v.id}
+                    onSelect={sel.selectChar}
+                    t={t}
+                  />
+                ))}
+              </ul>
+            )}
+            {unlinkedGrammar.length > 0 && (
+              <div className="k-chunk-card__grammar-list">
+                {unlinkedGrammar.map((g) => (
+                  <div key={g.id} className="k-chunk-card__grammar-item" data-testid={`chunk-grammar-${g.id}`}>
+                    <span className="k-chunk-card__evo-tag k-chunk-card__evo-tag--grammar" lang="ja">
+                      📐 {g.pattern}
+                      {g.jlpt ? ` · ${g.jlpt}` : ''}
+                    </span>
+                    {g.explanation && <span className="k-chunk-card__grammar-meaning">{g.explanation}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         )}
       </div>
 

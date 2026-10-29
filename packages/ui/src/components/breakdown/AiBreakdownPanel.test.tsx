@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FollowUpMessage, SentenceExplanation } from '@kotori/core';
 import { DEFAULT_SETTINGS } from '../../app/default-settings';
-import { explanationFor } from '../../host/mock/explanations';
+import { CANNED_SPECS, explanationFor } from '../../host/mock/explanations';
 import { createTranslator } from '../../i18n';
+import { partitionVocabByChunk } from '../../lib/explanation';
 import { useSettingsStore } from '../../stores/settings';
 import { glyphAt, resetStores } from '../../test/utils';
 import { AiBreakdownPanel } from './AiBreakdownPanel';
@@ -15,12 +16,26 @@ import { deriveSelection } from './useBreakdownSelection';
 const t = createTranslator('zh-CN');
 const EXPL = explanationFor('食べてんじゃねぇよ！', 'zh-CN');
 
-function Harness({ explanation, initial }: { readonly explanation: SentenceExplanation; readonly initial?: number }) {
+function Harness({
+  explanation,
+  initial,
+  onFollowUp,
+}: {
+  readonly explanation: SentenceExplanation;
+  readonly initial?: number;
+  readonly onFollowUp?: (q: string) => void;
+}) {
   const [focus, setFocus] = useState<number | undefined>(initial);
   return (
     <>
       <output data-testid="focus">{focus ?? ''}</output>
-      <AiBreakdownPanel explanation={explanation} focusCharIndex={focus} onFocusChange={setFocus} t={t} />
+      <AiBreakdownPanel
+        explanation={explanation}
+        focusCharIndex={focus}
+        onFocusChange={setFocus}
+        {...(onFollowUp ? { onFollowUp } : {})}
+        t={t}
+      />
     </>
   );
 }
@@ -74,16 +89,122 @@ describe('AiBreakdownPanel – bidirectional chunk highlight', () => {
     expect(screen.getByTestId('chunk-c2')).toHaveAttribute('aria-current', 'true');
   });
 
-  it('vocab and grammar linked to the focused chunk are highlighted', () => {
+  it('unified 0-tab flow: renders inline vocab & grammar on active chunk, clickable lemma chips on inactive chunks, and 1-tap chip expansion', () => {
     render(<Harness explanation={EXPL} initial={3} />);
-    fireEvent.click(screen.getByRole('tab', { name: /词汇/ }));
-    expect(screen.getByTestId('vocab-v1')).toHaveAttribute('aria-current', 'true');
-    expect(screen.getByTestId('vocab-v0')).not.toHaveAttribute('aria-current');
-    // Pitch accent is intentionally not rendered (unreliable model output).
-    expect(screen.getByTestId('vocab-v0').textContent).not.toContain('②');
-    expect(screen.getByTestId('vocab-v0').querySelector('.k-vocab__pitch')).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: /语法/ }));
-    expect(screen.getByTestId('grammar-g0')).toHaveAttribute('aria-current', 'true');
+    // Zero tabs in unified flow.
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+
+    // Active chunk (c1) expands compact VocabItem and displays inline grammar.
+    const activeVocab = screen.getByTestId('chunk-vocab-v1');
+    expect(activeVocab).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('chunk-grammar-g0')).toHaveTextContent('📐 〜ているのではない · N3');
+    expect(screen.queryByTestId('chunk-vocab-chip-v1')).toBeNull();
+
+    // Inactive chunks (c0, c2) collapse vocab to clickable lemma chips.
+    expect(screen.queryByTestId('chunk-vocab-v0')).toBeNull();
+    const chip0 = screen.getByTestId('chunk-vocab-chip-v0');
+    expect(chip0).toHaveTextContent('食べる');
+    expect(screen.getByTestId('chunk-vocab-chip-v2')).toHaveTextContent('よ');
+
+    // Clicking an inactive chunk's lemma chip focuses that word and expands its VocabItem in 1 tap.
+    fireEvent.click(chip0);
+    expect(screen.getByTestId('focus').textContent).toBe('0');
+    expect(screen.getByTestId('chunk-c0')).toHaveAttribute('aria-current', 'true');
+    const expandedV0 = screen.getByTestId('chunk-vocab-v0');
+    expect(expandedV0).toHaveAttribute('aria-current', 'true');
+    // Unreliable model pitch accent is intentionally not rendered without local dictionary enrichment.
+    expect(expandedV0.textContent).not.toContain('②');
+    expect(expandedV0.querySelector('.k-vocab__pitch')).toBeNull();
+    // Previously active c1 collapses back to a lemma chip.
+    expect(screen.getByTestId('chunk-vocab-chip-v1')).toBeInTheDocument();
+  });
+
+  it('renders chunk.grammarPattern chip and deduplicates against legacy grammar[]', () => {
+    const withPattern: SentenceExplanation = {
+      ...EXPL,
+      grammar: [{ id: 'g0', pattern: '〜ているのではない', chunkIds: ['c1'], explanation: '否定说明语气', jlpt: 'N3' }],
+      chunks: EXPL.chunks.map((c, idx) =>
+        idx === 0
+          ? { ...c, grammarPattern: '〜てみる' }
+          : idx === 1
+            ? { ...c, grammarPattern: '~ているのではない' }
+            : c,
+      ),
+    };
+    render(<Harness explanation={withPattern} />);
+    expect(screen.getByTestId('chunk-grammar-pattern-c0')).toHaveTextContent('📐 〜てみる');
+    // c1's grammarPattern matches legacy g0.pattern (modulo tilde variant) -> deduplicated.
+    expect(screen.getByTestId('chunk-grammar-g0')).toHaveTextContent('📐 〜ているのではない · N3');
+    expect(screen.queryByTestId('chunk-grammar-pattern-c1')).toBeNull();
+  });
+
+  it('partitionVocabByChunk guarantees 0 dropped vocab across all 4 tiers and renders orphans in breakdown-orphan-vocab', () => {
+    for (const spec of CANNED_SPECS) {
+      const expl = explanationFor(spec.sentence, 'zh-CN');
+      const { byChunk, orphans } = partitionVocabByChunk(expl);
+      const seen = [...Array.from(byChunk.values()).flat(), ...orphans].map((v) => v.id);
+      expect(new Set(seen).size).toBe(expl.vocab.length);
+      expect(orphans).toHaveLength(0);
+    }
+
+    // Synthetic explanation exercising Step 2 (containment), Step 2b (partial overlap), and Step 3 (orphan vocab + unlinked grammar).
+    const baseVocab = EXPL.vocab[0]!;
+    const synthetic: SentenceExplanation = {
+      ...EXPL,
+      chunks: EXPL.chunks.map((c) => ({ ...c, vocabIds: [] })), // clear explicit vocabIds to exercise fallbacks
+      vocab: [
+        { ...baseVocab, id: 'v_contain', surface: '食べ', lemma: '食べる', charSpan: [0, 2] }, // contained in c0 [0,2)
+        { ...baseVocab, id: 'v_straddle', surface: '食べてん', lemma: '食べてん', charSpan: [1, 4] }, // straddles c0 [0,2) & c1 [2,8) -> c0
+        { ...baseVocab, id: 'v_orphan', surface: '慣用句', lemma: '慣用句', meaning: '未对齐惯用语', charSpan: [0, 0], alignment: 'unaligned' },
+      ],
+      grammar: [{ id: 'g_orphan', pattern: '〜っけ', chunkIds: [], explanation: '回想确认终助词' }],
+    };
+    const { byChunk, orphans } = partitionVocabByChunk(synthetic);
+    expect(byChunk.get('c0')?.map((v) => v.id)).toEqual(['v_contain', 'v_straddle']);
+    expect(orphans.map((v) => v.id)).toEqual(['v_orphan']);
+
+    render(<Harness explanation={synthetic} initial={0} />);
+    expect(screen.getByTestId('chunk-vocab-v_contain')).toBeInTheDocument();
+    expect(screen.getByTestId('chunk-vocab-v_straddle')).toBeInTheDocument();
+    const orphanSection = screen.getByTestId('breakdown-orphan-vocab');
+    expect(orphanSection).toHaveTextContent('未对齐惯用语');
+    expect(orphanSection).toHaveTextContent('📐 〜っけ');
+  });
+
+  it('horizontal chunkSwipe switches active chunks while respecting -1 initial state, viewport edges, and exclusions', () => {
+    render(<Harness explanation={EXPL} onFollowUp={() => {}} />);
+    const panel = screen.getByTestId('ai-breakdown-panel');
+    expect(panel).toHaveAttribute('data-no-tab-swipe');
+
+    const swipe = (target: Element, x0: number, y0: number, x1: number, y1: number) => {
+      fireEvent.touchStart(target, { touches: [{ clientX: x0, clientY: y0 }] });
+      fireEvent.touchEnd(target, { changedTouches: [{ clientX: x1, clientY: y1 }] });
+    };
+
+    // From unfocused (-1), swipe right -> last chunk (c2).
+    swipe(panel, 180, 240, 250, 244);
+    expect(screen.getByTestId('chunk-c2')).toHaveAttribute('aria-current', 'true');
+
+    // Swipe right -> previous chunk (c1), then (c0), then clamped at c0.
+    swipe(panel, 180, 240, 250, 242);
+    expect(screen.getByTestId('chunk-c1')).toHaveAttribute('aria-current', 'true');
+    swipe(panel, 180, 240, 250, 242);
+    expect(screen.getByTestId('chunk-c0')).toHaveAttribute('aria-current', 'true');
+    swipe(panel, 180, 240, 250, 242);
+    expect(screen.getByTestId('chunk-c0')).toHaveAttribute('aria-current', 'true');
+
+    // Swipe left -> next chunk (c1).
+    swipe(panel, 240, 240, 160, 244);
+    expect(screen.getByTestId('chunk-c1')).toHaveAttribute('aria-current', 'true');
+
+    // Excluded zones: viewport left edge (<= 24px), button, and vertical scroll (|dy| >= 36) do not switch chunks.
+    swipe(panel, 12, 240, 100, 240);
+    expect(screen.getByTestId('chunk-c1')).toHaveAttribute('aria-current', 'true');
+    const ttsBtn = screen.getByTestId('breakdown-tts-sentence');
+    swipe(ttsBtn, 200, 240, 120, 240);
+    expect(screen.getByTestId('chunk-c1')).toHaveAttribute('aria-current', 'true');
+    swipe(panel, 220, 240, 140, 290);
+    expect(screen.getByTestId('chunk-c1')).toHaveAttribute('aria-current', 'true');
   });
 
   it('deriveSelection: no focus → nothing highlighted', () => {

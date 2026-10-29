@@ -109,6 +109,11 @@ export interface SemanticChunk {
    * `surface === textbookForm` (nothing evolved).
    */
   readonly spokenEvolution?: SpokenEvolution;
+  /**
+   * 📐 Concise textbook notation when this chunk instantiates a notable
+   * grammar pattern (e.g. `〜てしまう`, `〜んじゃないか`, `〜ばかりに`).
+   */
+  readonly grammarPattern?: string;
   /** Grammatical / discourse role in this sentence (target language prose). */
   readonly role: string;
   /** Meaning of the chunk in context (target language). */

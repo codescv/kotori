@@ -80,6 +80,7 @@ export const RawChunkSchema = z.object({
   reading: reqString,
   textbookForm: reqString,
   spokenEvolution: nullish(RawSpokenEvolutionSchema).catch(undefined),
+  grammarPattern: optString,
   role: reqString,
   meaning: reqString,
   nuance: optString,
@@ -109,7 +110,7 @@ export const RawExplanationSchema = z.object({
   dialogueRelation: optString,
   ruby: arrayOf(RawRubySchema),
   chunks: arrayOf(RawChunkSchema),
-  grammar: arrayOf(RawGrammarSchema),
+  grammar: arrayOf(RawGrammarSchema).optional().default([]).catch([]),
 });
 
 export type RawRuby = z.infer<typeof RawRubySchema>;
@@ -153,6 +154,7 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
             required: ['kind', 'derivation'],
             propertyOrdering: ['kind', 'derivation', 'formality'],
           },
+          grammarPattern: S,
           role: S,
           meaning: S,
           nuance: S,
@@ -175,21 +177,12 @@ export const EXPLAIN_RESPONSE_SCHEMA = {
           },
         },
         required: ['surface', 'reading', 'textbookForm', 'role', 'meaning', 'vocab'],
-        propertyOrdering: ['surface', 'reading', 'textbookForm', 'spokenEvolution', 'role', 'meaning', 'nuance', 'vocab'],
-      },
-    },
-    grammar: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: { pattern: S, chunkSurfaces: { type: 'ARRAY', items: S }, explanation: S, jlpt: { type: 'STRING', enum: [...JLPT_LEVELS] } },
-        required: ['pattern', 'chunkSurfaces', 'explanation'],
-        propertyOrdering: ['pattern', 'chunkSurfaces', 'explanation', 'jlpt'],
+        propertyOrdering: ['surface', 'reading', 'textbookForm', 'spokenEvolution', 'grammarPattern', 'role', 'meaning', 'nuance', 'vocab'],
       },
     },
   },
-  required: ['translation', 'ruby', 'chunks', 'grammar'],
-  propertyOrdering: ['translation', 'literalTranslation', 'register', 'tone', 'culturalNote', 'omitted', 'dialogueRelation', 'ruby', 'chunks', 'grammar'],
+  required: ['translation', 'ruby', 'chunks'],
+  propertyOrdering: ['translation', 'literalTranslation', 'register', 'tone', 'culturalNote', 'omitted', 'dialogueRelation', 'ruby', 'chunks'],
 } as const;
 
 export const RawBatchExplanationSchema = z.object({

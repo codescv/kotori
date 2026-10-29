@@ -38,9 +38,9 @@ export function explainSystemInstruction(lang: TargetLanguage): string {
     '4. `ruby` segments the WHOLE TARGET sentence: concatenating every `base` must reproduce the sentence exactly. Give `ruby` (hiragana reading) ONLY on segments containing kanji; omit it for kana, Latin, digits and punctuation. Prefer short kanji-run segments (e.g. 食|べて, not 食べて). NEVER split jukujikun / ateji / whole-word irregular readings per kanji (明日→あした, 今日→きょう, 昨日→きのう, 大人→おとな, 一人→ひとり, 二人→ふたり, 今年→ことし, 今朝→けさ, 上手→じょうず, 時計→とけい): annotate the entire compound as ONE segment, e.g. {"base":"明日","ruby":"あした"}, never {"base":"明","ruby":"あ"},{"base":"日","ruby":"した"}.',
     '5. `textbookForm` is always present: the standard/textbook form of the chunk (e.g. surface てんじゃねぇ → textbookForm ているのではない). If the chunk is already standard, repeat the surface.',
     '6. `spokenEvolution` ONLY when surface differs from textbookForm: `kind` (short label such as 縮約, 音便, 俗语, 方言), `derivation` as steps "A → B → C", `formality` from 0 (very rough) to 1 (formal). Omit it otherwise.',
-    `7. Write every explanation field (translation, literalTranslation, tone, culturalNote, role, meaning, nuance, derivation, conjugation, notes, grammar explanation) in ${out}.`,
+    `7. Write every explanation field (translation, literalTranslation, tone, culturalNote, role, meaning, nuance, derivation, conjugation, notes) in ${out}.`,
     '8. Context lines are for understanding only. Explain ONLY the TARGET sentence.',
-    '9. `grammar.chunkSurfaces` lists the chunk surfaces (verbatim) that instantiate each pattern; write `pattern` in textbook notation such as 〜ばかりに.',
+    '9. `grammarPattern` on a chunk: ONLY when the chunk instantiates a notable grammar pattern or construction, give its concise textbook notation (e.g. "〜てしまう", "〜んじゃないか", "〜ばかりに"); explain its function/meaning in the chunk\'s `meaning` or `nuance`. Omit `grammarPattern` on ordinary words/particles.',
     '10. Add `literalTranslation` only when it differs meaningfully from `translation`.',
     '11. Keep explanations concise and crisp. Only include content-bearing words or special expressions in `vocab` (skip trivial single-character case particles like の/を/に/が/は unless used in a special idiom).',
     '12. Populate `culturalNote` (1-2 sentences) ONLY when the sentence contains a notable Japanese cultural reference, ACG/band/manga trope, wordplay/pun, dialectal quirk, or pragmatic irony; omit `culturalNote` for ordinary literal sentences.',
@@ -122,12 +122,13 @@ export function summariseExplanation(expl: SentenceExplanation): string {
       reading: c.reading,
       textbookForm: c.textbookForm,
       spokenEvolution: c.spokenEvolution,
+      ...(c.grammarPattern ? { grammarPattern: c.grammarPattern } : {}),
       role: c.role,
       meaning: c.meaning,
       nuance: c.nuance,
     })),
     vocab: expl.vocab.map((v) => ({ surface: v.surface, lemma: v.lemma, reading: v.lemmaReading, pos: v.partOfSpeech, meaning: v.meaning, conjugation: v.conjugation })),
-    grammar: expl.grammar.map((g) => ({ pattern: g.pattern, explanation: g.explanation })),
+    ...(expl.grammar.length > 0 ? { grammar: expl.grammar.map((g) => ({ pattern: g.pattern, explanation: g.explanation })) } : {}),
   };
   return JSON.stringify(summary);
 }

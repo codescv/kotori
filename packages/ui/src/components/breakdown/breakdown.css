@@ -4,10 +4,53 @@
  * so they win regardless of stylesheet order.
  */
 
+.k-breakdown {
+  touch-action: pan-y;
+}
+
 /* B7: the sticky sentence gets a solid backdrop + bottom padding so scrolled cards never bleed under it. */
 .k-breakdown > .k-breakdown__sentence {
   background: var(--k-breakdown-bg, var(--md-sys-color-surface));
   padding-bottom: 6px;
+}
+
+/* Unified 0-tab flow: tighten scroll-margin-top now that the 48px tab bar is gone. */
+.k-breakdown .k-chunk-card {
+  scroll-margin-top: 84px;
+}
+
+/* Compact spacing inside mobile BottomSheet so peek (52vh) fits sentence + translation + active chunk + dict. */
+.k-bottom-sheet .k-breakdown {
+  gap: 8px;
+  padding-top: 2px;
+}
+.k-bottom-sheet .k-breakdown__sentence-block {
+  gap: 6px;
+}
+.k-bottom-sheet .k-breakdown > .k-breakdown__sentence {
+  line-height: 1.9;
+  padding: 2px 0 4px;
+}
+.k-bottom-sheet .k-breakdown__meta {
+  gap: 4px;
+}
+.k-bottom-sheet .k-breakdown__action-pill {
+  height: 24px;
+  padding: 0 8px;
+}
+.k-bottom-sheet .k-chunk-card {
+  padding: 10px 12px;
+}
+.k-bottom-sheet .k-chunk-card__meaning {
+  margin-top: 4px;
+}
+.k-bottom-sheet .k-chunk-card__vocab {
+  margin-top: 6px;
+  padding-top: 6px;
+  gap: 5px;
+}
+.k-bottom-sheet .k-vocab--compact {
+  padding: 4px 8px;
 }
 
 /* Omitted subject/object/topic as ghost chips under the translation. */
@@ -49,6 +92,74 @@
 /* Chunk reading line: reading + optional romaji. */
 .k-breakdown .k-chunk-card__reading { display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .k-chunk-card__romaji { font-style: italic; opacity: 0.8; letter-spacing: 0.01em; }
+
+/* Inline 📐 grammar chips & legacy grammar items inside ChunkCard. */
+.k-chunk-card__grammar-list {
+  display: flex; flex-direction: column; gap: 4px; margin-top: 6px;
+}
+.k-chunk-card__grammar-item {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  font: var(--md-sys-typescale-body-small);
+}
+.k-chunk-card__evo-tag {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px;
+  font: var(--md-sys-typescale-label-medium); font-weight: 600; flex-shrink: 0;
+}
+.k-chunk-card__evo-tag--grammar {
+  background: color-mix(in srgb, var(--md-sys-color-tertiary-container) 78%, transparent);
+  color: var(--md-sys-color-on-tertiary-container);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-tertiary) 32%, transparent);
+}
+.k-chunk-card__grammar-meaning {
+  color: var(--md-sys-color-on-surface-variant); line-height: 1.45; min-width: 0;
+}
+.k-chunk-card.is-active .k-chunk-card__grammar-meaning {
+  color: inherit; opacity: 0.88;
+}
+
+/* Inactive ChunkCard clickable vocabulary lemma chips. */
+.k-chunk-card__vocab-chips {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px;
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+.k-chunk-vocab-chip {
+  display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%;
+  min-height: 28px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 75%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 75%, transparent);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-label-medium);
+  cursor: pointer; touch-action: manipulation;
+  transition: background-color var(--md-sys-motion-duration-short3, 120ms),
+    border-color var(--md-sys-motion-duration-short3, 120ms);
+}
+.k-chunk-vocab-chip:hover {
+  background: var(--md-sys-color-surface-container-highest);
+  border-color: var(--md-sys-color-primary);
+}
+.k-chunk-vocab-chip__lemma {
+  font-weight: 600; flex-shrink: 0;
+}
+.k-chunk-vocab-chip__meaning {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-small);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 11em;
+}
+
+/* Orphan vocabulary / unlinked grammar fallback block. */
+.k-breakdown__orphans {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+}
+.k-breakdown__orphans-title {
+  margin: 0; font: var(--md-sys-typescale-label-medium);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.k-breakdown__orphans > .k-chunk-card__vocab {
+  margin-top: 0; padding-top: 0; border-top: 0;
+}
 
 /* Follow-up markdown-light lists / headings. */
 .k-md-list { margin: 2px 0; padding-left: 1.2em; }
@@ -158,6 +269,9 @@
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
   border-color: var(--md-sys-color-primary);
+}
+.k-breakdown .k-vocab--compact.is-linked .k-vocab__notes {
+  color: inherit; opacity: 0.85;
 }
 .k-breakdown .k-vocab--compact .k-vocab__lemma {
   font-size: 16px; line-height: 1.75;

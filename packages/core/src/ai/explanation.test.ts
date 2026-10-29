@@ -88,9 +88,17 @@ describe('RawExplanationSchema', () => {
     expect(RawExplanationSchema.safeParse({ chunks: [] }).success).toBe(false);
   });
 
-  it('Gemini schema lists required top-level keys', () => {
-    expect(EXPLAIN_RESPONSE_SCHEMA.required).toEqual(['translation', 'ruby', 'chunks', 'grammar']);
-    expect(EXPLAIN_RESPONSE_SCHEMA.properties.chunks.items.properties.textbookForm.type).toBe('STRING');
+  it('Gemini schema lists required top-level keys and folds grammarPattern into chunks', () => {
+    expect(EXPLAIN_RESPONSE_SCHEMA.required).toEqual(['translation', 'ruby', 'chunks']);
+    expect('grammar' in EXPLAIN_RESPONSE_SCHEMA.properties).toBe(false);
+    expect(EXPLAIN_RESPONSE_SCHEMA.propertyOrdering).not.toContain('grammar');
+    const chunkSchema = EXPLAIN_RESPONSE_SCHEMA.properties.chunks.items;
+    expect(chunkSchema.properties.textbookForm.type).toBe('STRING');
+    expect(chunkSchema.properties.grammarPattern).toEqual({ type: 'STRING' });
+    expect(chunkSchema.required).not.toContain('grammarPattern');
+    expect(chunkSchema.propertyOrdering.indexOf('grammarPattern')).toBe(
+      chunkSchema.propertyOrdering.indexOf('spokenEvolution') + 1,
+    );
   });
 
   it('vision schemas coerce sloppy values', () => {
@@ -177,6 +185,59 @@ describe('toSentenceExplanation', () => {
     expect(e.vocab[1]).toMatchObject({ alignment: 'unaligned', surface: 'いぬ' });
     expect(e.grammar[0]?.chunkIds).toEqual(['c0']);
     expect(e.ruby.map((r) => r.base).join('')).toBe('ねこだ');
+  });
+
+  it('normalizes new responses without grammar (with chunk.grammarPattern) and legacy responses with grammar[]', () => {
+    const rawNew = RawExplanationSchema.parse({
+      translation: '不小心吃光了',
+      ruby: [{ base: '食', ruby: 'た' }, { base: 'べちゃった' }],
+      chunks: [
+        {
+          surface: '食べ',
+          reading: 'たべ',
+          textbookForm: '食べ',
+          grammarPattern: '   ',
+          role: '谓语动词',
+          meaning: '吃',
+          vocab: [{ surface: '食べ', lemma: '食べる', lemmaReading: 'たべる', partOfSpeech: 'verb', meaning: '吃' }],
+        },
+        {
+          surface: 'ちゃった',
+          reading: 'ちゃった',
+          textbookForm: 'てしまった',
+          spokenEvolution: { kind: '縮約', derivation: 'てしまった → ちゃった' },
+          grammarPattern: '  〜てしまう  ',
+          role: '补助动词',
+          meaning: '表示动作彻底完成并带有一丝懊悔',
+          nuance: '口语缩约，语气随性',
+          vocab: [{ surface: 'ちゃった', lemma: 'しまう', lemmaReading: 'しまう', partOfSpeech: 'auxiliary', meaning: '完了/不小心' }],
+        },
+      ],
+    });
+    const normNew = toSentenceExplanation(rawNew, { sentence: '食べちゃった', targetLanguage: 'zh-CN' }, { model: 'gemini-2.5-flash', now: 100 });
+    expect(normNew.grammar).toEqual([]);
+    expect('grammarPattern' in normNew.chunks[0]!).toBe(false);
+    expect(normNew.chunks[1]?.grammarPattern).toBe('〜てしまう');
+
+    const rawLegacy = RawExplanationSchema.parse({
+      translation: '不想去',
+      ruby: [{ base: '行', ruby: 'い' }, { base: 'きたくない' }],
+      chunks: [
+        {
+          surface: '行きたくない',
+          reading: 'いきたくない',
+          textbookForm: '行きたくない',
+          role: '谓语',
+          meaning: '不想去',
+          vocab: [{ surface: '行き', lemma: '行く', lemmaReading: 'いく', partOfSpeech: 'verb', meaning: '去' }],
+        },
+      ],
+      grammar: [{ pattern: '〜たい', chunkSurfaces: ['行きたくない'], explanation: '表示愿望', jlpt: 'N5' }],
+    });
+    const normLegacy = toSentenceExplanation(rawLegacy, { sentence: '行きたくない', targetLanguage: 'zh-CN' }, { model: 'gemini-2.5-flash', now: 200 });
+    expect(normLegacy.grammar).toEqual([
+      { id: 'g0', pattern: '〜たい', chunkIds: ['c0'], explanation: '表示愿望', jlpt: 'N5' },
+    ]);
   });
 });
 

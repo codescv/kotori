@@ -1,15 +1,19 @@
 /**
  * One semantic chunk (意群): annotated surface with furigana, 📘 textbook form,
- * 🔥 spoken-language evolution, grammatical role, meaning and nuance. When
- * `active` it is highlighted and scrolled into view (`block: 'nearest'`) —
- * except the first card on mount, so the panel opens at `scrollTop = 0`.
+ * 🔥 spoken-language evolution, 📐 inline grammar, grammatical role, meaning,
+ * nuance, and active-expand vocabulary (full `<VocabItem compact />` on the
+ * active card, clickable 1-line lemma chips on inactive cards).
+ *
+ * When `active` it is highlighted and scrolled into view (`block: 'nearest'`,
+ * `behavior: 'auto'`) — except the first card on mount, so the panel opens at
+ * `scrollTop = 0`.
  *
  * Redundant lines are dropped: the reading when it equals the surface (pure
  * kana chunks), and 📘 textbook form when it equals the surface with no 🔥
  * evolution. Romaji is shown only with `settings.anime.showRomaji`.
  */
 import { memo, useEffect, useMemo, useRef } from 'react';
-import type { Id, SemanticChunk, VocabEnrichment, VocabEntry } from '@kotori/core';
+import type { GrammarPoint, Id, SemanticChunk, VocabEnrichment, VocabEntry } from '@kotori/core';
 import type { Translate } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
 import { cx } from '../m3/cx';
@@ -22,6 +26,7 @@ export interface ChunkCardProps {
   readonly index: number;
   readonly active: boolean;
   readonly vocab: readonly VocabEntry[];
+  readonly grammar?: readonly GrammarPoint[] | undefined;
   readonly enrichments?: ReadonlyMap<string, VocabEnrichment> | undefined;
   readonly focusedVocabId?: Id | undefined;
   readonly onSelect: (chunkId: string) => void;
@@ -29,7 +34,20 @@ export interface ChunkCardProps {
   readonly t: Translate;
 }
 
-function ChunkCardImpl({ chunk, index, active, vocab, enrichments, focusedVocabId, onSelect, onSelectChar, t }: ChunkCardProps) {
+const normPattern = (s: string): string => s.trim().replace(/^[~〜～]+/u, '');
+
+function ChunkCardImpl({
+  chunk,
+  index,
+  active,
+  vocab,
+  grammar,
+  enrichments,
+  focusedVocabId,
+  onSelect,
+  onSelectChar,
+  t,
+}: ChunkCardProps) {
   const ref = useRef<HTMLElement>(null);
   const mountedRef = useRef(false);
   const showRomaji = useSettingsStore((s) => s.settings.anime.showRomaji ?? false);
@@ -40,10 +58,11 @@ function ChunkCardImpl({ chunk, index, active, vocab, enrichments, focusedVocabI
     // The first card is already in view at the top: scrolling it "into view"
     // on open would push the sticky sentence / translation off-screen.
     if (firstRun && index === 0) return;
-    if (active && ref.current && typeof ref.current.scrollIntoView === 'function') {
-      ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (active) {
+      ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
     }
   }, [active, index]);
+
   const evolved = chunk.spokenEvolution;
   const surface = chunk.surface.trim();
   const reading = chunk.reading.trim();
@@ -53,6 +72,13 @@ function ChunkCardImpl({ chunk, index, active, vocab, enrichments, focusedVocabI
   const textbook = chunk.textbookForm.trim();
   const showTextbook = textbook !== '' && (textbook !== surface || evolved !== undefined);
   const formality = evolved?.formality;
+
+  const grammarList = grammar ?? [];
+  const patternTrimmed = chunk.grammarPattern?.trim() ?? '';
+  const showGrammarPattern =
+    patternTrimmed !== '' && !grammarList.some((g) => normPattern(g.pattern) === normPattern(patternTrimmed));
+  const hasGrammar = grammarList.length > 0 || showGrammarPattern;
+
   return (
     <article
       ref={ref}
@@ -109,6 +135,39 @@ function ChunkCardImpl({ chunk, index, active, vocab, enrichments, focusedVocabI
           )}
         </div>
       )}
+      {hasGrammar && (
+        <div className="k-chunk-card__grammar-list">
+          {grammarList.map((g) => {
+            const gMeaning = (g as { readonly meaning?: string }).meaning?.trim();
+            const gExpl = g.explanation?.trim();
+            const grammarText = gMeaning
+              ? `${gMeaning}${gExpl && gExpl !== gMeaning && gExpl !== chunk.meaning ? ` — ${gExpl}` : ''}`
+              : gExpl && gExpl !== chunk.meaning
+                ? gExpl
+                : '';
+            return (
+              <div key={g.id} className="k-chunk-card__grammar-item" data-testid={`chunk-grammar-${g.id}`}>
+                <span className="k-chunk-card__evo-tag k-chunk-card__evo-tag--grammar" lang="ja">
+                  📐 {g.pattern}
+                  {g.jlpt ? ` · ${g.jlpt}` : ''}
+                </span>
+                {grammarText && <span className="k-chunk-card__grammar-meaning">{grammarText}</span>}
+              </div>
+            );
+          })}
+          {showGrammarPattern && (
+            <div className="k-chunk-card__grammar-item">
+              <span
+                className="k-chunk-card__evo-tag k-chunk-card__evo-tag--grammar"
+                data-testid={`chunk-grammar-pattern-${chunk.id}`}
+                lang="ja"
+              >
+                📐 {patternTrimmed}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
       <p className="k-chunk-card__meaning">{chunk.meaning}</p>
       {chunk.nuance && <p className="k-chunk-card__nuance">💡 {chunk.nuance}</p>}
       {chunk.alignment === 'unaligned' && <p className="k-chunk-card__warn">{t('breakdown.unaligned')}</p>}
@@ -119,6 +178,7 @@ function ChunkCardImpl({ chunk, index, active, vocab, enrichments, focusedVocabI
               key={v.id}
               item={v}
               compact
+              testIdPrefix="chunk-vocab"
               enrichment={enrichments?.get(v.id)}
               linked={focusedVocabId === v.id}
               onSelect={onSelectChar}
@@ -126,6 +186,29 @@ function ChunkCardImpl({ chunk, index, active, vocab, enrichments, focusedVocabI
             />
           ))}
         </ul>
+      )}
+      {!active && orderedVocab.length > 0 && (
+        <div className="k-chunk-card__vocab-chips" role="list">
+          {orderedVocab.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              className="k-chunk-vocab-chip"
+              data-testid={`chunk-vocab-chip-${v.id}`}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                const targetChar = v.charSpan[1] > v.charSpan[0] ? v.charSpan[0] : chunk.charSpan[0];
+                if (onSelectChar) onSelectChar(targetChar);
+                else onSelect(chunk.id);
+              }}
+            >
+              <span className="k-chunk-vocab-chip__lemma" lang="ja">
+                {v.lemma}
+              </span>
+              <span className="k-chunk-vocab-chip__meaning">{v.meaning}</span>
+            </button>
+          ))}
+        </div>
       )}
     </article>
   );

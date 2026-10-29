@@ -122,11 +122,13 @@ export function toSentenceExplanation(raw: RawExplanation, req: Pick<ExplainRequ
     };
     const evo = evolutionFor(surface, textbookForm, rc.spokenEvolution);
     if (evo) chunk.spokenEvolution = evo;
+    const grammarPattern = rc.grammarPattern?.trim();
+    if (grammarPattern) chunk.grammarPattern = grammarPattern;
     if (rc.nuance !== undefined) chunk.nuance = rc.nuance;
     chunks.push(chunk);
   });
 
-  const grammar: GrammarPoint[] = raw.grammar.map((g, gi) => {
+  const grammar: GrammarPoint[] = (raw.grammar ?? []).map((g, gi) => {
     const gp: { -readonly [K in keyof GrammarPoint]: GrammarPoint[K] } = {
       id: `g${gi}`,
       pattern: g.pattern,

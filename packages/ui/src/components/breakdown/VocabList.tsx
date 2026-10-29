@@ -27,6 +27,7 @@ export interface VocabItemProps {
   readonly primaryLinked?: boolean | undefined;
   readonly index?: number | undefined;
   readonly compact?: boolean | undefined;
+  readonly testIdPrefix?: string | undefined;
   readonly enrichment?: VocabEnrichment | undefined;
   readonly onSelect?: ((charIndex: number) => void) | undefined;
   readonly t: Translate;
@@ -234,6 +235,7 @@ export function VocabItem({
   primaryLinked = false,
   index = 0,
   compact = false,
+  testIdPrefix,
   enrichment: e,
   onSelect,
   t,
@@ -255,11 +257,12 @@ export function VocabItem({
   const freqs = enriched ? pickFrequencies(e.frequencies, status === 'uncertain' || kanaSurface) : [];
   const pitches = enriched && status !== 'uncertain' ? e.pitches : [];
   const kanaLabel = v.lemmaReading || v.surface;
+  const prefix = testIdPrefix ?? (compact ? 'chunk-vocab' : 'vocab');
   return (
     <li
       ref={ref}
       className={cx('k-vocab', compact && 'k-vocab--compact', linked && 'is-linked', enriched && `is-dict-${status}`)}
-      data-testid={compact ? `chunk-vocab-${v.id}` : `vocab-${v.id}`}
+      data-testid={`${prefix}-${v.id}`}
       data-dict-status={enriched ? status : undefined}
       aria-current={linked || undefined}
       onClick={(ev) => {
@@ -277,7 +280,7 @@ export function VocabItem({
           type="button"
           className={cx('k-vocab__tts', compact && 'k-chunk-card__tts')}
           title={t('dict.tts')}
-          data-testid={compact ? `chunk-vocab-tts-${v.id}` : `vocab-tts-${v.id}`}
+          data-testid={`${prefix}-tts-${v.id}`}
           onPointerDown={stop}
           onTouchStart={stop}
           onClick={(ev) => {
@@ -296,7 +299,7 @@ export function VocabItem({
       </div>
       {compact ? (
         <>
-          <div className="k-vocab__meaning k-vocab__ctx" data-testid={`chunk-vocab-meaning-${v.id}`}>
+          <div className="k-vocab__meaning k-vocab__ctx" data-testid={`${prefix}-meaning-${v.id}`}>
             {v.surface !== v.lemma && (
               <span className="k-vocab__surface" lang="ja">
                 {v.surface} ←{' '}
@@ -309,6 +312,7 @@ export function VocabItem({
               </span>
             )}
           </div>
+          {v.notes && <div className="k-vocab__notes">{v.notes}</div>}
           {enriched && status === 'matched' && <DictSenses groups={e.senseGroups} limit={2} showLabel={false} />}
           {enriched && status === 'uncertain' && <UncertainCandidates candidates={e.candidates ?? []} t={t} />}
         </>

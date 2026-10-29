@@ -36,6 +36,9 @@ describe('buildExplainPrompt', () => {
     expect(sys).toContain('"やっぱり"');
     expect(sys).not.toContain('lemmaRuby');
     expect(sys).not.toContain('jlpt');
+    expect(sys).toContain('`grammarPattern` on a chunk');
+    expect(sys).not.toContain('grammar explanation');
+    expect(sys).not.toContain('grammar.chunkSurfaces');
   });
   it('omits optional sections', () => {
     const t = textOf(buildExplainPrompt({ sentence: 'あ', source: { kind: 'manual' }, targetLanguage: 'en' }).contents[0]?.parts ?? []);
@@ -86,6 +89,36 @@ describe('buildFollowUpPrompt', () => {
     });
     expect(p.systemInstruction).toContain('Your name/nickname is "小鳥ちゃん".');
     expect(p.systemInstruction).toContain('你是一只傲娇但热心的京都小鸟');
+  });
+  it('summariseExplanation includes chunk.grammarPattern when present and keeps legacy grammar when non-empty', () => {
+    const withChunkPattern: SentenceExplanation = {
+      ...expl,
+      chunks: [
+        {
+          id: 'c0',
+          charSpan: [0, 1],
+          alignment: 'exact',
+          surface: 'あ',
+          reading: 'あ',
+          ruby: [],
+          textbookForm: 'あ',
+          grammarPattern: '〜てしまう',
+          role: 'interjection',
+          meaning: 'ah',
+          vocabIds: [],
+        },
+      ],
+    };
+    const s1 = JSON.parse(summariseExplanation(withChunkPattern)) as Record<string, unknown>;
+    expect((s1.chunks as { grammarPattern?: string }[])[0]?.grammarPattern).toBe('〜てしまう');
+    expect('grammar' in s1).toBe(false);
+
+    const withLegacyGrammar: SentenceExplanation = {
+      ...expl,
+      grammar: [{ id: 'g0', pattern: '〜ばかりに', chunkIds: [], explanation: 'just because' }],
+    };
+    const s2 = JSON.parse(summariseExplanation(withLegacyGrammar)) as Record<string, unknown>;
+    expect(s2.grammar).toEqual([{ pattern: '〜ばかりに', explanation: 'just because' }]);
   });
 });
 

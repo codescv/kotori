@@ -278,14 +278,30 @@ describe('Unified inline <VocabItem compact /> in ChunkCard & AiBreakdownPanel',
     expect(compactCard.textContent).not.toContain('🎯 语境义');
     expect(compactCard.textContent).not.toContain('💡 语感');
 
-    // Only 1 batch enrichVocab RPC for the whole sentence; switching chunks or opening 词汇 tab triggers 0 extra RPCs.
+    // Only 1 batch enrichVocab RPC for the whole sentence; switching chunks in the unified 0-tab flow triggers 0 extra RPCs.
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
     expect(host.calls.get('dict.enrichVocab')).toBe(1);
     fireEvent.click(screen.getByTestId(`chunk-${BAND.chunks[0]!.id}`));
     const bando = vocabByLemma(BAND, 'バンド');
     expect(within(screen.getByTestId(`chunk-vocab-${bando.id}`)).getByTestId('vocab-pitch-badge')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: /词汇/ }));
-    expect(within(screen.getByTestId(`vocab-${taberu.id}`)).getByTestId('vocab-pitch-badge')).toBeInTheDocument();
+    expect(screen.getByTestId(`chunk-vocab-chip-${taberu.id}`)).toBeInTheDocument();
     expect(host.calls.get('dict.enrichVocab')).toBe(1);
+
+    // Compact mode renders v.notes without the '💡 语感' prefix.
+    act(() => {
+      opening = useBreakdownStore.getState().open(host, {
+        sentence: BET.sentence,
+        source: { kind: 'manual' },
+        focusCharIndex: BET.sentence.indexOf('賭'),
+      });
+    });
+    await act(async () => {
+      await opening;
+    });
+    const kakeruBet = vocabByLemma(BET, '賭ける');
+    const compactBet = screen.getByTestId(`chunk-vocab-${kakeruBet.id}`);
+    expect(compactBet.textContent).toContain('孤注一掷');
+    expect(compactBet.textContent).not.toContain('💡 语感');
   });
 
   it('highlights full katakana word in BreakdownSkeleton and preserves click focus inside ChunkCard without bubbling or reordering', async () => {
