@@ -31,6 +31,8 @@ export interface TranscriptPanelProps {
   readonly highlightFor: (cue: SubtitleCue) => CueHighlight;
   readonly cachedCueIndexes?: ReadonlySet<number> | undefined;
   readonly prefetchingCueIndexes?: ReadonlySet<number> | undefined;
+  /** 副字幕 text per `row.rep`, used when the row has no inline bilingual translation. */
+  readonly secondaryTextByRep?: ReadonlyMap<number, string> | undefined;
   /** Whether to prefer scrolling to `explaining` row on mount before playback moves (default `true`). */
   readonly preferExplainingOnMount?: boolean | undefined;
   readonly t: Translate;
@@ -102,13 +104,14 @@ interface RowProps {
   readonly prefetching: boolean;
   readonly cachedTitle: string;
   readonly prefetchingTitle: string;
+  readonly secondaryText?: string | undefined;
   readonly onRowClick: (row: TranscriptRow, shift: boolean) => void;
   readonly onSeek: (row: TranscriptRow) => void;
   readonly onCharClick: (cue: SubtitleCue, i: number) => void;
   readonly onLongPress: (row: TranscriptRow) => void;
 }
 
-const Row = memo(function Row({ row, active, selected, selectMode, highlight, cached, prefetching, cachedTitle, prefetchingTitle, onRowClick, onSeek, onCharClick, onLongPress }: RowProps) {
+const Row = memo(function Row({ row, active, selected, selectMode, highlight, cached, prefetching, cachedTitle, prefetchingTitle, secondaryText, onRowClick, onSeek, onCharClick, onLongPress }: RowProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const longPressed = useRef(false);
   const onPointerDown = (e: PointerEvent): void => {
@@ -122,6 +125,7 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
   const cancel = (): void => clearTimeout(timer.current);
   const actor = cueActor(row.cue);
   const { primaryJa, secondaryTranslation } = useMemo(() => splitBilingualCueText(row.cue.text), [row.cue.text]);
+  const translation = secondaryTranslation ?? secondaryText;
   const [secondaryOpen, setSecondaryOpen] = useState(false);
   return (
     <li
@@ -171,7 +175,7 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
             onCharClick={selectMode ? undefined : (i) => onCharClick(row.cue, i)}
           />
         </div>
-        {secondaryTranslation && (
+        {translation && (
           <button
             type="button"
             className={cx('k-transcript__secondary', secondaryOpen && 'is-open')}
@@ -182,7 +186,7 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
               setSecondaryOpen((o) => !o);
             }}
           >
-            {secondaryTranslation}
+            {translation}
           </button>
         )}
       </div>
@@ -213,6 +217,7 @@ export function TranscriptPanel({
   highlightFor,
   cachedCueIndexes,
   prefetchingCueIndexes,
+  secondaryTextByRep,
   preferExplainingOnMount = true,
   t,
 }: TranscriptPanelProps) {
@@ -324,6 +329,7 @@ export function TranscriptPanel({
             prefetching={Boolean(prefetchingCueIndexes?.has(row.rep))}
             cachedTitle={t('transcript.preExplained')}
             prefetchingTitle={t('transcript.prefetching')}
+            secondaryText={secondaryTextByRep?.get(row.rep)}
             onRowClick={onRowClick}
             onSeek={onSeek}
             onCharClick={onCharClick}

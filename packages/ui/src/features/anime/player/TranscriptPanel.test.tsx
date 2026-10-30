@@ -100,4 +100,39 @@ describe('TranscriptPanel · scrollTargetRowIndex', () => {
       rafSpy.mockRestore();
     }
   });
+
+  it('uses secondaryTextByRep as fallback translation while preserving inline secondaryTranslation precedence', () => {
+    const rows: readonly TranscriptRow[] = [
+      makeRow(0, 1000, 3000, 'おはよう、ことり。'),
+      makeRow(1, 4000, 6000, 'うん、朝の空気が好きなんだ。\n嗯，我喜欢早晨的空气（内嵌）'),
+      makeRow(2, 7000, 9000, '昨日のケーキ、全部食べたでしょ。'),
+    ];
+    const secondaryTextByRep = new Map<number, string>([
+      [0, '早啊，小鸟（外挂副字幕）'],
+      [1, '嗯，我喜欢早晨的空气（外挂副字幕）'],
+    ]);
+
+    render(
+      <TranscriptPanel
+        rows={rows}
+        activeRawIndexes={new Set()}
+        currentMs={0}
+        selected={new Set()}
+        onSelectedChange={() => {}}
+        onSeek={() => {}}
+        onCharClick={() => {}}
+        onExplainSelection={() => {}}
+        highlightFor={() => NO_HL}
+        secondaryTextByRep={secondaryTextByRep}
+        t={t}
+      />,
+    );
+
+    const renderedRows = screen.getAllByTestId('transcript-row');
+    expect(renderedRows[0]?.querySelector('[data-testid="transcript-secondary"]')?.textContent).toBe('早啊，小鸟（外挂副字幕）');
+    // Inline bilingual translation takes precedence over secondaryTextByRep
+    expect(renderedRows[1]?.querySelector('[data-testid="transcript-secondary"]')?.textContent).toBe('嗯，我喜欢早晨的空气（内嵌）');
+    // Row with neither inline translation nor secondaryTextByRep has no secondary button
+    expect(renderedRows[2]?.querySelector('[data-testid="transcript-secondary"]')).toBeNull();
+  });
 });

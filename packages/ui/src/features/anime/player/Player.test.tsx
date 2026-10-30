@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ParsedSubtitleTrack } from '@kotori/core';
 import { DEFAULT_SETTINGS } from '../../../app/default-settings';
 import { dispatchBackNavigation, useRouteStore } from '../../../app/routes';
+import { HostProvider } from '../../../host/HostContext';
+import { createMockPlatformHost } from '../../../host/mock-host';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { useSnackbarStore } from '../../../stores/snackbar';
@@ -747,6 +750,274 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       rotated.unmount();
       expect(setImmersive).toHaveBeenCalledTimes(1);
       expect(setImmersive).toHaveBeenCalledWith({ immersive: false, orientation: 'keep' });
+    });
+  });
+
+  describe('secondary subtitles (副字幕)', () => {
+    it('#0 regression at 45 s with zh auto-enabled: primary overlay-cue resolves one element and secondary is absent when no zh cue is active', async () => {
+      const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const primary = await screen.findByTestId('overlay-cue');
+      await waitFor(() => expect(host.calls.get('anime.getCues')).toBe(2));
+      expect(screen.getAllByTestId('overlay-cue')).toHaveLength(1);
+      expect(primary.textContent).toBe('え、何の話だっけ？');
+      expect(screen.queryByTestId('overlay-secondary-cue')).toBeNull();
+    });
+
+    it('#1–#2 auto secondary renders Chinese cue below primary inside .k-sub-overlay__bottom with k-sub-line--secondary and lang="zh-CN"', async () => {
+      expect(playerCss).toMatch(/\.k-sub-line--secondary\s*\{[^}]*pointer-events:\s*none;/s);
+      expect(playerCss).toMatch(/\.k-player--immersive\s+\.k-hud\[data-visible="true"\]\s*~\s*\.k-sub-overlay\s+\.k-sub-line--secondary\s*\{[^}]*-webkit-line-clamp:\s*1;/s);
+      expect(playerCss).toMatch(/@media\s*\(max-height:\s*460px\)\s*\{[\s\S]*?\.k-player--immersive\s+\.k-hud\[data-visible="true"\]\s*~\s*\.k-sub-overlay\s+\.k-sub-line--secondary\s*\{[^}]*display:\s*none;/);
+      expect(playerCss).toMatch(/\.k-track-delay\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0;/s);
+
+      renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const row = await rowByText('おはよう、ことり。今日も早いね。');
+      fireEvent.click(row.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+
+      const sec = await screen.findByTestId('overlay-secondary-cue');
+      const pri = screen.getByTestId('overlay-cue');
+      expect(pri.textContent).toBe('おはよう、ことり。今日も早いね。');
+      expect(sec.textContent).toBe('早啊，小鸟。今天也这么早。');
+      expect(sec).toHaveClass('k-sub-line', 'k-sub-line--secondary');
+      expect(sec).toHaveAttribute('lang', 'zh-CN');
+      expect(sec.parentElement).toBe(pri.parentElement);
+      expect(sec.parentElement).toHaveClass('k-sub-overlay__bottom');
+      expect(Boolean(pri.compareDocumentPosition(sec) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    });
+
+    it('#3 menu track-secondary-off hides secondary cue, shows snackbar, and persists secondarySubtitle: off', async () => {
+      const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const row = await rowByText('おはよう、ことり。今日も早いね。');
+      fireEvent.click(row.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+      expect(await screen.findByTestId('overlay-secondary-cue')).toHaveTextContent('早啊，小鸟。今天也这么早。');
+
+      fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+      fireEvent.click(screen.getByTestId('track-secondary-off'));
+
+      expect(screen.queryByTestId('overlay-secondary-cue')).toBeNull();
+      expect(useSnackbarStore.getState().queue.at(-1)?.text).toBe('已关闭副字幕');
+      await waitFor(async () => {
+        expect(useSettingsStore.getState().settings.anime.secondarySubtitle).toBe('off');
+        expect((await host.settings.get()).anime.secondarySubtitle).toBe('off');
+      });
+
+      // Re-selecting the zh track turns secondary back on and promotes zh-CN in preferredSecondarySubtitleLanguages
+      fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+      fireEvent.click(screen.getByTestId('track-secondary-series-kotori-ep1-zh'));
+      expect(await screen.findByTestId('overlay-secondary-cue')).toHaveTextContent('早啊，小鸟。今天也这么早。');
+      expect(useSnackbarStore.getState().queue.at(-1)?.text).toMatch(/^已开启副字幕：/);
+      await waitFor(() => {
+        expect(useSettingsStore.getState().settings.anime.secondarySubtitle).toBe('auto');
+        expect(useSettingsStore.getState().settings.anime.preferredSecondarySubtitleLanguages?.[0]).toBe('zh-CN');
+      });
+    });
+
+    it('#4 menu omits current primary from secondary section, extracts embedded track as secondary without touching primary, and emits no duplicate-key warnings', async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        await screen.findByTestId('overlay-cue');
+        await waitFor(() => expect(host.calls.get('anime.getCues')).toBe(2));
+
+        fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+        expect(screen.getByText('主字幕 · 点击查词 / AI 解析')).toBeInTheDocument();
+        expect(screen.getByText('副字幕 · 主字幕下方小字')).toBeInTheDocument();
+
+        // Primary track is in primary section, NOT in secondary section
+        expect(screen.getByTestId('track-primary-series-kotori-ep1-ja')).toHaveClass('is-selected');
+        expect(screen.queryByTestId('track-secondary-series-kotori-ep1-ja')).toBeNull();
+        expect(screen.getByTestId('track-secondary-series-kotori-ep1-zh')).toHaveClass('is-selected');
+        expect(screen.getByTestId('track-secondary-series-kotori-ep1-emb2')).toBeInTheDocument();
+
+        const consoleErrors = errSpy.mock.calls.flat().map(String).join('\n');
+        expect(consoleErrors).not.toMatch(/Encountered two children with the same key/i);
+
+        // Extract unextracted embedded track into secondary slot -> primary stays untouched
+        fireEvent.click(screen.getByTestId('track-secondary-series-kotori-ep1-emb2'));
+        await waitFor(() => expect(host.calls.get('anime.extractEmbeddedTrack')).toBe(1));
+
+        await waitFor(() => {
+          fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+          expect(screen.getByTestId('track-primary-series-kotori-ep1-ja')).toHaveClass('is-selected');
+          expect(screen.getByTestId('track-secondary-series-kotori-ep1-emb2')).toHaveClass('is-selected');
+        });
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
+
+    it('#5 switching primary to the zh track clears overlay-secondary-cue via same-track guard', async () => {
+      renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const row = await rowByText('おはよう、ことり。今日も早いね。');
+      fireEvent.click(row.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+      expect(await screen.findByTestId('overlay-secondary-cue')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+      fireEvent.click(screen.getByTestId('track-primary-series-kotori-ep1-zh'));
+
+      await waitFor(() => expect(screen.getByTestId('overlay-cue').textContent).toBe('早啊，小鸟。今天也这么早。'));
+      expect(screen.queryByTestId('overlay-secondary-cue')).toBeNull();
+    });
+
+    it('#6 pressing B hides both primary and secondary cues', async () => {
+      renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const row = await rowByText('おはよう、ことり。今日も早いね。');
+      fireEvent.click(row.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+      expect(await screen.findByTestId('overlay-secondary-cue')).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: 'b' });
+      expect(screen.getByTestId('sub-overlay-hidden')).toBeInTheDocument();
+      expect(screen.queryByTestId('overlay-cue')).toBeNull();
+      expect(screen.queryByTestId('overlay-secondary-cue')).toBeNull();
+    });
+
+    it('#7 episode without a matching translation track (series-kotori-ep2) renders no secondary cue', async () => {
+      renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep2" />);
+      const row = await rowByText('おはよう、ことり。今日も早いね。');
+      fireEvent.click(row.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+      expect((await screen.findByTestId('overlay-cue')).textContent).toBe('おはよう、ことり。今日も早いね。');
+      expect(screen.queryByTestId('overlay-secondary-cue')).toBeNull();
+    });
+
+    it('#8 transcript row with matching secondary cue shows transcript-secondary while unmatched row has none', async () => {
+      const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      await waitFor(() => expect(host.calls.get('anime.getCues')).toBe(2));
+
+      const matchedRow = await rowByText('おはよう、ことり。今日も早いね。');
+      await waitFor(() =>
+        expect(within(matchedRow).getByTestId('transcript-secondary')).toHaveTextContent('早啊，小鸟。今天也这么早。'),
+      );
+
+      const unmatchedRow = await rowByText('え、何の話だっけ？');
+      expect(within(unmatchedRow).queryByTestId('transcript-secondary')).toBeNull();
+    });
+
+    it('#9 secondary +100 delay adjusts only secondary track and does not pin auto or mutate persisted settings', async () => {
+      const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      await screen.findByTestId('overlay-cue');
+      await waitFor(() => expect(host.calls.get('anime.getCues')).toBe(2));
+
+      const setDelaySpy = vi.spyOn(host.anime, 'setTrackDelay');
+      fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+
+      expect(screen.getByTestId('track-delay-primary')).toHaveTextContent('主字幕延迟 0 ms');
+      const secDelayRow = screen.getByTestId('track-delay-secondary');
+      expect(secDelayRow).toHaveTextContent('副字幕延迟 0 ms');
+
+      fireEvent.click(within(secDelayRow).getByRole('button', { name: '+100' }));
+      await waitFor(() => expect(setDelaySpy).toHaveBeenCalledTimes(1));
+      expect(setDelaySpy).toHaveBeenCalledWith('series-kotori-ep1-zh', 100);
+      expect(host.calls.get('settings.update')).toBeUndefined();
+      expect(useSettingsStore.getState().settings.anime.secondarySubtitle).toBe('auto');
+      expect(useSettingsStore.getState().settings.anime.preferredSecondarySubtitleLanguages).toEqual(['zh-CN', 'zh', 'zh-TW', 'en']);
+
+      await waitFor(() => expect(screen.getByTestId('track-delay-secondary')).toHaveTextContent('副字幕延迟 100 ms'));
+    });
+
+    it('#10 bilingual primary track holds off getCues(zh) while loading, keeps auto secondary undefined, and suppresses inline span only when secondary is manually chosen', async () => {
+      const host = createMockPlatformHost({ latencyMs: 0, streamDelayMs: 0 });
+      const origGetCues = host.anime.getCues.bind(host.anime);
+      let resolvePrimary!: (value: ParsedSubtitleTrack) => void;
+      const primaryGate = new Promise<ParsedSubtitleTrack>((r) => {
+        resolvePrimary = r;
+      });
+
+      const getCuesSpy = vi.spyOn(host.anime, 'getCues').mockImplementation((id: string) => {
+        if (id === 'series-kotori-ep1-ja') return primaryGate;
+        return origGetCues(id);
+      });
+
+      render(
+        <HostProvider host={host}>
+          <Player seriesId="series-kotori" episodeId="series-kotori-ep1" />
+        </HostProvider>,
+      );
+
+      // Wait until PlayerView mounted and issued primary getCues
+      await waitFor(() => expect(getCuesSpy).toHaveBeenCalledWith('series-kotori-ep1-ja'));
+      // While cuesQ.loading is true, no secondary getCues(zh) call is issued!
+      expect(getCuesSpy).not.toHaveBeenCalledWith('series-kotori-ep1-zh');
+
+      const bilingualTrack: ParsedSubtitleTrack = {
+        info: { format: 'ass', encoding: 'utf-8', language: 'ja' },
+        cues: [
+          {
+            index: 0,
+            startMs: 32_000,
+            endMs: 34_600,
+            text: 'おはよう、ことり。今日も早いね。\n早安，小鸟（内嵌双语）',
+            rawText: 'おはよう、ことり。今日も早いね。\\N早安，小鸟（内嵌双语）',
+          },
+          {
+            index: 1,
+            startMs: 43_500,
+            endMs: 45_500,
+            text: 'え、何の話だっけ？\n诶，在说什么来着？（内嵌双语）',
+            rawText: 'え、何の話だっけ？\\N诶，在说什么来着？（内嵌双语）',
+          },
+        ],
+        warnings: [],
+      };
+
+      await act(async () => {
+        resolvePrimary(bilingualTrack);
+        await primaryGate;
+      });
+
+      const cueAt45 = await screen.findByTestId('overlay-cue');
+      expect(cueAt45.querySelector('.k-sub-line__secondary')?.textContent).toBe('诶，在说什么来着？（内嵌双语）');
+      expect(screen.queryByTestId('overlay-secondary-cue')).toBeNull();
+      expect(getCuesSpy).not.toHaveBeenCalledWith('series-kotori-ep1-zh');
+
+      // Seek to 32 s and manually enable the external zh track -> inline .k-sub-line__secondary is suppressed in favor of overlay-secondary-cue
+      const row0 = await rowByText('おはよう、ことり。今日も早いね。');
+      fireEvent.click(row0.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+      expect(screen.getByTestId('overlay-cue').querySelector('.k-sub-line__secondary')?.textContent).toBe('早安，小鸟（内嵌双语）');
+
+      fireEvent.click(screen.getByRole('button', { name: '字幕轨' }));
+      fireEvent.click(screen.getByTestId('track-secondary-series-kotori-ep1-zh'));
+
+      expect(await screen.findByTestId('overlay-secondary-cue')).toHaveTextContent('早啊，小鸟。今天也这么早。');
+      expect(screen.getByTestId('overlay-cue').querySelector('.k-sub-line__secondary')).toBeNull();
+    });
+
+    it('stacks .k-sub-overlay above .k-player__sim in portrait/expanded layouts so simulated stage never paints over subtitles', async () => {
+      const zOf = (selectorPattern: RegExp): number => {
+        const block = selectorPattern.exec(playerCss)?.[1] ?? '';
+        const z = /z-index:\s*(\d+)\s*;/.exec(block)?.[1];
+        return z === undefined ? Number.NaN : Number(z);
+      };
+      const simZ = zOf(/(?:^|\n)\.k-player__sim\s*\{([^}]*)\}/);
+      const overlayZ = zOf(/(?:^|\n)\.k-sub-overlay\s*\{([^}]*)\}/);
+      const immersiveOverlayZ = zOf(/\.k-player--immersive\s+\.k-sub-overlay\s*\{([^}]*)\}/);
+      const subsHiddenZ = zOf(/(?:^|\n)\.k-player__subs-hidden\s*\{([^}]*)\}/);
+
+      expect(simZ).toBe(1);
+      expect(overlayZ).toBeGreaterThan(simZ);
+      expect(overlayZ).toBe(5);
+      expect(immersiveOverlayZ).toBeGreaterThan(overlayZ);
+      expect(subsHiddenZ).toBeGreaterThan(immersiveOverlayZ);
+
+      setViewport(390, 844);
+      try {
+        const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        const row = await rowByText('おはよう、ことり。今日も早いね。');
+        fireEvent.error(container.querySelector('video')!);
+        fireEvent.click(row.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+
+        const pri = await screen.findByTestId('overlay-cue');
+        const sec = await screen.findByTestId('overlay-secondary-cue');
+        const playerRoot = container.querySelector('.k-player');
+        const sim = container.querySelector('.k-player__sim');
+        const overlay = container.querySelector('.k-sub-overlay');
+        expect(playerRoot).not.toHaveClass('k-player--immersive');
+        expect(sim).not.toBeNull();
+        expect(overlay).not.toBeNull();
+        expect(sim?.parentElement).toBe(overlay?.parentElement);
+        expect(overlay).toContainElement(pri);
+        expect(overlay).toContainElement(sec);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 });

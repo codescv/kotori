@@ -1,7 +1,8 @@
 /**
- * Episode player: `<video>` + clickable subtitle overlay + transcript /
- * AI-breakdown drawer (immersive full-bleed landscape/fullscreen with floating
- * HUD + docked side drawer, desktop expanded split-pane, phone portrait sheet).
+ * Episode player: `<video>` + clickable primary subtitle (主字幕) + optional
+ * smaller secondary translation subtitle (副字幕) + transcript / AI-breakdown
+ * drawer (immersive full-bleed landscape/fullscreen with floating HUD + docked
+ * side drawer, desktop expanded split-pane, phone portrait sheet).
  *
  * Keyboard: Space play/pause · ←/→ previous/next line · R repeat line ·
  * B hide/show subtitles · Esc close drawer / breakdown / fullscreen.
@@ -25,15 +26,28 @@ import { useHost } from '../../../host/HostContext';
 import { useAsync } from '../../../host/useAsync';
 import { useIsExpanded, useIsMobileLandscape } from '../../../hooks/useMediaQuery';
 import { useT } from '../../../i18n';
-import { buildTranscriptRows, formatAnimeEpisodeTitle, formatAnimeSeriesTitle, formatClock } from '../../../lib/cues';
+import {
+  buildTranscriptRows,
+  formatAnimeEpisodeTitle,
+  formatAnimeSeriesTitle,
+  formatClock,
+  isBilingualTrack,
+  matchSecondaryCuesToRows,
+} from '../../../lib/cues';
 import { useBackInterceptor, useRouteStore } from '../../../app/routes';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
 import { PlayerHud } from './PlayerHud';
 import { RepeatControls, useRepeat } from './RepeatControls';
+import {
+  DEFAULT_SECONDARY_LANGS,
+  resolveSecondaryTrackId,
+  trackLanguage,
+  type SecondaryChoice,
+} from './secondaryTrack';
 import { SubtitleOverlay } from './SubtitleOverlay';
-import { SubtitleTrackMenu } from './SubtitleTrackMenu';
+import { formatSubtitleTrackLabel, SubtitleTrackMenu, type TrackSelectionTarget } from './SubtitleTrackMenu';
 import { activeRowIndex, TranscriptPanel } from './TranscriptPanel';
 import { useFullscreenState } from './useFullscreenState';
 import { useMediaClock, usePlayerSync } from './usePlayerSync';
@@ -96,14 +110,23 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
 
   const seriesQ = useAsync(() => host.anime.getSeries(seriesId), [host, seriesId]);
   const [trackId, setTrackId] = useState<string | undefined>(() => pickDefaultTrack(episode, animeSettings.preferredSubtitleLanguages)?.id);
+  const [secondaryChoice, setSecondaryChoice] = useState<SecondaryChoice>({ kind: 'auto' });
+  const prevEpisodeIdRef = useRef(episodeId);
+  if (prevEpisodeIdRef.current !== episodeId) {
+    prevEpisodeIdRef.current = episodeId;
+    setSecondaryChoice({ kind: 'auto' });
+  }
   useEffect(() => {
     if (!trackId || !episode.subtitleTracks.some((x) => x.id === trackId)) {
       setTrackId(pickDefaultTrack(episode, animeSettings.preferredSubtitleLanguages)?.id);
     }
   }, [episode, trackId, animeSettings.preferredSubtitleLanguages]);
   const [cuesNonce, setCuesNonce] = useState(0);
-  const cuesQ = useAsync(async () => (trackId ? host.anime.getCues(trackId) : undefined), [host, trackId, cuesNonce]);
-  const cues = cuesQ.data?.cues ?? EMPTY_CUES;
+  const cuesQ = useAsync(
+    async () => (trackId ? { forTrackId: trackId, parsed: await host.anime.getCues(trackId) } : undefined),
+    [host, trackId, cuesNonce],
+  );
+  const cues = cuesQ.data?.parsed.cues ?? EMPTY_CUES;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const clock = useMediaClock(videoRef, { durationHintMs: episode.durationMs, startMs: episode.progress?.positionMs });
@@ -113,6 +136,48 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const rows = useMemo(() => buildTranscriptRows(cues, { mergeKaraoke: animeSettings.mergeKaraokeCues, hideSigns: animeSettings.hideSigns }), [cues, animeSettings.mergeKaraokeCues, animeSettings.hideSigns]);
   const activeRaw = useMemo(() => new Set(sync.activeIndexes.map((i) => cues[i]?.index ?? -1)), [sync.activeIndexes, cues]);
   const rowCues = useMemo(() => rows.map((r) => r.cue), [rows]);
+
+  const preferredSecondary = animeSettings.preferredSecondarySubtitleLanguages ?? DEFAULT_SECONDARY_LANGS;
+  const secondaryMode = animeSettings.secondarySubtitle ?? 'auto';
+  const primaryIsBilingual: boolean | undefined = !trackId
+    ? false
+    : cuesQ.loading || (cuesQ.data?.forTrackId !== trackId && !cuesQ.error)
+      ? undefined
+      : isBilingualTrack(rowCues);
+
+  const secondaryTrackId = useMemo(
+    () =>
+      resolveSecondaryTrackId(episode, trackId, secondaryChoice, {
+        preferred: preferredSecondary,
+        mode: secondaryMode,
+        primaryIsBilingual,
+      }),
+    [episode, trackId, secondaryChoice, preferredSecondary, secondaryMode, primaryIsBilingual],
+  );
+  const secondaryTrack = useMemo(
+    () => (secondaryTrackId ? episode.subtitleTracks.find((x) => x.id === secondaryTrackId) : undefined),
+    [episode.subtitleTracks, secondaryTrackId],
+  );
+  const secondaryCuesQ = useAsync(
+    async () => (secondaryTrackId ? { forTrackId: secondaryTrackId, parsed: await host.anime.getCues(secondaryTrackId) } : undefined),
+    [host, secondaryTrackId, cuesNonce],
+  );
+  useEffect(() => {
+    if (secondaryCuesQ.error) {
+      showSnackbar(t('player.secondaryLoadFailed', { message: secondaryCuesQ.error.message }), { tone: 'error' });
+    }
+  }, [secondaryCuesQ.error, t]);
+  const secondaryCues =
+    secondaryTrackId && !secondaryCuesQ.error && secondaryCuesQ.data?.parsed
+      ? secondaryCuesQ.data.parsed.cues
+      : EMPTY_CUES;
+  const secondarySync = usePlayerSync(secondaryCues, clock.currentMs);
+  const secondaryLang = secondaryTrack ? trackLanguage(secondaryTrack) : undefined;
+  const secondaryTextByRep = useMemo(
+    () => (secondaryCues.length > 0 ? matchSecondaryCuesToRows(rows, secondaryCues) : undefined),
+    [rows, secondaryCues],
+  );
+
   const sb = useSubtitleBreakdown({ episodeId, trackId, contextCues: rowCues, sceneHint: seriesQ.data?.title });
 
   const [blind, setBlind] = useState(false);
@@ -381,10 +446,36 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     [clock, sb, pauseOnTranscriptClick],
   );
 
+  const onSelectSecondaryTrack = useCallback(
+    (id: string | null) => {
+      if (id === null) {
+        setSecondaryChoice({ kind: 'off' });
+        void updateSettings(host, { anime: { secondarySubtitle: 'off' } });
+        showSnackbar(t('player.secondaryOffDone'));
+        return;
+      }
+      setSecondaryChoice({ kind: 'track', id });
+      const chosen = episode.subtitleTracks.find((x) => x.id === id);
+      const lang = chosen ? trackLanguage(chosen) : undefined;
+      if (lang) {
+        const nextLangs = [lang, ...preferredSecondary.filter((l) => l !== lang)];
+        void updateSettings(host, {
+          anime: {
+            secondarySubtitle: 'auto',
+            preferredSecondarySubtitleLanguages: nextLangs,
+          },
+        });
+      }
+      showSnackbar(t('player.secondaryOn', { label: chosen ? formatSubtitleTrackLabel(chosen, episode) : id }));
+    },
+    [episode, preferredSecondary, updateSettings, host, t],
+  );
+
   const onTracksChanged = useCallback(
-    (id?: string) => {
+    (select?: TrackSelectionTarget) => {
       reloadEpisode();
-      if (id) setTrackId(id);
+      if (select?.primary) setTrackId(select.primary);
+      if (select?.secondary) setSecondaryChoice({ kind: 'track', id: select.secondary });
       setCuesNonce((n) => n + 1);
     },
     [reloadEpisode],
@@ -595,6 +686,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       highlightFor={sb.highlightFor}
       cachedCueIndexes={preExplain.cachedCueIndexes}
       prefetchingCueIndexes={preExplain.prefetchingCueIndexes}
+      secondaryTextByRep={secondaryTextByRep}
       preferExplainingOnMount={preferExplainingOnMount}
       t={t}
     />
@@ -632,7 +724,9 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             <SubtitleTrackMenu
               episode={episode}
               trackId={trackId}
+              secondaryTrackId={secondaryTrackId}
               onSelectTrack={setTrackId}
+              onSelectSecondaryTrack={onSelectSecondaryTrack}
               onTracksChanged={onTracksChanged}
               t={t}
             />
@@ -668,7 +762,9 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               episode={episode}
               episodeTitle={episodeTitle}
               trackId={trackId}
+              secondaryTrackId={secondaryTrackId}
               onSelectTrack={setTrackId}
+              onSelectSecondaryTrack={onSelectSecondaryTrack}
               onTracksChanged={onTracksChanged}
               drawerOpen={immersiveDrawerOpen}
               onToggleDrawer={toggleImmersiveDrawer}
@@ -727,6 +823,9 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             onCharClick={onOverlayChar}
             highlightFor={sb.highlightFor}
             blindHint={t('player.blindHint')}
+            secondaryCues={secondaryCues}
+            secondaryActiveIndexes={secondarySync.activeIndexes}
+            secondaryLang={secondaryLang}
           />
         </div>
         {layout !== 'immersive' && clock.simulated && <p className="k-player__notice">{t('player.mediaError')}</p>}

@@ -12,7 +12,7 @@ export { TextField, type TextFieldProps } from './TextField';
 export { Dialog, type DialogProps } from './Dialog';
 export { SideSheet, BottomSheet, AdaptiveSheet, type SheetProps } from './Sheet';
 export { List, ListItem, type ListItemProps } from './List';
-export { Menu, type MenuItem } from './Menu';
+export { Menu, type MenuItem, type MenuHeading } from './Menu';
 export { Tooltip } from './Tooltip';
 export { SnackbarHost } from './Snackbar';
 export { Icon, type IconName } from './Icon';
