@@ -8,18 +8,22 @@
  * plain, non-clickable sub-line (char indices stay relative to the Japanese).
  * The focused chunk of the open explanation is painted back onto the cue.
  */
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import type { SubtitleCue } from '@kotori/core';
 import { RubyText } from '../../../components/breakdown/RubyText';
 import { cx } from '../../../components/m3/cx';
 import {
+  balanceSubtitleLines,
+  computeBalancedBreakOffsets,
   dropDuplicateLines,
   isSignCue,
   mergePerCharacterCueGroups,
   splitBilingualCueText,
   translationTextOf,
+  type LineBreakPlan,
 } from '../../../lib/cues';
 import type { CueHighlight } from './useSubtitleBreakdown';
+import { useSubtitleLineMetrics, type SubtitleLineMetrics } from './useSubtitleLineMetrics';
 
 export interface SubtitleOverlayProps {
   readonly cues: readonly SubtitleCue[];
@@ -35,6 +39,10 @@ export interface SubtitleOverlayProps {
   readonly secondaryActiveIndexes?: readonly number[] | undefined;
   /** BCP-47-ish tag of the secondary track for the `lang` attribute (font selection for zh vs ja glyphs). */
   readonly secondaryLang?: string | undefined;
+  /** Override responsive line-width measurements (used for deterministic wrapping tests). */
+  readonly lineMetrics?: SubtitleLineMetrics | undefined;
+  /** Line-clamp budget for secondary track (`1` in immersive when HUD is visible, else `2`). */
+  readonly secondaryMaxLines?: 1 | 2 | undefined;
 }
 
 /** Cues to display for the active set: karaoke groups merged, duplicates/comments/drawings dropped. */
@@ -57,6 +65,21 @@ export function visibleCues(cues: readonly SubtitleCue[], activeIndexes: readonl
 
 const normaliseLine = (s: string): string => s.replace(/[\s\u3000]+/g, '');
 
+function toBalanceLang(tag: string | undefined): 'ja' | 'zh' | 'en' | undefined {
+  if (!tag) return undefined;
+  const lower = tag.toLowerCase();
+  if (lower.startsWith('zh')) return 'zh';
+  if (lower.startsWith('en')) return 'en';
+  if (lower.startsWith('ja')) return 'ja';
+  return undefined;
+}
+
+interface CueLayoutEntry {
+  readonly primaryJa: string;
+  readonly plan: LineBreakPlan;
+  readonly inlineSecondary?: string | undefined;
+}
+
 function SubtitleOverlayImpl({
   cues,
   activeIndexes,
@@ -68,12 +91,42 @@ function SubtitleOverlayImpl({
   secondaryCues,
   secondaryActiveIndexes,
   secondaryLang,
+  lineMetrics,
+  secondaryMaxLines = 2,
 }: SubtitleOverlayProps) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const primaryProbeRef = useRef<HTMLSpanElement>(null);
+  const secondaryProbeRef = useRef<HTMLSpanElement>(null);
+  const measured = useSubtitleLineMetrics(overlayRef, primaryProbeRef, secondaryProbeRef, blind);
+  const metrics = lineMetrics ?? measured;
+
   const groups = useMemo(() => (mergeKaraoke ? mergePerCharacterCueGroups(cues) : undefined), [cues, mergeKaraoke]);
   const shown = useMemo(() => visibleCues(cues, activeIndexes, groups), [cues, activeIndexes, groups]);
   const top = shown.filter((c) => (c.markup?.alignment ?? 2) >= 7);
   const bottom = shown.filter((c) => (c.markup?.alignment ?? 2) < 7);
   const hasSecondaryTrack = Boolean(secondaryCues && secondaryCues.length > 0);
+
+  const layoutByCueKey = useMemo(() => {
+    const m = new Map<string, CueLayoutEntry>();
+    for (const c of shown) {
+      const isTop = (c.markup?.alignment ?? 2) >= 7;
+      const mapKey = `${isTop ? 't' : 'b'}\u0000${c.text}`;
+      if (m.has(mapKey)) continue;
+      const { primaryJa, secondaryTranslation } = splitBilingualCueText(c.text);
+      const maxPrimaryEm = isTop ? metrics.primaryMaxEm / 0.7 : metrics.primaryMaxEm;
+      const maxInlineEm = isTop ? metrics.inlineSecondaryMaxEm / 0.7 : metrics.inlineSecondaryMaxEm;
+      const plan = computeBalancedBreakOffsets(primaryJa, maxPrimaryEm);
+      const inlineSecondary =
+        !hasSecondaryTrack && secondaryTranslation
+          ? balanceSubtitleLines(secondaryTranslation, maxInlineEm, { maxLines: 2 })
+          : undefined;
+      m.set(mapKey, { primaryJa, plan, inlineSecondary });
+    }
+    return m;
+  }, [shown, metrics.primaryMaxEm, metrics.inlineSecondaryMaxEm, hasSecondaryTrack]);
+
+  const secondaryBalanceLang = toBalanceLang(secondaryLang);
+  const secondaryMaxEm = secondaryMaxLines === 1 ? Infinity : metrics.secondaryMaxEm;
   const secondaryShown = useMemo(() => {
     if (!secondaryCues?.length || !secondaryActiveIndexes?.length) return [];
     const primaryLines = new Set(shown.flatMap((c) => c.text.split(/\r?\n/).map(normaliseLine)).filter(Boolean));
@@ -81,28 +134,53 @@ function SubtitleOverlayImpl({
       .filter((c) => (c.markup?.alignment ?? 2) < 7 && !isSignCue(c))
       .map((c) => {
         const own = dropDuplicateLines(c.text, primaryLines);
-        return { cue: c, text: translationTextOf(own) };
+        const rawText = translationTextOf(own);
+        const text =
+          rawText.trim() === ''
+            ? ''
+            : balanceSubtitleLines(rawText, secondaryMaxEm, { lang: secondaryBalanceLang, maxLines: 2 });
+        return { cue: c, text };
       })
       .filter((x) => x.text.trim() !== '');
-  }, [shown, secondaryCues, secondaryActiveIndexes]);
+  }, [shown, secondaryCues, secondaryActiveIndexes, secondaryMaxEm, secondaryBalanceLang]);
+
   const render = (cue: SubtitleCue) => {
     const hl = highlightFor(cue);
-    const { primaryJa, secondaryTranslation } = splitBilingualCueText(cue.text);
+    const isTop = (cue.markup?.alignment ?? 2) >= 7;
+    const entry = layoutByCueKey.get(`${isTop ? 't' : 'b'}\u0000${cue.text}`);
+    const primaryJa = entry?.primaryJa ?? splitBilingualCueText(cue.text).primaryJa;
     return (
-      <div key={`${cue.index}-${cue.startMs}`} className={cx('k-sub-line', hl.explaining && 'is-explaining')} data-testid="overlay-cue" data-cue-index={cue.index}>
-        <RubyText text={primaryJa} highlight={hl.span} focusIndex={hl.focus} focusSpan={hl.focusSpan} onCharClick={(i) => onCharClick(cue, i)} />
-        {!hasSecondaryTrack && secondaryTranslation && <span className="k-sub-line__secondary">{secondaryTranslation}</span>}
+      <div
+        key={`${cue.index}-${cue.startMs}`}
+        className={cx('k-sub-line', hl.explaining && 'is-explaining')}
+        data-testid="overlay-cue"
+        data-cue-index={cue.index}
+      >
+        <RubyText
+          text={primaryJa}
+          highlight={hl.span}
+          focusIndex={hl.focus}
+          focusSpan={hl.focusSpan}
+          softBreakOffsets={entry?.plan.softBreaks}
+          joinHardBreakOffsets={entry?.plan.joinedHardBreaks}
+          onCharClick={(i) => onCharClick(cue, i)}
+        />
+        {entry?.inlineSecondary && <span className="k-sub-line__secondary">{entry.inlineSecondary}</span>}
       </div>
     );
   };
+
   if (blind) {
     // Hidden subtitles: keep the (empty) overlay element so layout / tests can see the state.
-    return <div className="k-sub-overlay is-blind" aria-live="off" title={blindHint} data-testid="sub-overlay-hidden" />;
+    return <div ref={overlayRef} className="k-sub-overlay is-blind" aria-live="off" title={blindHint} data-testid="sub-overlay-hidden" />;
   }
+
   return (
-    <div className="k-sub-overlay" aria-live="off">
+    <div ref={overlayRef} className="k-sub-overlay" aria-live="off">
       <div className="k-sub-overlay__top">{top.map(render)}</div>
       <div className="k-sub-overlay__bottom">
+        <span ref={primaryProbeRef} className="k-sub-line k-sub-line--probe" aria-hidden="true" />
+        <span ref={secondaryProbeRef} className="k-sub-line k-sub-line--secondary k-sub-line--probe" aria-hidden="true" />
         {bottom.map(render)}
         {secondaryShown.map(({ cue, text }) => (
           <div
@@ -112,7 +190,7 @@ function SubtitleOverlayImpl({
             data-cue-index={cue.index}
             lang={secondaryLang}
           >
-            {text}
+            <span className="k-sub-line--secondary__text">{text}</span>
           </div>
         ))}
       </div>

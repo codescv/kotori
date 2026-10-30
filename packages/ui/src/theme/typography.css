@@ -108,6 +108,10 @@
   border-bottom-right-radius: 4px;
 }
 
+.k-glyph--joined {
+  display: inline;
+}
+
 /* Markdown-light follow-up text */
 .k-md-line { display: block; min-height: 1em; }
 .k-md-line code {

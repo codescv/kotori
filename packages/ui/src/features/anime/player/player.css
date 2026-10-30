@@ -39,14 +39,14 @@
 }
 .k-player__notice { margin: 8px 0 0; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); }
 
-.k-sub-overlay { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; padding: 4% 6% 5%; }
-.k-player--compact .k-sub-overlay { padding: 3% 4% 4%; }
-.k-sub-overlay__top, .k-sub-overlay__bottom { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.k-player--compact .k-sub-overlay__top, .k-player--compact .k-sub-overlay__bottom { gap: 3px; }
+.k-sub-overlay { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; padding: 2.5% 3% 6px; }
+.k-player--compact .k-sub-overlay { padding: 2% 2.5% 4px; }
+.k-sub-overlay__top, .k-sub-overlay__bottom { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.k-player--compact .k-sub-overlay__top, .k-player--compact .k-sub-overlay__bottom { gap: 2px; }
 .k-sub-line {
   pointer-events: auto; max-width: 96%; padding: 2px 12px; border-radius: 10px;
   font-size: var(--kotori-subtitle-size); line-height: 1.55; font-weight: 600; text-align: center; color: #fff;
-  background: rgb(0 0 0 / 0.42); overflow-wrap: anywhere;
+  background: rgb(0 0 0 / 0.42); overflow-wrap: anywhere; text-wrap: balance;
   text-shadow: 0 0 3px #000, 0 0 6px rgb(0 0 0 / 0.8), 1px 1px 0 #000;
   transition: filter var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard), background-color var(--md-sys-motion-duration-short4);
 }
@@ -62,7 +62,7 @@
 /* Hide subtitles (B): the overlay renders no lines at all (no blur / hover reveal). */
 .k-sub-overlay.is-blind { display: none; }
 .k-sub-line__secondary {
-  display: block; font-size: 0.72em; font-weight: 500; line-height: 1.35; opacity: 0.82; pointer-events: none;
+  display: block; white-space: pre-line; text-wrap: balance; font-size: 0.72em; font-weight: 500; line-height: 1.35; opacity: 0.82; pointer-events: none;
 }
 /* 副字幕: translation track rendered under the Japanese line; smaller, dimmer, never clickable. */
 .k-sub-line--secondary {
@@ -79,6 +79,18 @@
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.k-sub-line--secondary__text {
+  display: block;
+  white-space: pre-line;
+  text-wrap: balance;
+}
+.k-sub-line--probe {
+  position: absolute;
+  visibility: hidden;
+  height: 0;
+  pointer-events: none;
   overflow: hidden;
 }
 .k-player--compact .k-sub-line--secondary {
@@ -364,13 +376,13 @@
 
 /* Subtitle overlay & badges in immersive mode */
 .k-player--immersive .k-sub-overlay {
-  --k-sub-bottom: max(14px, calc(var(--k-safe-bottom) + 10px));
+  --k-sub-bottom: max(4px, calc(var(--k-safe-bottom) + 4px));
   z-index: 15;
   padding:
     max(12px, calc(var(--k-safe-top) + 10px))
-    max(5%, calc(var(--k-stage-safe-right, 0px) + 16px))
+    max(3%, calc(var(--k-stage-safe-right, 0px) + 12px))
     var(--k-sub-bottom)
-    max(5%, calc(var(--k-stage-safe-left, 0px) + 16px));
+    max(3%, calc(var(--k-stage-safe-left, 0px) + 12px));
   transition: padding-bottom var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
 }
 .k-player--immersive .k-hud[data-visible="true"] ~ .k-sub-overlay {

@@ -826,6 +826,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             secondaryCues={secondaryCues}
             secondaryActiveIndexes={secondarySync.activeIndexes}
             secondaryLang={secondaryLang}
+            secondaryMaxLines={layout === 'immersive' && hudVisible ? 1 : 2}
           />
         </div>
         {layout !== 'immersive' && clock.simulated && <p className="k-player__notice">{t('player.mediaError')}</p>}

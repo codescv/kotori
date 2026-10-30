@@ -148,4 +148,115 @@ describe('RubyText', () => {
       expect(onCharClick).toHaveBeenLastCalledWith(0);
     });
   });
+
+  describe('softBreakOffsets & joinHardBreakOffsets (§3 zero-index-shift)', () => {
+    it('emits br.k-ruby-text__wbr before the target glyph with zero shift to data-char-start/end and click indices', () => {
+      const onCharClick = vi.fn();
+      const plain = render(<RubyText text={SENTENCE} segments={RUBY} />);
+      const plainSpans = [...plain.container.querySelectorAll('[data-glyph]')].map((el) => [
+        el.getAttribute('data-char-start'),
+        el.getAttribute('data-char-end'),
+      ]);
+      plain.unmount();
+
+      const { container } = render(
+        <RubyText
+          text={SENTENCE}
+          segments={RUBY}
+          softBreakOffsets={new Set([0, 5])}
+          onCharClick={onCharClick}
+        />,
+      );
+
+      // Offset 0 (firstSegStart) is ignored; only offset 5 produces a soft <br>.
+      const wbrs = container.querySelectorAll('br.k-ruby-text__wbr');
+      expect(wbrs).toHaveLength(1);
+      const wbr = wbrs[0] as HTMLElement;
+      expect(wbr.getAttribute('data-soft-break')).toBe('5');
+      expect(wbr.getAttribute('data-char-start')).toBe('5');
+      expect(wbr.getAttribute('data-char-end')).toBe('5');
+      expect(glyphAt(container, 5).previousElementSibling).toBe(wbr);
+
+      // [data-glyph] coordinate list is 100% identical to the no-break render.
+      const wrappedSpans = [...container.querySelectorAll('[data-glyph]')].map((el) => [
+        el.getAttribute('data-char-start'),
+        el.getAttribute('data-char-end'),
+      ]);
+      expect(wrappedSpans).toEqual(plainSpans);
+
+      // Clicking glyph 5 (first char on line 2), glyph 8, or the <br> itself maps accurately.
+      fireEvent.click(glyphAt(container, 5));
+      expect(onCharClick).toHaveBeenLastCalledWith(5);
+      fireEvent.click(glyphAt(container, 8));
+      expect(onCharClick).toHaveBeenLastCalledWith(8);
+      fireEvent.click(wbr);
+      expect(onCharClick).toHaveBeenLastCalledWith(5);
+    });
+
+    it('emits segment-level soft <br> as a sibling before <ruby> and never emits <br> inside <ruby>', () => {
+      const text = 'バンドの女子が歌う';
+      const segs: RubySegment[] = [
+        { base: 'バンドの', charSpan: [0, 4] },
+        { base: '女子', ruby: 'じょし', charSpan: [4, 6] },
+        { base: 'が', charSpan: [6, 7] },
+      ];
+      const onCharClick = vi.fn();
+
+      // Break at 4 (start of <ruby>) + defensive attempt at 5 (inside <ruby>).
+      const { container } = render(
+        <RubyText
+          text={text}
+          segments={segs}
+          softBreakOffsets={new Set([4, 5])}
+          onCharClick={onCharClick}
+        />,
+      );
+
+      const ruby = container.querySelector('ruby[data-char-start="4"]');
+      expect(ruby).not.toBeNull();
+      expect(ruby?.querySelectorAll('br')).toHaveLength(0);
+
+      const wbrs = container.querySelectorAll('br.k-ruby-text__wbr');
+      expect(wbrs).toHaveLength(1);
+      expect(ruby?.previousElementSibling).toBe(wbrs[0]);
+      expect(wbrs[0]?.getAttribute('data-soft-break')).toBe('4');
+
+      fireEvent.click(glyphAt(container, 4));
+      expect(onCharClick).toHaveBeenLastCalledWith(4);
+      fireEvent.click(glyphAt(container, 5));
+      expect(onCharClick).toHaveBeenLastCalledWith(5);
+    });
+
+    it('turns joined hard-break \\n into span.k-glyph--joined without data-glyph while preserving subsequent offsets', () => {
+      const onCharClick = vi.fn();
+      const text = '本当に楽しかった\nね。';
+      const { container } = render(
+        <RubyText
+          text={text}
+          softBreakOffsets={new Set([3])}
+          joinHardBreakOffsets={new Set([8])}
+          onCharClick={onCharClick}
+        />,
+      );
+
+      // Only the soft break at 3 is a <br>; the \n at 8 is an inline joined marker without data-glyph.
+      const brs = container.querySelectorAll('br');
+      expect(brs).toHaveLength(1);
+      expect(brs[0]).toHaveClass('k-ruby-text__wbr');
+      expect(brs[0]?.getAttribute('data-soft-break')).toBe('3');
+
+      const joined = container.querySelector('span.k-glyph--joined');
+      expect(joined).not.toBeNull();
+      expect(joined?.hasAttribute('data-glyph')).toBe(false);
+      expect(joined?.getAttribute('data-char-start')).toBe('8');
+      expect(joined?.getAttribute('data-char-end')).toBe('9');
+      expect(joined?.getAttribute('aria-hidden')).toBe('true');
+
+      // 'ね' is still at UTF-16 index 9 and '。' at 10.
+      expect(glyphAt(container, 9).textContent).toBe('ね');
+      expect(glyphAt(container, 10).textContent).toBe('。');
+      fireEvent.click(glyphAt(container, 9));
+      expect(onCharClick).toHaveBeenLastCalledWith(9);
+    });
+  });
 });

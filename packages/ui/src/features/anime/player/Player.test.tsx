@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ParsedSubtitleTrack } from '@kotori/core';
+import type { ParsedSubtitleTrack, SubtitleCue } from '@kotori/core';
 import { DEFAULT_SETTINGS } from '../../../app/default-settings';
 import { dispatchBackNavigation, useRouteStore } from '../../../app/routes';
 import { HostProvider } from '../../../host/HostContext';
@@ -12,6 +12,7 @@ import { useSettingsStore } from '../../../stores/settings';
 import { useSnackbarStore } from '../../../stores/snackbar';
 import { glyphAt, renderWithHost, resetStores } from '../../../test/utils';
 import { formatRate, Player } from './Player';
+import { SubtitleOverlay } from './SubtitleOverlay';
 
 const playerCss = readFileSync(resolve(import.meta.dirname, './player.css'), 'utf8');
 
@@ -1016,6 +1017,272 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
         expect(overlay).toContainElement(pri);
         expect(overlay).toContainElement(sec);
       } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
+  describe('bottom-anchored subtitles & balanced line wrapping (§1, §4, §5)', () => {
+    const noHl = () => ({ span: undefined, focus: undefined, focusSpan: undefined, explaining: false });
+    const makeCue = (index: number, text: string): SubtitleCue => ({
+      index,
+      startMs: 1000,
+      endMs: 4000,
+      text,
+      rawText: text,
+    });
+
+    it('balances a 13-char primary cue into two >= 3-glyph lines, leaves a 12-char cue on 1 line, and preserves exact click offsets', () => {
+      const onCharClick = vi.fn();
+      const metrics = { primaryMaxEm: 12, secondaryMaxEm: 16, inlineSecondaryMaxEm: 16 };
+
+      // 13-char cue (> 12 em) -> 1 soft <br> at index 6 ('今日は本当に' / '楽しかったね。').
+      const cue13 = makeCue(0, '今日は本当に楽しかったね。');
+      const { container, rerender } = render(
+        <SubtitleOverlay
+          cues={[cue13]}
+          activeIndexes={[0]}
+          mergeKaraoke={false}
+          blind={false}
+          onCharClick={onCharClick}
+          highlightFor={noHl}
+          lineMetrics={metrics}
+        />,
+      );
+
+      const wbrs = container.querySelectorAll('br.k-ruby-text__wbr');
+      expect(wbrs).toHaveLength(1);
+      const breakIdx = Number(wbrs[0]?.getAttribute('data-soft-break'));
+      expect(breakIdx).toBe(6);
+
+      const allGlyphs = [...container.querySelectorAll('[data-glyph]')];
+      const line1Glyphs = allGlyphs.filter((g) => Number(g.getAttribute('data-char-start')) < breakIdx);
+      const line2Glyphs = allGlyphs.filter((g) => Number(g.getAttribute('data-char-start')) >= breakIdx);
+      expect(line1Glyphs.length).toBeGreaterThanOrEqual(3);
+      expect(line2Glyphs.length).toBeGreaterThanOrEqual(3);
+
+      // Clicking first glyph of line 2 ('楽') reports exact UTF-16 index 6.
+      fireEvent.click(glyphAt(container, 6));
+      expect(onCharClick).toHaveBeenLastCalledWith(cue13, 6);
+
+      // 12-char cue (=== 12 em) -> 0 soft <br>.
+      const cue12 = makeCue(0, '食べちゃった。もう無理…');
+      rerender(
+        <SubtitleOverlay
+          cues={[cue12]}
+          activeIndexes={[0]}
+          mergeKaraoke={false}
+          blind={false}
+          onCharClick={onCharClick}
+          highlightFor={noHl}
+          lineMetrics={metrics}
+        />,
+      );
+      expect(container.querySelectorAll('br.k-ruby-text__wbr')).toHaveLength(0);
+    });
+
+    it('balances secondary zh track when secondaryMaxLines={2}, skips balancing when secondaryMaxLines={1}, and defaults to Infinity in jsdom', () => {
+      const metrics = { primaryMaxEm: 12, secondaryMaxEm: 14, inlineSecondaryMaxEm: 14 };
+      const pri = makeCue(0, '今日は本当に楽しかったね。');
+      const sec = makeCue(0, '我觉得这件事情还是应该再考虑一下比较好');
+
+      // With secondaryMaxLines={2} (default): secondary text inside .k-sub-line--secondary__text gets 1 '\n'.
+      const { container, rerender } = render(
+        <SubtitleOverlay
+          cues={[pri]}
+          activeIndexes={[0]}
+          mergeKaraoke={false}
+          blind={false}
+          onCharClick={() => {}}
+          highlightFor={noHl}
+          secondaryCues={[sec]}
+          secondaryActiveIndexes={[0]}
+          secondaryLang="zh-CN"
+          lineMetrics={metrics}
+          secondaryMaxLines={2}
+        />,
+      );
+
+      const secInner = container.querySelector('.k-sub-line--secondary .k-sub-line--secondary__text');
+      expect(secInner).not.toBeNull();
+      expect(secInner?.textContent?.split('\n')).toHaveLength(2);
+
+      // With secondaryMaxLines={1} (immersive + HUD visible): secondary is NOT balanced so clamp=1 fills the first line.
+      rerender(
+        <SubtitleOverlay
+          cues={[pri]}
+          activeIndexes={[0]}
+          mergeKaraoke={false}
+          blind={false}
+          onCharClick={() => {}}
+          highlightFor={noHl}
+          secondaryCues={[sec]}
+          secondaryActiveIndexes={[0]}
+          secondaryLang="zh-CN"
+          lineMetrics={metrics}
+          secondaryMaxLines={1}
+        />,
+      );
+      expect(container.querySelector('.k-sub-line--secondary__text')?.textContent).toBe(sec.text);
+
+      // Without lineMetrics in jsdom (probe fontSize unresolved -> Infinity), neither primary nor secondary wraps in JS,
+      // and toggling blind <-> normal keeps hook ordering unconditional.
+      rerender(
+        <SubtitleOverlay
+          cues={[pri]}
+          activeIndexes={[0]}
+          mergeKaraoke={false}
+          blind={false}
+          onCharClick={() => {}}
+          highlightFor={noHl}
+          secondaryCues={[sec]}
+          secondaryActiveIndexes={[0]}
+          secondaryLang="zh-CN"
+        />,
+      );
+      expect(container.querySelectorAll('br.k-ruby-text__wbr')).toHaveLength(0);
+      expect(container.querySelector('.k-sub-line--secondary__text')?.textContent).toBe(sec.text);
+
+      rerender(
+        <SubtitleOverlay
+          cues={[pri]}
+          activeIndexes={[0]}
+          mergeKaraoke={false}
+          blind={true}
+          onCharClick={() => {}}
+          highlightFor={noHl}
+          secondaryCues={[sec]}
+          secondaryActiveIndexes={[0]}
+          secondaryLang="zh-CN"
+          lineMetrics={metrics}
+        />,
+      );
+      expect(screen.getByTestId('sub-overlay-hidden')).toBeInTheDocument();
+
+      rerender(
+        <SubtitleOverlay
+          cues={[pri]}
+          activeIndexes={[0]}
+          mergeKaraoke={false}
+          blind={false}
+          onCharClick={() => {}}
+          highlightFor={noHl}
+          secondaryCues={[sec]}
+          secondaryActiveIndexes={[0]}
+          secondaryLang="zh-CN"
+          lineMetrics={metrics}
+        />,
+      );
+      expect(container.querySelectorAll('br.k-ruby-text__wbr')).toHaveLength(1);
+    });
+
+    it('measures live probe fontSize & overlay width when resolved, and never synthesises fontPx when unresolved', () => {
+      const origGetComputedStyle = window.getComputedStyle.bind(window);
+      const spy = vi.spyOn(window, 'getComputedStyle').mockImplementation((elt: Element) => {
+        const base = origGetComputedStyle(elt);
+        if (elt.classList.contains('k-sub-overlay')) {
+          return new Proxy(base, {
+            get(target, prop, receiver) {
+              if (prop === 'paddingLeft' || prop === 'paddingRight') return '10px';
+              return Reflect.get(target, prop, receiver);
+            },
+          });
+        }
+        if (elt.classList.contains('k-sub-line--probe')) {
+          const isSec = elt.classList.contains('k-sub-line--secondary');
+          return new Proxy(base, {
+            get(target, prop, receiver) {
+              if (prop === 'fontSize') return isSec ? '14px' : '20px';
+              if (prop === 'maxWidth') return isSec ? '92%' : '96%';
+              if (prop === 'paddingLeft' || prop === 'paddingRight') return '8px';
+              return Reflect.get(target, prop, receiver);
+            },
+          });
+        }
+        return base;
+      });
+      const origClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.classList.contains('k-sub-overlay') ? 280 : 0;
+        },
+      });
+
+      try {
+        // W = 280 - 20 = 260; primaryMaxEm = (260 * 0.96 - 16) / 20 - 0.15 = 11.53 -> 13-char cue wraps!
+        const cue13 = makeCue(0, '今日は本当に楽しかったね。');
+        const { container } = render(
+          <SubtitleOverlay
+            cues={[cue13]}
+            activeIndexes={[0]}
+            mergeKaraoke={false}
+            blind={false}
+            onCharClick={() => {}}
+            highlightFor={noHl}
+          />,
+        );
+        expect(container.querySelectorAll('br.k-ruby-text__wbr')).toHaveLength(1);
+      } finally {
+        spy.mockRestore();
+        if (origClientWidth) {
+          Object.defineProperty(HTMLElement.prototype, 'clientWidth', origClientWidth);
+        } else {
+          Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth');
+        }
+      }
+    });
+
+    it('anchors subtitles near the stage bottom in CSS (6px expanded, 4px compact, 4px immersive HUD-hidden) and keeps HUD-visible lift intact', async () => {
+      expect(playerCss).toMatch(/\.k-sub-overlay\s*\{[^}]*padding:\s*2\.5%\s+3%\s+6px;/s);
+      expect(playerCss).toMatch(/\.k-player--compact\s+\.k-sub-overlay\s*\{[^}]*padding:\s*2%\s+2\.5%\s+4px;/s);
+      expect(playerCss).toMatch(/\.k-sub-overlay__top,\s*\.k-sub-overlay__bottom\s*\{[^}]*gap:\s*4px;/s);
+      expect(playerCss).toMatch(/\.k-player--compact\s+\.k-sub-overlay__top,\s*\.k-player--compact\s+\.k-sub-overlay__bottom\s*\{[^}]*gap:\s*2px;/s);
+      expect(playerCss).toMatch(/\.k-sub-line\s*\{[^}]*text-wrap:\s*balance;/s);
+      expect(playerCss).toMatch(/\.k-sub-line__secondary\s*\{[^}]*white-space:\s*pre-line;[^}]*text-wrap:\s*balance;/s);
+      expect(playerCss).toMatch(/\.k-sub-line--secondary__text\s*\{[^}]*display:\s*block;[^}]*white-space:\s*pre-line;[^}]*text-wrap:\s*balance;/s);
+      expect(playerCss).toMatch(/\.k-sub-line--probe\s*\{[^}]*position:\s*absolute;[^}]*visibility:\s*hidden;[^}]*height:\s*0;[^}]*pointer-events:\s*none;/s);
+      expect(playerCss).toMatch(
+        /\.k-player--immersive\s+\.k-sub-overlay\s*\{[^}]*--k-sub-bottom:\s*max\(4px,\s*calc\(var\(--k-safe-bottom\)\s*\+\s*4px\)\);[^}]*max\(3%,\s*calc\(var\(--k-stage-safe-right,\s*0px\)\s*\+\s*12px\)\)[^}]*max\(3%,\s*calc\(var\(--k-stage-safe-left,\s*0px\)\s*\+\s*12px\)\)/s,
+      );
+      expect(playerCss).toMatch(
+        /\.k-player--immersive\s+\.k-hud\[data-visible="true"\]\s*~\s*\.k-sub-overlay\s*\{[^}]*--k-sub-bottom:\s*calc\(var\(--k-hud-bottom-h,\s*88px\)\s*\+\s*var\(--k-safe-bottom\)\s*\+\s*8px\);/s,
+      );
+
+      // Verify computed paddingBottom in jsdom with player.css loaded.
+      const styleEl = document.createElement('style');
+      styleEl.textContent = playerCss;
+      document.head.appendChild(styleEl);
+      try {
+        // Expanded (1280×800) -> 6px
+        setViewport(1280, 800);
+        const exp = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        await screen.findByTestId('overlay-cue');
+        const expOverlay = exp.container.querySelector<HTMLElement>('.k-sub-overlay')!;
+        expect(window.getComputedStyle(expOverlay).paddingBottom).toBe('6px');
+        exp.unmount();
+
+        // Compact portrait (390×844) -> 4px
+        setViewport(390, 844);
+        const cmp = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        await screen.findByTestId('overlay-cue');
+        const cmpOverlay = cmp.container.querySelector<HTMLElement>('.k-sub-overlay')!;
+        expect(window.getComputedStyle(cmpOverlay).paddingBottom).toBe('4px');
+        cmp.unmount();
+
+        // Immersive (800×360) with HUD hidden (data-visible="false") -> --k-sub-bottom resolves to max(4px, ...)
+        setViewport(800, 360);
+        const imm = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        const cue = await screen.findByTestId('overlay-cue');
+        fireEvent.click(glyphAt(cue, 0)); // hides HUD in immersive
+        expect(screen.getByTestId('player-hud')).toHaveAttribute('data-visible', 'false');
+        const immOverlay = imm.container.querySelector<HTMLElement>('.k-sub-overlay')!;
+        expect(window.getComputedStyle(immOverlay).getPropertyValue('--k-sub-bottom').trim()).toBe(
+          'max(4px, calc(var(--k-safe-bottom) + 4px))',
+        );
+        imm.unmount();
+      } finally {
+        styleEl.remove();
         vi.unstubAllGlobals();
       }
     });

@@ -32,6 +32,10 @@ export interface RubyTextProps {
   readonly showRuby?: boolean;
   /** Offset added to reported/compared indices (render a slice of a longer sentence). */
   readonly offset?: number;
+  /** Render a soft line break BEFORE the glyph/segment whose data-char-start equals an entry (same coordinate space as data-char-start, i.e. already including `offset`). */
+  readonly softBreakOffsets?: ReadonlySet<number> | undefined;
+  /** '\n' glyphs at these offsets render as an empty inline marker instead of <br> (orphan re-flow). */
+  readonly joinHardBreakOffsets?: ReadonlySet<number> | undefined;
   readonly className?: string | undefined;
   readonly lang?: string;
   readonly 'data-testid'?: string;
@@ -267,11 +271,14 @@ function RubyTextImpl({
   onCharClick,
   showRuby = true,
   offset = 0,
+  softBreakOffsets,
+  joinHardBreakOffsets,
   className,
   lang = 'ja',
   'data-testid': testId,
 }: RubyTextProps) {
   const segs = useMemo(() => tileSegments(text, segments, offset), [text, segments, offset]);
+  const firstSegStart = segs[0]?.start ?? offset;
   const resolvedFocusSpan = useMemo<CharSpan | undefined>(
     () => focusSpan ?? (focusIndex !== undefined ? inferWordSpanAt(text, focusIndex, segments, offset) : undefined),
     [focusSpan, focusIndex, text, segments, offset],
@@ -311,14 +318,25 @@ function RubyTextImpl({
       onClick={onClick}
       data-testid={testId}
     >
-      {segs.map((seg) => {
-        const glyphs = seg.glyphs.map((g) => {
+      {segs.flatMap((seg) => {
+        const glyphs = seg.glyphs.flatMap((g) => {
           if (g.text === '\n') {
-            return <br key={g.start} data-char-start={g.start} data-char-end={g.end} />;
+            if (joinHardBreakOffsets?.has(g.start)) {
+              return [
+                <span
+                  key={g.start}
+                  className="k-glyph k-glyph--joined"
+                  data-char-start={g.start}
+                  data-char-end={g.end}
+                  aria-hidden="true"
+                />,
+              ];
+            }
+            return [<br key={g.start} data-char-start={g.start} data-char-end={g.end} />];
           }
           const isFocused =
             inFocus(g.start) || (resolvedFocusSpan === undefined && focusIndex !== undefined && focusIndex >= g.start && focusIndex < g.end);
-          return (
+          const glyphEl = (
             <span
               key={g.start}
               data-glyph=""
@@ -337,9 +355,22 @@ function RubyTextImpl({
               {g.text}
             </span>
           );
+          if (!seg.ruby && softBreakOffsets?.has(g.start) && g.start > seg.start) {
+            return [
+              <br
+                key={`wbr-${g.start}`}
+                className="k-ruby-text__wbr"
+                data-soft-break={g.start}
+                data-char-start={g.start}
+                data-char-end={g.start}
+              />,
+              glyphEl,
+            ];
+          }
+          return [glyphEl];
         });
         const segHl = highlight !== undefined && seg.start < highlight[1] && seg.end > highlight[0];
-        return seg.ruby ? (
+        const segEl = seg.ruby ? (
           <ruby key={seg.start} className={cx('k-ruby', segHl && 'is-hl', tapMode && revealed.has(seg.start) && 'is-revealed')} data-char-start={seg.start} data-char-end={seg.end}>
             {glyphs}
             <rp>(</rp>
@@ -351,6 +382,19 @@ function RubyTextImpl({
             {glyphs}
           </span>
         );
+        if (softBreakOffsets?.has(seg.start) && seg.start > firstSegStart) {
+          return [
+            <br
+              key={`wbr-${seg.start}`}
+              className="k-ruby-text__wbr"
+              data-soft-break={seg.start}
+              data-char-start={seg.start}
+              data-char-end={seg.start}
+            />,
+            segEl,
+          ];
+        }
+        return [segEl];
       })}
     </span>
   );

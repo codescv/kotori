@@ -104,7 +104,7 @@ export function applyDelay(cues: readonly SubtitleCue[], delayMs: number): reado
 }
 
 /** Characters that open a new utterance (quotes, brackets, speaker dashes). */
-const OPENERS = /^[「『（(【［[〈《“‘"'\-－‐―–—・♪]/u;
+export const OPENERS = /^[「『（(【［[〈《“‘"'\-－‐―–—・♪]/u;
 
 /** Separator between two consecutive cue texts in a merged sentence. */
 function separatorBetween(prev: string, next: string): string {

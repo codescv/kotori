@@ -11,7 +11,8 @@
  *   - transcript.ts     buildTranscriptRows(cues, options) → TranscriptRow[], isSignCue, matchSecondaryCuesToRows
  *   - cue-utils.ts      cueIndexAt, activeCueIndexes, nextCueIndex, prevCueIndex, applyDelay, sortCuesByStart,
  *                       mergeCuesToSentence, cueOffsetToSentenceIndex, sentenceIndexToCueOffset,
- *                       splitBilingualCueText, dropDuplicateLines, translationTextOf, isBilingualTrack
+ *                       splitBilingualCueText, dropDuplicateLines, translationTextOf, isBilingualTrack, OPENERS
+ *   - line-balance.ts   measureSubtitleEm, computeBalancedBreakOffsets, balanceSubtitleLines
  *   - episode-name.ts   parseEpisodeName(fileName) → ParsedEpisodeName
  *   - language.ts       detectSubtitleLanguageFromName(fileName), normalizeLanguageTag(tag) → LanguageTag | undefined
  */
@@ -23,5 +24,6 @@ export * from './parse';
 export * from './merge-per-char';
 export * from './transcript';
 export * from './cue-utils';
+export * from './line-balance';
 export * from './episode-name';
 export * from './language';
