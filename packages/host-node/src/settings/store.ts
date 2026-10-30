@@ -29,6 +29,8 @@ export function defaultSettings(dataDir: string): AppSettings {
       autoDownloadJimaku: true,
       jimakuApiKey: '',
       preferredSubtitleLanguages: ['ja'],
+      secondarySubtitle: 'auto',
+      preferredSecondarySubtitleLanguages: ['zh-CN', 'zh', 'zh-TW', 'en'],
       autoPreExplain: false,
       furiganaMode: 'all',
       showRomaji: false,
@@ -91,6 +93,7 @@ const TARGET_LANGUAGES = ['zh-CN', 'zh-TW', 'en'];
 const READING_MODES = ['single-rtl', 'single-ltr', 'spread-rtl', 'spread-ltr', 'webtoon'];
 const FITS = ['contain', 'width', 'height'];
 const FURIGANA_MODES = ['all', 'off', 'tap'];
+const SECONDARY_SUBTITLE_MODES = ['auto', 'off'];
 const BACKGROUNDS = ['black', 'surface', 'white'];
 const VERTEX_AUTH_KINDS = ['access-token', 'adc', 'service-account-json', 'express-api-key'];
 
@@ -164,6 +167,10 @@ export function validateSettings(s: AppSettings): void {
   bool('anime.autoDownloadJimaku', s.anime.autoDownloadJimaku);
   str('anime.jimakuApiKey', s.anime.jimakuApiKey);
   strings('anime.preferredSubtitleLanguages', s.anime.preferredSubtitleLanguages);
+  if (s.anime.secondarySubtitle !== undefined) oneOf('anime.secondarySubtitle', s.anime.secondarySubtitle, SECONDARY_SUBTITLE_MODES);
+  if (s.anime.preferredSecondarySubtitleLanguages !== undefined) {
+    strings('anime.preferredSecondarySubtitleLanguages', s.anime.preferredSecondarySubtitleLanguages);
+  }
   if (s.anime.autoPreExplain !== undefined) bool('anime.autoPreExplain', s.anime.autoPreExplain);
   if (s.anime.furiganaMode !== undefined) oneOf('anime.furiganaMode', s.anime.furiganaMode, FURIGANA_MODES);
   if (s.anime.showRomaji !== undefined) bool('anime.showRomaji', s.anime.showRomaji);

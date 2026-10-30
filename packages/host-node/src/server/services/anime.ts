@@ -25,7 +25,7 @@ import type { Repositories } from '../../db/repositories';
 import { transaction, type Database } from '../../db/sqlite';
 import { scanAnimeFolder, type ScannedSeries } from '../../library/anime-scanner';
 import type { SubtitleStore } from '../../library/subtitle-store';
-import { extractSubtitleStream, probeStreams, type FfmpegPaths } from '../../media/ffmpeg';
+import { extractSubtitleStream, isFatalSpawnError, probeStreams, type FfmpegPaths } from '../../media/ffmpeg';
 import type { SettingsStore } from '../../settings/store';
 import type { DownloadManager } from '../../downloads/manager';
 import { LruCache, stableId } from '../util';
@@ -40,6 +40,7 @@ export interface AnimeServiceDeps {
   readonly downloads: () => DownloadManager;
   readonly fetch: typeof fetch;
   readonly now?: () => number;
+  readonly probeStreams?: typeof probeStreams;
 }
 
 export interface NodeAnimeService extends AnimeApi {
@@ -201,17 +202,26 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     });
   }
 
-  /** Pick a default track (preferred languages first) when none is set. */
+  /** Pick a default track (preferred languages first) when none is set, or upgrade an untagged default when a preferred-language playable track is synced. */
   function ensureDefaultTrack(episodeId: Id): void {
-    if (repos.tracks.hasDefault(episodeId)) return;
     const tracks = repos.tracks.listByEpisode(episodeId).filter((t) => t.filePath || t.origin === 'embedded');
     if (tracks.length === 0) return;
     const prefs = deps.settings.get().anime.preferredSubtitleLanguages;
-    const ranked = [...tracks].sort((a, b) => rank(a) - rank(b));
     function rank(t: SubtitleTrack): number {
       const i = t.language ? prefs.indexOf(t.language) : -1;
       return (i < 0 ? 100 : i) + (t.origin === 'embedded' && !t.filePath ? 50 : 0);
     }
+    if (repos.tracks.hasDefault(episodeId)) {
+      const currentDefault = tracks.find((t) => t.isDefault);
+      if (!currentDefault || currentDefault.language !== undefined) return;
+      const playable = tracks.filter((t) => t.origin !== 'embedded' || Boolean(t.filePath));
+      const best = [...playable].sort((a, b) => rank(a) - rank(b))[0];
+      if (best && best.id !== currentDefault.id && rank(best) < rank(currentDefault)) {
+        repos.tracks.setDefault(episodeId, best.id);
+      }
+      return;
+    }
+    const ranked = [...tracks].sort((a, b) => rank(a) - rank(b));
     const best = ranked[0];
     if (best) repos.tracks.setDefault(episodeId, best.id);
   }
@@ -288,6 +298,7 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
   /** Background ffprobe: durations, embedded text tracks, codec warnings + AniList cover enrichment. */
   function probeSeries(seriesId: Id): void {
     const paths = deps.ffmpeg();
+    const runProbe = deps.probeStreams ?? probeStreams;
     const job = (async () => {
       await enrichSeriesCover(seriesId);
       if (!paths || !repos.series.get(seriesId)) return;
@@ -295,7 +306,7 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
       for (const ep of repos.episodes.listBySeries(seriesId)) {
         if (!repos.series.get(seriesId)) return;
         try {
-          const probe = await probeStreams(paths, ep.filePath);
+          const probe = await runProbe(paths, ep.filePath);
           if (!repos.series.get(seriesId) || !repos.episodes.get(ep.id)) return;
           for (const s of probe.subtitles) {
             const id = stableId('tr', ep.id, 'embedded', s.index);
@@ -325,6 +336,7 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
           }
         } catch (error) {
           console.warn(`[kotori:anime] ffprobe failed for ${ep.fileName}:`, error instanceof Error ? error.message : error);
+          if (isFatalSpawnError(error)) break;
         }
       }
       if (!repos.series.get(seriesId)) return;

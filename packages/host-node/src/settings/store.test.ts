@@ -59,6 +59,10 @@ describe('defaultSettings', () => {
     expect(d.downloads.downloadDir).toBe(join(DATA_DIR, 'anime'));
     expect(d.ai.provider).toEqual({ provider: 'gemini-api', apiKey: '' });
     expect(d.ai).toMatchObject({ temperature: 0.2, targetLanguage: 'zh-CN', cacheEnabled: true, timeoutMs: 30_000 });
+    expect(d.anime).toMatchObject({
+      secondarySubtitle: 'auto',
+      preferredSecondarySubtitleLanguages: ['zh-CN', 'zh', 'zh-TW', 'en'],
+    });
     expect(d.library).toEqual({ animeRoots: [], mangaRoots: [] });
     expect(() => validateSettings(d)).not.toThrow();
   });
@@ -123,6 +127,8 @@ describe('validateSettings', () => {
     ['downloads.maxActiveDownloads', { downloads: { maxActiveDownloads: 0 } }],
     ['downloads.maxPeersPerTorrent', { downloads: { maxPeersPerTorrent: 0 } }],
     ['anime.repeatCount', { anime: { repeatCount: -1 } }],
+    ['anime.secondarySubtitle', { anime: { secondarySubtitle: 'always' as never } }],
+    ['anime.preferredSecondarySubtitleLanguages', { anime: { preferredSecondarySubtitleLanguages: [123 as never] } }],
     ['manga.preloadPages', { manga: { preloadPages: -1 } }],
   ];
 

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { SubtitleCue } from '../types';
 import { parseAss } from './ass';
 import { readFixtureText } from './fixtures.testutil';
-import { buildTranscriptRows, DEFAULT_CHAIN_FOLD_GAP_MS } from './transcript';
+import * as subtitleEntry from './index';
+import * as coreEntry from '../index';
+import { buildTranscriptRows, DEFAULT_CHAIN_FOLD_GAP_MS, isSignCue, matchSecondaryCuesToRows } from './transcript';
 
 const fixtureCues = (): readonly SubtitleCue[] => parseAss(readFixtureText('karaoke-per-char.ass')).cues;
 
@@ -79,5 +81,65 @@ describe('buildTranscriptRows', () => {
       [0, '夢を', [0, 1, 2], 3000],
       [3, '夢を', [3], 6000],
     ]);
+  });
+});
+
+describe('isSignCue & matchSecondaryCuesToRows', () => {
+  it('re-exports secondary subtitle helpers from both @kotori/core/subtitle and @kotori/core', () => {
+    for (const mod of [subtitleEntry, coreEntry]) {
+      expect(typeof mod.normalizeLanguageTag).toBe('function');
+      expect(typeof mod.translationTextOf).toBe('function');
+      expect(typeof mod.dropDuplicateLines).toBe('function');
+      expect(typeof mod.isBilingualTrack).toBe('function');
+      expect(typeof mod.isSignCue).toBe('function');
+      expect(typeof mod.matchSecondaryCuesToRows).toBe('function');
+    }
+  });
+
+  it('isSignCue flags empty text, drawings, \\move signs and comments', () => {
+    const baseMarkup = { layer: 0, hasMove: false, hasKaraoke: false, isDrawing: false, isComment: false, playResX: 1280, playResY: 720 };
+    expect(isSignCue(cue(0, '   ', 0, 1000))).toBe(true);
+    expect(isSignCue({ ...cue(1, 'm 0 0 l 10 10', 0, 1000), markup: { ...baseMarkup, isDrawing: true } })).toBe(true);
+    expect(isSignCue({ ...cue(2, '看板', 0, 1000), markup: { ...baseMarkup, hasMove: true } })).toBe(true);
+    expect(isSignCue({ ...cue(3, 'メモ', 0, 1000), markup: { ...baseMarkup, isComment: true } })).toBe(true);
+    expect(isSignCue({ ...cue(4, 'おはよう', 0, 1000), markup: baseMarkup })).toBe(false);
+  });
+
+  it('matches exact overlaps, concatenates 1-to-2 chain-folded cues, deduplicates repeats, and excludes near-misses and signs', () => {
+    const primary = [
+      cue(0, 'おはよう、ことり。今日も早いね。', 1000, 3000),
+      cue(1, 'ラララ', 4000, 6000),
+      cue(2, 'ラララ', 6020, 8000), // folds into row rep=1 with chainEndMs=8000
+      cue(3, '了解。', 9000, 11000), // kana-free Japanese line
+      cue(4, 'えっ', 12000, 12400), // short 400 ms row → 50 % = 200 ms threshold
+      cue(5, '静かだね', 15000, 17000), // only a near-miss (< 300 ms) secondary cue
+    ];
+    const rows = buildTranscriptRows(primary, { mergeKaraoke: true, hideSigns: true });
+
+    const signMarkup = { layer: 0, hasMove: true, hasKaraoke: false, isDrawing: false, isComment: false, playResX: 1280, playResY: 720 };
+    const secondary: SubtitleCue[] = [
+      cue(0, '早啊，小鸟。今天也这么早。', 1050, 2950),
+      // Sign overlapping row 0 → ignored
+      { ...cue(1, '【校門】', 1000, 3000), markup: signMarkup },
+      // Two zh cues + a duplicate layer under chain-folded row rep=1 ([4000, 8000])
+      cue(2, '啦啦啦（上）', 4000, 5800),
+      cue(3, '啦啦啦（上）', 4000, 5800),
+      cue(4, '啦啦啦（下）', 6000, 7900),
+      // Bilingual secondary with kana-free Japanese line matching primary row 3
+      cue(5, '了解。\n明白。', 9000, 11000),
+      // Short cue near-miss: 150 ms overlap on 400 ms row (< 200 ms = 50 % of 400 ms) → excluded
+      cue(6, '诶（错位）', 12250, 13000),
+      // Long cue near-miss: 250 ms overlap on 2000 ms row (< 300 ms) → excluded
+      cue(7, '真安静啊（错位）', 16750, 18750),
+    ];
+
+    const matched = matchSecondaryCuesToRows(rows, secondary);
+    expect([...matched.entries()]).toEqual([
+      [0, '早啊，小鸟。今天也这么早。'],
+      [1, '啦啦啦（上）\n啦啦啦（下）'],
+      [3, '明白。'],
+    ]);
+    expect(matched.has(4)).toBe(false);
+    expect(matched.has(5)).toBe(false);
   });
 });

@@ -1088,6 +1088,10 @@ export interface AnimeSettings {
   /** jimaku.cc API key (required for its API). */
   readonly jimakuApiKey: string;
   readonly preferredSubtitleLanguages: readonly LanguageTag[];
+  /** 副字幕: auto-pick a translation track (`'auto'`, default) or never show one unless picked manually (`'off'`). */
+  readonly secondarySubtitle?: 'auto' | 'off';
+  /** Languages tried, in order, when auto-picking 副字幕. Default `['zh-CN', 'zh', 'zh-TW', 'en']`. */
+  readonly preferredSecondarySubtitleLanguages?: readonly LanguageTag[];
   /** Furigana display: always (`'all'`, default), never (`'off'`), or on tap (`'tap'`). */
   readonly furiganaMode?: 'all' | 'off' | 'tap';
   /** Show romaji under the Japanese line (default `false`). */

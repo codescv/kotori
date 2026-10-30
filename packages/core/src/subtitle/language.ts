@@ -41,6 +41,21 @@ const WORD_RULES: readonly (readonly [RegExp, LanguageTag])[] = [
 const SUBTITLE_EXT = /\.(?:ass|ssa|srt|vtt|sub|sup|idx|txt)$/i;
 
 /**
+ * Normalise an ISO-639 / BCP-47 / fansub language code (`jpn`, `chs`,
+ * `zh-cn`, `zh-Hant`, `pt-br`, `eng`, …) to Kotori's canonical
+ * {@link LanguageTag}, or `undefined` when unrecognised (`und`, empty, …).
+ */
+export function normalizeLanguageTag(tag?: string | undefined): LanguageTag | undefined {
+  if (!tag || typeof tag !== 'string') return undefined;
+  const lower = tag.trim().toLowerCase().replace(/_/g, '-');
+  if (!lower) return undefined;
+  if (lower === 'zh-cn') return 'zh-CN';
+  if (lower === 'zh-tw') return 'zh-TW';
+  if (lower === 'pt-br') return 'pt-BR';
+  return Object.hasOwn(CODE_MAP, lower) ? CODE_MAP[lower] : undefined;
+}
+
+/**
  * Detect the language of a subtitle file from its file name.
  *
  * Checks, in order: trailing dot segments before the extension

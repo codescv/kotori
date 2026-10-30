@@ -32,6 +32,8 @@ export function defaultSettings(downloadDir: string): AppSettings {
       autoDownloadJimaku: true,
       jimakuApiKey: '',
       preferredSubtitleLanguages: ['ja'],
+      secondarySubtitle: 'auto',
+      preferredSecondarySubtitleLanguages: ['zh-CN', 'zh', 'zh-TW', 'en'],
       autoPreExplain: false,
       furiganaMode: 'all',
       showRomaji: false,

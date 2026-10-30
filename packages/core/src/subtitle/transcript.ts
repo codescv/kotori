@@ -4,6 +4,7 @@
  * BUG-1776) plus Kotori's `hideSigns` filter.
  */
 import type { MergedCueGroups, SubtitleCue, TranscriptRow } from '../types';
+import { dropDuplicateLines, translationTextOf } from './cue-utils';
 import { mergePerCharacterCueGroups } from './merge-per-char';
 
 /** Options of {@link buildTranscriptRows}. */
@@ -19,11 +20,13 @@ export interface TranscriptOptions {
 /** Default adjacency-chain gap (BUG-1776): karaoke alternating layers touch exactly (gap 0). */
 export const DEFAULT_CHAIN_FOLD_GAP_MS = 40;
 
-/** Typesetting / non-dialogue cue that `hideSigns` removes. */
-function isSign(cue: SubtitleCue): boolean {
+/** Typesetting / non-dialogue cue that `hideSigns` and 副字幕 remove. */
+export function isSignCue(cue: SubtitleCue): boolean {
   const m = cue.markup;
   return cue.text.trim() === '' || m?.isDrawing === true || m?.hasMove === true || m?.isComment === true;
 }
+
+const isSign = isSignCue;
 
 /**
  * Build the transcript rows for a track. Keys / `rep` / `rawIndexes` are array
@@ -164,4 +167,71 @@ export function buildSubtitleContext(
   }
   const speaker = rows[index]?.actor?.trim();
   return speaker ? { contextBefore, contextAfter, speaker } : { contextBefore, contextAfter };
+}
+
+const normaliseRowLine = (s: string): string => s.replace(/[\s\u3000]+/g, '');
+
+function ensureSortedByStart(cues: readonly SubtitleCue[]): readonly SubtitleCue[] {
+  for (let i = 1; i < cues.length; i++) {
+    if ((cues[i] as SubtitleCue).startMs < (cues[i - 1] as SubtitleCue).startMs) {
+      return [...cues].sort((a, b) => a.startMs - b.startMs);
+    }
+  }
+  return cues;
+}
+
+/**
+ * For each transcript row, concatenate (`'\n'`) the translation text of the
+ * secondary cues that overlap `[row.cue.startMs, max(row.cue.endMs, row.chainEndMs)]`
+ * by at least `min(300 ms, 50 % of the shorter span)`. Signs, drawings,
+ * duplicate primary lines and empty translations are ignored; consecutive
+ * identical translations are deduplicated. Rows with no match are absent.
+ */
+export function matchSecondaryCuesToRows(
+  rows: readonly TranscriptRow[],
+  secondary: readonly SubtitleCue[],
+): Map<number, string> {
+  const map = new Map<number, string>();
+  if (rows.length === 0 || secondary.length === 0) return map;
+  const filtered = ensureSortedByStart(secondary.filter((c) => !isSignCue(c)));
+  if (filtered.length === 0) return map;
+
+  let firstPossible = 0;
+  let prevRStart = -Infinity;
+
+  for (const row of rows) {
+    const rStart = row.cue.startMs;
+    const rEnd = Math.max(row.cue.endMs, row.chainEndMs);
+    const rDur = Math.max(1, rEnd - rStart);
+    if (rStart < prevRStart) firstPossible = 0;
+    prevRStart = rStart;
+
+    while (firstPossible < filtered.length && (filtered[firstPossible] as SubtitleCue).endMs <= rStart) {
+      firstPossible++;
+    }
+
+    let rowPrimaryLines: Set<string> | undefined;
+    const texts: string[] = [];
+
+    for (let k = firstPossible; k < filtered.length; k++) {
+      const sec = filtered[k] as SubtitleCue;
+      if (sec.startMs >= rEnd) break;
+      const overlap = Math.min(rEnd, sec.endMs) - Math.max(rStart, sec.startMs);
+      const sDur = Math.max(1, sec.endMs - sec.startMs);
+      const minOverlap = Math.min(300, 0.5 * Math.min(rDur, sDur));
+      if (overlap > 0 && overlap >= minOverlap) {
+        rowPrimaryLines ??= new Set(row.cue.text.split(/\r?\n/).map(normaliseRowLine).filter(Boolean));
+        const text = translationTextOf(dropDuplicateLines(sec.text, rowPrimaryLines)).trim();
+        if (text !== '' && texts[texts.length - 1] !== text) {
+          texts.push(text);
+        }
+      }
+    }
+
+    if (texts.length > 0) {
+      map.set(row.rep, texts.join('\n'));
+    }
+  }
+
+  return map;
 }

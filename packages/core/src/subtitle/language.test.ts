@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectSubtitleLanguageFromName } from './language';
+import { detectSubtitleLanguageFromName, normalizeLanguageTag } from './language';
 
 describe('detectSubtitleLanguageFromName', () => {
   it('reads dot-suffix codes before the extension', () => {
@@ -37,5 +37,39 @@ describe('detectSubtitleLanguageFromName', () => {
     expect(detectSubtitleLanguageFromName('[SubsPlease] Frieren - 01 (1080p).ass')).toBeUndefined();
     expect(detectSubtitleLanguageFromName('Italian Job.srt')).toBeUndefined();
     expect(detectSubtitleLanguageFromName('')).toBeUndefined();
+  });
+});
+
+describe('normalizeLanguageTag', () => {
+  it('normalises ISO-639, BCP-47 and fansub language codes', () => {
+    expect(normalizeLanguageTag('ja')).toBe('ja');
+    expect(normalizeLanguageTag('  JPN ')).toBe('ja');
+    expect(normalizeLanguageTag('ja-JP')).toBe('ja');
+    expect(normalizeLanguageTag('eng')).toBe('en');
+    expect(normalizeLanguageTag('EN-US')).toBe('en');
+    expect(normalizeLanguageTag('zh-cn')).toBe('zh-CN');
+    expect(normalizeLanguageTag('zh-CN')).toBe('zh-CN');
+    expect(normalizeLanguageTag('zh_CN')).toBe('zh-CN');
+    expect(normalizeLanguageTag('zh-Hans')).toBe('zh-CN');
+    expect(normalizeLanguageTag('CHS')).toBe('zh-CN');
+    expect(normalizeLanguageTag('zh-tw')).toBe('zh-TW');
+    expect(normalizeLanguageTag('zh-TW')).toBe('zh-TW');
+    expect(normalizeLanguageTag('zh-Hant')).toBe('zh-TW');
+    expect(normalizeLanguageTag('cht')).toBe('zh-TW');
+    expect(normalizeLanguageTag('zh')).toBe('zh');
+    expect(normalizeLanguageTag('chi')).toBe('zh');
+    expect(normalizeLanguageTag('pt-br')).toBe('pt-BR');
+    expect(normalizeLanguageTag('pt-BR')).toBe('pt-BR');
+  });
+
+  it('returns undefined for empty, non-string or unrecognised tags', () => {
+    expect(normalizeLanguageTag()).toBeUndefined();
+    expect(normalizeLanguageTag(undefined)).toBeUndefined();
+    expect(normalizeLanguageTag('')).toBeUndefined();
+    expect(normalizeLanguageTag('   ')).toBeUndefined();
+    expect(normalizeLanguageTag('und')).toBeUndefined();
+    expect(normalizeLanguageTag('xyz')).toBeUndefined();
+    expect(normalizeLanguageTag('constructor')).toBeUndefined();
+    expect(normalizeLanguageTag(null as unknown as string)).toBeUndefined();
   });
 });

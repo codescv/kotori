@@ -207,3 +207,52 @@ export function splitBilingualCueText(text: string): BilingualCueText {
   if (!rest.every((l) => !KANA_RE.test(l) && CJK_OR_LATIN_RE.test(l))) return { primaryJa: text };
   return { primaryJa: first, secondaryTranslation: rest.join('\n') };
 }
+
+const normaliseCueLine = (s: string): string => s.replace(/[\s\u3000]+/g, '');
+
+/**
+ * Drop lines of `text` whose whitespace-normalised content already appears in
+ * `normalisedPrimaryLines` (used before {@link translationTextOf} so kana-free
+ * Japanese lines like `了解。` or duplicate tracks are never repeated).
+ */
+export function dropDuplicateLines(text: string, normalisedPrimaryLines: ReadonlySet<string>): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => {
+      const n = normaliseCueLine(line);
+      return n.length > 0 && !normalisedPrimaryLines.has(n);
+    })
+    .join('\n');
+}
+
+/**
+ * Text to show for a 副字幕 cue: drop every line that contains kana when at
+ * least one kana-free line with CJK / Latin text remains (`日本語\n中文`,
+ * `中文\n日本語`, `中文\n日本語\n中文` …). Otherwise the trimmed text unchanged.
+ */
+export function translationTextOf(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
+  const keep = lines.filter((l) => !KANA_RE.test(l) && CJK_OR_LATIN_RE.test(l));
+  return keep.length > 0 && keep.length < lines.length ? keep.join('\n') : text.trim();
+}
+
+/**
+ * True when ≥ `threshold` (default 30 %) of the non-empty dialogue cues split
+ * as `日本語\n翻译` via {@link splitBilingualCueText}. Call with transcript row
+ * cues (karaoke merged, signs hidden) so per-character OP lyrics do not dilute
+ * the ratio.
+ */
+export function isBilingualTrack(cues: readonly SubtitleCue[], threshold = 0.3): boolean {
+  const dialogue = cues.filter(
+    (c) => !c.markup?.isComment && !c.markup?.isDrawing && !c.markup?.hasMove && c.text.trim() !== '',
+  );
+  if (dialogue.length === 0) return false;
+  let bilingualCount = 0;
+  for (const c of dialogue) {
+    if (splitBilingualCueText(c.text).secondaryTranslation !== undefined) bilingualCount++;
+  }
+  return bilingualCount / dialogue.length >= threshold;
+}

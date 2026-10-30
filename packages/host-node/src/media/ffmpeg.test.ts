@@ -3,8 +3,18 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { extractSubtitleStream, findFfmpeg, interpretProbe, probeStreams, runProcess, TEXT_SUBTITLE_CODECS } from './ffmpeg';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { KotoriError } from '@kotori/core';
+import {
+  canRunBinary,
+  extractSubtitleStream,
+  findFfmpeg,
+  interpretProbe,
+  isFatalSpawnError,
+  probeStreams,
+  runProcess,
+  TEXT_SUBTITLE_CODECS,
+} from './ffmpeg';
 
 const FIXTURE = fileURLToPath(new URL('../../test-fixtures/media/ffprobe-mkv.json', import.meta.url));
 
@@ -128,6 +138,71 @@ describe('with fake binaries', () => {
       // The host may or may not have a system ffmpeg; either way nothing under our temp dir qualifies.
       if (found) expect(['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/snap/bin']).toContain(dirname(found.ffmpeg));
       else expect(found).toBeUndefined();
+    });
+
+    it('skips a directory whose binary fails verify (e.g. macOS EBADARCH / Unknown system error -86) and picks the next working one', async () => {
+      const x86Dir = join(dir, 'usr-local-x86');
+      const armDir = join(dir, 'opt-homebrew-arm');
+      const checked: string[] = [];
+      const verify = vi.fn(async (binPath: string) => {
+        checked.push(binPath);
+        if (binPath.startsWith(x86Dir)) {
+          throw Object.assign(new Error('spawn Unknown system error -86'), { code: 'EBADARCH', errno: -86 });
+        }
+        return binPath.startsWith(armDir);
+      });
+
+      const found = await findFfmpeg({ PATH: [x86Dir, x86Dir, armDir].join(delimiter) }, verify);
+      expect(found).toEqual({
+        ffmpeg: join(armDir, 'ffmpeg'),
+        ffprobe: join(armDir, 'ffprobe'),
+      });
+      // Duplicate x86Dir in PATH is deduplicated so x86 ffmpeg is only probed once.
+      expect(checked.filter((p) => p === join(x86Dir, 'ffmpeg'))).toHaveLength(1);
+
+      await expect(findFfmpeg({ PATH: x86Dir }, async () => false)).resolves.toBeUndefined();
+    });
+
+    it('canRunBinary and default findFfmpeg skip executable files that fail to run', async () => {
+      await stub('broken', 'ffmpeg', 'exit 0');
+      const brokenProbe = join(dir, 'broken', 'ffprobe');
+      await mkdir(dirname(brokenProbe), { recursive: true });
+      await writeFile(brokenProbe, '#!/nonexistent/rosetta/sh\nexit 0\n');
+      await chmod(brokenProbe, 0o755);
+
+      await stub('working', 'ffmpeg', 'exit 0');
+      await stub('working', 'ffprobe', 'exit 0');
+
+      expect(await canRunBinary(brokenProbe)).toBe(false);
+      expect(await canRunBinary(join(dir, 'working', 'ffprobe'))).toBe(true);
+
+      const found = await findFfmpeg({ PATH: [join(dir, 'broken'), join(dir, 'working')].join(delimiter) });
+      expect(found).toEqual({
+        ffmpeg: join(dir, 'working', 'ffmpeg'),
+        ffprobe: join(dir, 'working', 'ffprobe'),
+      });
+    });
+  });
+
+  describe('isFatalSpawnError', () => {
+    it('detects EBADARCH / Unknown system error -86 and unrecoverable spawn errors, but not exit-code or timeout errors', () => {
+      const ebadarch = Object.assign(new Error('spawn /usr/local/bin/ffprobe Unknown system error -86'), {
+        code: 'Unknown system error -86',
+        errno: -86,
+        syscall: 'spawn /usr/local/bin/ffprobe',
+      });
+      expect(isFatalSpawnError(ebadarch)).toBe(true);
+      expect(isFatalSpawnError(new KotoriError('io', `/usr/local/bin/ffprobe: ${ebadarch.message}`, { cause: ebadarch }))).toBe(true);
+      expect(isFatalSpawnError(new Error('spawn Unknown system error -86'))).toBe(true);
+      expect(isFatalSpawnError(Object.assign(new Error('bad cpu'), { code: 'EBADARCH' }))).toBe(true);
+      expect(isFatalSpawnError(Object.assign(new Error('missing'), { code: 'ENOENT' }))).toBe(true);
+      expect(isFatalSpawnError(Object.assign(new Error('denied'), { code: 'EACCES' }))).toBe(true);
+      expect(isFatalSpawnError(Object.assign(new Error('perm'), { code: 'EPERM' }))).toBe(true);
+      expect(isFatalSpawnError(Object.assign(new Error('exec'), { code: 'ENOEXEC' }))).toBe(true);
+
+      expect(isFatalSpawnError(new KotoriError('io', '/usr/bin/ffprobe exited with 1: /videos/ENOENT.mp4: Invalid data'))).toBe(false);
+      expect(isFatalSpawnError(new KotoriError('io', '/usr/bin/ffprobe timed out'))).toBe(false);
+      expect(isFatalSpawnError(undefined)).toBe(false);
     });
   });
 

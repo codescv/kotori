@@ -23,20 +23,77 @@ async function isExecutable(path: string): Promise<boolean> {
   }
 }
 
+/** Check that `binPath` is executable and can actually be spawned (`-version` exits 0). */
+export async function canRunBinary(binPath: string, timeoutMs = 3_000): Promise<boolean> {
+  if (!(await isExecutable(binPath))) return false;
+  try {
+    await runProcess(binPath, ['-version'], { timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const FATAL_SPAWN_CODES = new Set(['EBADARCH', 'ENOENT', 'EACCES', 'EPERM', 'ENOEXEC', 'UNKNOWN SYSTEM ERROR -86']);
+const FATAL_SPAWN_MESSAGE_RE = /\b(?:EBADARCH|ENOENT|EACCES|EPERM|ENOEXEC)\b|Unknown system error -86/i;
+
+/**
+ * True when `error` (or its `cause` chain) indicates an unrecoverable spawn
+ * failure (`EBADARCH` / `Unknown system error -86` on Apple Silicon macOS
+ * without Rosetta 2, missing binary, permission error, bad executable format).
+ */
+export function isFatalSpawnError(error: unknown): boolean {
+  let cur: unknown = error;
+  for (let depth = 0; cur !== undefined && cur !== null && depth < 6; depth++) {
+    if (typeof cur === 'string') {
+      if (!/\bexited with \d+:/i.test(cur) && FATAL_SPAWN_MESSAGE_RE.test(cur)) return true;
+      break;
+    }
+    if (typeof cur === 'object') {
+      const rec = cur as { code?: unknown; errno?: unknown; message?: unknown; cause?: unknown };
+      if (rec.errno === -86) return true;
+      if (typeof rec.code === 'string' && FATAL_SPAWN_CODES.has(rec.code.toUpperCase())) return true;
+      if (
+        typeof rec.message === 'string' &&
+        !/\bexited with \d+:/i.test(rec.message) &&
+        FATAL_SPAWN_MESSAGE_RE.test(rec.message)
+      ) {
+        return true;
+      }
+      cur = rec.cause;
+      continue;
+    }
+    break;
+  }
+  return false;
+}
+
 /** Search `$KOTORI_FFMPEG_DIR`, `$PATH` and common Homebrew/Linux locations. */
-export async function findFfmpeg(env: NodeJS.ProcessEnv = process.env): Promise<FfmpegPaths | undefined> {
+export async function findFfmpeg(
+  env: NodeJS.ProcessEnv = process.env,
+  verify: (path: string) => Promise<boolean> = canRunBinary,
+): Promise<FfmpegPaths | undefined> {
   const dirs = [
-    ...(env['KOTORI_FFMPEG_DIR'] ? [env['KOTORI_FFMPEG_DIR']] : []),
-    ...(env['PATH'] ?? '').split(delimiter).filter(Boolean),
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    '/usr/bin',
-    '/snap/bin',
+    ...new Set([
+      ...(env['KOTORI_FFMPEG_DIR'] ? [env['KOTORI_FFMPEG_DIR']] : []),
+      ...(env['PATH'] ?? '').split(delimiter).filter(Boolean),
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/usr/bin',
+      '/snap/bin',
+    ]),
   ];
+  const check = async (binPath: string): Promise<boolean> => {
+    try {
+      return await verify(binPath);
+    } catch {
+      return false;
+    }
+  };
   for (const dir of dirs) {
     const ffmpeg = join(dir, 'ffmpeg');
     const ffprobe = join(dir, 'ffprobe');
-    if ((await isExecutable(ffmpeg)) && (await isExecutable(ffprobe))) return { ffmpeg, ffprobe };
+    if ((await check(ffmpeg)) && (await check(ffprobe))) return { ffmpeg, ffprobe };
   }
   return undefined;
 }

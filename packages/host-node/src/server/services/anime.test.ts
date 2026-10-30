@@ -2,10 +2,11 @@ import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { HostEvent } from '@kotori/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { KotoriError, type HostEvent } from '@kotori/core';
 import type { TorrentEngine } from '../../downloads/torrent-engine';
 import { createServerContext, type ServerContext } from '../context';
+import { createAnimeService } from './anime';
 
 describe('NodeAnimeService — animeRoots folder detection, split consolidation & permanent removal', () => {
   let dir: string;
@@ -37,6 +38,7 @@ describe('NodeAnimeService — animeRoots folder detection, split consolidation 
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await ctx.close();
     await rm(dir, { recursive: true, force: true });
   });
@@ -202,5 +204,64 @@ describe('NodeAnimeService — animeRoots folder detection, split consolidation 
     } finally {
       unsub();
     }
+  });
+
+  it('probeSeries breaks out of the episode loop immediately after a fatal spawn error (spawn Unknown system error -86)', async () => {
+    const { nogiDir } = await makeNogiFolder();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const ebadarchCause = Object.assign(new Error('spawn Unknown system error -86'), {
+      code: 'Unknown system error -86',
+      errno: -86,
+      syscall: 'spawn /usr/local/bin/ffprobe',
+    });
+    const probeStreamsSpy = vi.fn(async () => {
+      throw new KotoriError('io', `/usr/local/bin/ffprobe: ${ebadarchCause.message}`, { cause: ebadarchCause });
+    });
+
+    const anime = createAnimeService({
+      db: ctx.db,
+      repos: ctx.repos,
+      settings: ctx.settings,
+      subtitles: ctx.subtitles,
+      emit: (e) => events.push(e),
+      ffmpeg: () => ({ ffmpeg: '/usr/local/bin/ffmpeg', ffprobe: '/usr/local/bin/ffprobe' }),
+      downloads: () => ctx.downloads,
+      fetch: async () => new Response('not found', { status: 404 }),
+      probeStreams: probeStreamsSpy,
+    });
+
+    const series = await anime.importSeries({ path: nogiDir });
+    await anime.idle();
+
+    expect(series.episodeCount).toBe(3);
+    expect(probeStreamsSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('[kotori:anime] ffprobe failed for');
+    expect(warnSpy.mock.calls[0]?.[1]).toContain('spawn Unknown system error -86');
+  });
+
+  it('ensureDefaultTrack upgrades an untagged default sidecar when a preferred .ja.srt sidecar is synced', async () => {
+    const showDir = join(dir, 'Videos', 'UntaggedUpgrade');
+    await mkdir(showDir, { recursive: true });
+    await writeFile(join(showDir, 'Show - 01.mp4'), new Uint8Array(256));
+    const untaggedSrt = '1\n00:00:01,000 --> 00:00:02,500\n早啊，小鸟。\n';
+    await writeFile(join(showDir, 'Show - 01.srt'), untaggedSrt, 'utf8');
+
+    const series = await ctx.host.anime.importSeries({ path: showDir });
+    const [epBefore] = await ctx.host.anime.listEpisodes(series.id);
+    expect(epBefore?.subtitleTracks).toHaveLength(1);
+    expect(epBefore?.subtitleTracks[0]?.language).toBeUndefined();
+    expect(epBefore?.subtitleTracks[0]?.isDefault).toBe(true);
+
+    // Sync a newly added Japanese sidecar (.ja.srt) → default upgrades from untagged to Japanese.
+    const jaSrt = '1\n00:00:01,000 --> 00:00:02,500\nおはよう、ことり。\n';
+    await writeFile(join(showDir, 'Show - 01.ja.srt'), jaSrt, 'utf8');
+
+    const [epAfter] = await ctx.host.anime.listEpisodes(series.id);
+    expect(epAfter?.subtitleTracks).toHaveLength(2);
+    const defaultTrack = epAfter?.subtitleTracks.find((t) => t.isDefault);
+    const untaggedTrack = epAfter?.subtitleTracks.find((t) => t.language === undefined);
+    expect(defaultTrack?.language).toBe('ja');
+    expect(untaggedTrack?.isDefault).toBe(false);
   });
 });

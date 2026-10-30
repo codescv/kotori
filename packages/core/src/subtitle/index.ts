@@ -8,11 +8,12 @@
  *   - ass.ts            parseAss(text), stripAssTags(raw), parseAssMarkup(event, scriptInfo)
  *   - parse.ts          parseSubtitle(input) — decode + format sniff + dispatch
  *   - merge-per-char.ts mergePerCharacterCueGroups(cues) → MergedCueGroups
- *   - transcript.ts     buildTranscriptRows(cues, options) → TranscriptRow[] (merge + dedupe + chain fold)
+ *   - transcript.ts     buildTranscriptRows(cues, options) → TranscriptRow[], isSignCue, matchSecondaryCuesToRows
  *   - cue-utils.ts      cueIndexAt, activeCueIndexes, nextCueIndex, prevCueIndex, applyDelay, sortCuesByStart,
- *                       mergeCuesToSentence, cueOffsetToSentenceIndex, sentenceIndexToCueOffset
+ *                       mergeCuesToSentence, cueOffsetToSentenceIndex, sentenceIndexToCueOffset,
+ *                       splitBilingualCueText, dropDuplicateLines, translationTextOf, isBilingualTrack
  *   - episode-name.ts   parseEpisodeName(fileName) → ParsedEpisodeName
- *   - language.ts       detectSubtitleLanguageFromName(fileName) → LanguageTag | undefined
+ *   - language.ts       detectSubtitleLanguageFromName(fileName), normalizeLanguageTag(tag) → LanguageTag | undefined
  */
 export * from './detect';
 export { normalizeJapaneseKana, parseSrt, stripSubtitleHtml } from './srt';

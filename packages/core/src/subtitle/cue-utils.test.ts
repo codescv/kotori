@@ -6,13 +6,17 @@ import {
   applyDelay,
   cueIndexAt,
   cueOffsetToSentenceIndex,
+  dropDuplicateLines,
+  isBilingualTrack,
   mergeCuesToSentence,
   nextCueIndex,
   prevCueIndex,
   sentenceIndexToCueOffset,
   sortCuesByStart,
+  translationTextOf,
   type SubtitleExplainSource,
 } from './cue-utils';
+import { buildTranscriptRows } from './transcript';
 
 const cue = (index: number, text: string, startMs: number, endMs: number): SubtitleCue => ({ index, startMs, endMs, text, rawText: text });
 
@@ -119,5 +123,61 @@ describe('cue ⇄ sentence offsets', () => {
       const off = sentenceIndexToCueOffset(src, i);
       if (off) expect(cueOffsetToSentenceIndex(src, off.cueIndex, off.localCharIndex)).toBe(i);
     }
+  });
+});
+
+describe('secondary subtitle cue helpers', () => {
+  it('translationTextOf extracts non-kana translation lines regardless of line order', () => {
+    expect(translationTextOf('おはよう、ことり。\n早啊，小鸟。')).toBe('早啊，小鸟。');
+    expect(translationTextOf('早啊，小鸟。\nおはよう、ことり。')).toBe('早啊，小鸟。');
+    expect(translationTextOf('早啊，小鸟。\nおはよう、ことり。\n今天也这么早。')).toBe('早啊，小鸟。\n今天也这么早。');
+    expect(translationTextOf('早啊，小鸟。\n今天也这么早。')).toBe('早啊，小鸟。\n今天也这么早。');
+    expect(translationTextOf('おはよう\n今日も早いね')).toBe('おはよう\n今日も早いね');
+    expect(translationTextOf('Good morning!')).toBe('Good morning!');
+    expect(translationTextOf('おはよう\r\nGood morning!')).toBe('Good morning!');
+    expect(translationTextOf('')).toBe('');
+    expect(translationTextOf('  \r\n  ')).toBe('');
+  });
+
+  it('dropDuplicateLines removes lines matching normalised primary lines (incl. kana-free Japanese and identical cues)', () => {
+    expect(dropDuplicateLines('了解。\n明白。', new Set(['了解。']))).toBe('明白。');
+    expect(dropDuplicateLines('何　？\r\n什么？', new Set(['何？']))).toBe('什么？');
+    expect(dropDuplicateLines('おはよう、ことり。', new Set(['おはよう、ことり。']))).toBe('');
+    expect(dropDuplicateLines('早啊，小鸟。\n\n今天也这么早。', new Set(['おはよう']))).toBe('早啊，小鸟。\n今天也这么早。');
+  });
+
+  it('isBilingualTrack detects bilingual row cues while karaoke-heavy raw cues stay below threshold until merged', () => {
+    expect(isBilingualTrack([])).toBe(false);
+    const signOnly: SubtitleCue[] = [
+      {
+        index: 0,
+        startMs: 0,
+        endMs: 1000,
+        text: 'おはよう\n早安',
+        rawText: '',
+        markup: { layer: 0, hasMove: true, hasKaraoke: false, isDrawing: false, isComment: false, playResX: 1280, playResY: 720 },
+      },
+    ];
+    expect(isBilingualTrack(signOnly)).toBe(false);
+
+    // 4 bilingual dialogue cues + 30 per-char OP typewriter cues → 4/34 < 0.3 raw, 4/5 >= 0.3 after transcript merge.
+    const raw: SubtitleCue[] = [];
+    for (let i = 0; i < 30; i++) {
+      raw.push({
+        index: raw.length,
+        startMs: i * 50,
+        endMs: (i + 1) * 50,
+        text: 'あ',
+        rawText: 'あ',
+        markup: { layer: 0, styleName: 'OP', hasMove: false, hasKaraoke: false, isDrawing: false, isComment: false, playResX: 1280, playResY: 720 },
+      });
+    }
+    for (let j = 0; j < 4; j++) {
+      const startMs = 5000 + j * 2000;
+      raw.push(cue(raw.length, `おはよう${j}\n早安${j}`, startMs, startMs + 1500));
+    }
+    expect(isBilingualTrack(raw)).toBe(false);
+    const rowCues = buildTranscriptRows(raw, { mergeKaraoke: true, hideSigns: true }).map((r) => r.cue);
+    expect(isBilingualTrack(rowCues)).toBe(true);
   });
 });
