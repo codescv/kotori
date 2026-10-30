@@ -83,7 +83,7 @@ export const SAMPLE_ARGS: { readonly [K in RoutedMethodKey]: WireArgs<K> } = {
   'downloads.cancel': ['dl_1'],
   'downloads.remove': ['dl_1', true],
   'downloads.selectFiles': ['dl_1', [0, 2]],
-  'files.listDirectory': ['/tmp'],
+  'files.listDirectory': ['/nonexistent/kotori-test-dir'],
   'files.openExternal': ['magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'],
   'dict.list': [],
   'dict.importZip': [{ filePath: '/nonexistent/kotori-test-dict.zip', fileName: 'kotori-test-dict.zip', attribution: 'test' }],
