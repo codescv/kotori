@@ -13,7 +13,7 @@ import { Menu } from '../../../components/m3/Menu';
 import type { Translate } from '../../../i18n';
 import { formatClock } from '../../../lib/cues';
 import { RepeatControls, type RepeatApi } from './RepeatControls';
-import { SubtitleTrackMenu } from './SubtitleTrackMenu';
+import { SubtitleTrackMenu, type TrackSelectionTarget } from './SubtitleTrackMenu';
 
 export interface PlayerHudProps {
   readonly visible: boolean;
@@ -22,8 +22,10 @@ export interface PlayerHudProps {
   readonly episode: AnimeEpisode;
   readonly episodeTitle: string;
   readonly trackId: string | undefined;
+  readonly secondaryTrackId: string | undefined;
   readonly onSelectTrack: (trackId: string) => void;
-  readonly onTracksChanged: (selectTrackId?: string) => void;
+  readonly onSelectSecondaryTrack: (trackId: string | null) => void;
+  readonly onTracksChanged: (select?: TrackSelectionTarget) => void;
   readonly drawerOpen: boolean;
   readonly onToggleDrawer: () => void;
   readonly onBack: () => void;
@@ -61,7 +63,9 @@ export function PlayerHud({
   episode,
   episodeTitle,
   trackId,
+  secondaryTrackId,
   onSelectTrack,
+  onSelectSecondaryTrack,
   onTracksChanged,
   drawerOpen,
   onToggleDrawer,
@@ -123,7 +127,9 @@ export function PlayerHud({
         <SubtitleTrackMenu
           episode={episode}
           trackId={trackId}
+          secondaryTrackId={secondaryTrackId}
           onSelectTrack={onSelectTrack}
+          onSelectSecondaryTrack={onSelectSecondaryTrack}
           onTracksChanged={onTracksChanged}
           t={t}
         />

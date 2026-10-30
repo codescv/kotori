@@ -11,11 +11,17 @@ export interface MenuItem {
   readonly onSelect: () => void;
   readonly disabled?: boolean;
   readonly selected?: boolean;
+  readonly testId?: string | undefined;
+}
+
+export interface MenuHeading {
+  readonly key: string;
+  readonly heading: ReactNode;
 }
 
 export interface MenuProps {
   readonly trigger: (props: { open: boolean; toggle: () => void }) => ReactNode;
-  readonly items: readonly MenuItem[];
+  readonly items: readonly (MenuItem | MenuHeading)[];
   readonly align?: 'start' | 'end';
   readonly className?: string | undefined;
   readonly header?: ReactNode;
@@ -56,24 +62,31 @@ export function Menu({ trigger, items, align = 'end', className, header, childre
       {open && (
         <div className={cx('k-menu', `k-menu--${align}`)} role="menu">
           {header && <div className="k-menu__header">{header}</div>}
-          {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="menuitem"
-              className={cx('k-menu__item', item.selected && 'is-selected')}
-              disabled={item.disabled}
-              onClick={() => {
-                setOpen(false);
-                item.onSelect();
-              }}
-            >
-              {item.icon ? <Icon name={item.icon} size={20} /> : item.selected ? <Icon name="check" size={20} /> : <span className="k-menu__spacer" />}
-              <span className="k-menu__label" title={typeof item.label === 'string' ? item.label : undefined}>
-                {item.label}
-              </span>
-            </button>
-          ))}
+          {items.map((it) =>
+            'heading' in it ? (
+              <div key={it.key} className="k-menu__heading" role="presentation">
+                {it.heading}
+              </div>
+            ) : (
+              <button
+                key={it.key}
+                type="button"
+                role="menuitem"
+                data-testid={it.testId}
+                className={cx('k-menu__item', it.selected && 'is-selected')}
+                disabled={it.disabled}
+                onClick={() => {
+                  setOpen(false);
+                  it.onSelect();
+                }}
+              >
+                {it.icon ? <Icon name={it.icon} size={20} /> : it.selected ? <Icon name="check" size={20} /> : <span className="k-menu__spacer" />}
+                <span className="k-menu__label" title={typeof it.label === 'string' ? it.label : undefined}>
+                  {it.label}
+                </span>
+              </button>
+            ),
+          )}
           {children}
         </div>
       )}

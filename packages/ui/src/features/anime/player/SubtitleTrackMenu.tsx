@@ -9,17 +9,24 @@ import { PathBrowser } from '../../../components/PathBrowser';
 import { Button } from '../../../components/m3/Button';
 import { Dialog } from '../../../components/m3/Dialog';
 import { IconButton } from '../../../components/m3/IconButton';
-import { Menu, type MenuItem } from '../../../components/m3/Menu';
+import { Menu, type MenuHeading, type MenuItem } from '../../../components/m3/Menu';
 import { useHost } from '../../../host/HostContext';
 import type { Translate } from '../../../i18n';
 import { showSnackbar } from '../../../stores/snackbar';
 
+export interface TrackSelectionTarget {
+  readonly primary?: string | undefined;
+  readonly secondary?: string | undefined;
+}
+
 export interface SubtitleTrackMenuProps {
   readonly episode: AnimeEpisode;
   readonly trackId: string | undefined;
+  readonly secondaryTrackId: string | undefined;
   readonly onSelectTrack: (trackId: string) => void;
-  /** Called after any host-side change to the episode's tracks. */
-  readonly onTracksChanged: (selectTrackId?: string) => void;
+  readonly onSelectSecondaryTrack: (trackId: string | null) => void;
+  /** After any host-side change to the episode's tracks. `select` names which slot an extracted / added track goes to. */
+  readonly onTracksChanged: (select?: TrackSelectionTarget) => void;
   readonly t: Translate;
 }
 
@@ -88,7 +95,9 @@ export function formatSubtitleTrackLabel(track: SubtitleTrack, episode: AnimeEpi
 export function SubtitleTrackMenu({
   episode,
   trackId,
+  secondaryTrackId,
   onSelectTrack,
+  onSelectSecondaryTrack,
   onTracksChanged,
   t,
 }: SubtitleTrackMenuProps) {
@@ -97,40 +106,73 @@ export function SubtitleTrackMenu({
   const [addOpen, setAddOpen] = useState(false);
   const [path, setPath] = useState('');
   const current = episode.subtitleTracks.find((x) => x.id === trackId);
+  const currentSecondary = secondaryTrackId ? episode.subtitleTracks.find((x) => x.id === secondaryTrackId) : undefined;
 
-  const extract = async (track: SubtitleTrack): Promise<void> => {
+  const extract = async (track: SubtitleTrack, slot: 'primary' | 'secondary'): Promise<void> => {
     if (track.streamIndex === undefined) return;
     try {
       const extracted = await host.anime.extractEmbeddedTrack(episode.id, track.streamIndex);
-      onTracksChanged(extracted.id);
+      if (slot === 'secondary') {
+        onTracksChanged({ secondary: extracted.id });
+        showSnackbar(t('player.secondaryOn', { label: formatSubtitleTrackLabel(extracted, episode) }));
+      } else {
+        onTracksChanged({ primary: extracted.id });
+      }
     } catch (e) {
       showSnackbar(errMsg(e), { tone: 'error' });
     }
   };
 
-  const setDelay = async (delta: number): Promise<void> => {
-    if (!current) return;
+  const setDelay = async (track: SubtitleTrack, delta: number): Promise<void> => {
     try {
-      await host.anime.setTrackDelay(current.id, current.delayMs + delta);
-      onTracksChanged(current.id);
+      await host.anime.setTrackDelay(track.id, track.delayMs + delta);
+      onTracksChanged();
     } catch (e) {
       showSnackbar(errMsg(e), { tone: 'error' });
     }
   };
 
-  const items: MenuItem[] = [];
+  const items: (MenuItem | MenuHeading)[] = [];
+  items.push({ key: 'h:primary', heading: t('player.primaryTrackSection') });
   for (const track of episode.subtitleTracks) {
     const needsExtract = track.origin === 'embedded' && !track.filePath;
     items.push({
-      key: track.id,
+      key: `p:${track.id}`,
+      testId: `track-primary-${track.id}`,
       label: formatSubtitleTrackLabel(track, episode),
       selected: track.id === trackId,
       disabled: needsExtract && !caps.embeddedSubtitles,
       onSelect: () => {
         if (needsExtract) {
-          void extract(track);
+          void extract(track, 'primary');
         } else {
           onSelectTrack(track.id);
+        }
+      },
+    });
+  }
+  items.push({ key: 'h:secondary', heading: t('player.secondaryTrackSection') });
+  items.push({
+    key: 's:__off',
+    testId: 'track-secondary-off',
+    label: t('player.secondaryOff'),
+    selected: secondaryTrackId === undefined,
+    onSelect: () => onSelectSecondaryTrack(null),
+  });
+  for (const track of episode.subtitleTracks) {
+    if (track.id === trackId) continue;
+    const needsExtract = track.origin === 'embedded' && !track.filePath;
+    items.push({
+      key: `s:${track.id}`,
+      testId: `track-secondary-${track.id}`,
+      label: formatSubtitleTrackLabel(track, episode),
+      selected: track.id === secondaryTrackId,
+      disabled: needsExtract && !caps.embeddedSubtitles,
+      onSelect: () => {
+        if (needsExtract) {
+          void extract(track, 'secondary');
+        } else {
+          onSelectSecondaryTrack(track.id);
         }
       },
     });
@@ -155,15 +197,30 @@ export function SubtitleTrackMenu({
         header={t('player.tracks')}
         trigger={({ toggle, open }) => <IconButton icon="subtitles" label={t('player.tracks')} selected={open} onClick={toggle} />}
       >
-        {current && (
-          <div className="k-track-delay">
-            <span>{t('player.delay', { ms: current.delayMs })}</span>
-            <Button variant="text" onClick={() => void setDelay(-100)}>
-              −100
-            </Button>
-            <Button variant="text" onClick={() => void setDelay(100)}>
-              +100
-            </Button>
+        {(current || currentSecondary) && (
+          <div className="k-track-delays">
+            {current && (
+              <div className="k-track-delay" data-testid="track-delay-primary">
+                <span>{t(currentSecondary ? 'player.primaryDelay' : 'player.delay', { ms: current.delayMs })}</span>
+                <Button variant="text" onClick={() => void setDelay(current, -100)}>
+                  −100
+                </Button>
+                <Button variant="text" onClick={() => void setDelay(current, 100)}>
+                  +100
+                </Button>
+              </div>
+            )}
+            {currentSecondary && (
+              <div className="k-track-delay" data-testid="track-delay-secondary">
+                <span>{t('player.secondaryDelay', { ms: currentSecondary.delayMs })}</span>
+                <Button variant="text" onClick={() => void setDelay(currentSecondary, -100)}>
+                  −100
+                </Button>
+                <Button variant="text" onClick={() => void setDelay(currentSecondary, 100)}>
+                  +100
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </Menu>
@@ -185,7 +242,7 @@ export function SubtitleTrackMenu({
                   .addSubtitleTrack(episode.id, { path, fileName, ...(/\.ja\.|日本語|jpn/i.test(fileName) ? { language: 'ja' } : {}) })
                   .then((track) => {
                     setAddOpen(false);
-                    onTracksChanged(track.id);
+                    onTracksChanged({ primary: track.id });
                   })
                   .catch((e: unknown) => showSnackbar(errMsg(e), { tone: 'error' }));
               }}

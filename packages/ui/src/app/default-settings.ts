@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoDownloadJimaku: true,
     jimakuApiKey: '',
     preferredSubtitleLanguages: ['ja'],
+    secondarySubtitle: 'auto',
+    preferredSecondarySubtitleLanguages: ['zh-CN', 'zh', 'zh-TW', 'en'],
     autoPreExplain: false,
   },
   manga: {
