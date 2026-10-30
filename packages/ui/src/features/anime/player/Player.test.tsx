@@ -979,5 +979,45 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       expect(await screen.findByTestId('overlay-secondary-cue')).toHaveTextContent('早啊，小鸟。今天也这么早。');
       expect(screen.getByTestId('overlay-cue').querySelector('.k-sub-line__secondary')).toBeNull();
     });
+
+    it('stacks .k-sub-overlay above .k-player__sim in portrait/expanded layouts so simulated stage never paints over subtitles', async () => {
+      const zOf = (selectorPattern: RegExp): number => {
+        const block = selectorPattern.exec(playerCss)?.[1] ?? '';
+        const z = /z-index:\s*(\d+)\s*;/.exec(block)?.[1];
+        return z === undefined ? Number.NaN : Number(z);
+      };
+      const simZ = zOf(/(?:^|\n)\.k-player__sim\s*\{([^}]*)\}/);
+      const overlayZ = zOf(/(?:^|\n)\.k-sub-overlay\s*\{([^}]*)\}/);
+      const immersiveOverlayZ = zOf(/\.k-player--immersive\s+\.k-sub-overlay\s*\{([^}]*)\}/);
+      const subsHiddenZ = zOf(/(?:^|\n)\.k-player__subs-hidden\s*\{([^}]*)\}/);
+
+      expect(simZ).toBe(1);
+      expect(overlayZ).toBeGreaterThan(simZ);
+      expect(overlayZ).toBe(5);
+      expect(immersiveOverlayZ).toBeGreaterThan(overlayZ);
+      expect(subsHiddenZ).toBeGreaterThan(immersiveOverlayZ);
+
+      setViewport(390, 844);
+      try {
+        const { container } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+        const row = await rowByText('おはよう、ことり。今日も早いね。');
+        fireEvent.error(container.querySelector('video')!);
+        fireEvent.click(row.querySelector<HTMLButtonElement>('.k-transcript__time')!);
+
+        const pri = await screen.findByTestId('overlay-cue');
+        const sec = await screen.findByTestId('overlay-secondary-cue');
+        const playerRoot = container.querySelector('.k-player');
+        const sim = container.querySelector('.k-player__sim');
+        const overlay = container.querySelector('.k-sub-overlay');
+        expect(playerRoot).not.toHaveClass('k-player--immersive');
+        expect(sim).not.toBeNull();
+        expect(overlay).not.toBeNull();
+        expect(sim?.parentElement).toBe(overlay?.parentElement);
+        expect(overlay).toContainElement(pri);
+        expect(overlay).toContainElement(sec);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 });

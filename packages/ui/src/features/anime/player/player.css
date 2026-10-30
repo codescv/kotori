@@ -39,7 +39,7 @@
 }
 .k-player__notice { margin: 8px 0 0; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); }
 
-.k-sub-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; padding: 4% 6% 5%; }
+.k-sub-overlay { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; padding: 4% 6% 5%; }
 .k-player--compact .k-sub-overlay { padding: 3% 4% 4%; }
 .k-sub-overlay__top, .k-sub-overlay__bottom { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .k-player--compact .k-sub-overlay__top, .k-player--compact .k-sub-overlay__bottom { gap: 3px; }
