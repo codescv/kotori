@@ -1,6 +1,6 @@
 {
   "name": "@kotori/ui",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Kotori shared Material Design 3 UI (React 19 + Vite). Exposes `mountKotoriApp(el, host)`; hosts supply a PlatformHost. Includes a MockPlatformHost dev harness.",
   "license": "MIT",
   "type": "module",
