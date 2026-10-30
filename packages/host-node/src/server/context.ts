@@ -24,7 +24,7 @@ import { createDictService } from './services/dict';
 import { createMangaService, type NodeMangaService } from './services/manga';
 import { EventHub } from './util';
 
-export const KOTORI_VERSION = '0.1.28';
+export const KOTORI_VERSION = '0.1.29';
 
 /** Server-side implementation of the routed `PlatformHost` groups. */
 export interface NodeHost {
