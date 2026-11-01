@@ -415,6 +415,8 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-field__input:focus ~ .k-field__label,
 .k-field__input:not(:placeholder-shown) ~ .k-field__label { top: 12px; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-primary); }
 .k-field__input:not(:focus):not(:placeholder-shown) ~ .k-field__label { color: var(--md-sys-color-on-surface-variant); }
+.k-field__input:not(:focus)::placeholder { color: transparent; }
+.k-field__input:focus::placeholder { color: var(--md-sys-color-on-surface-variant); opacity: 0.65; }
 .k-field__trailing { flex: none; display: flex; align-items: center; padding-right: 4px; }
 .k-field__help { padding: 0 16px; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); }
 .k-field.is-error .k-field__box { border-color: var(--md-sys-color-error); }

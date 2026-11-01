@@ -571,10 +571,12 @@ describe('files', () => {
     expect(listing?.parent).toBeDefined();
     await h.host.files.openExternal?.('magnet:?xt=urn:btih:abc');
     expect(h.opener).toHaveBeenCalledWith('magnet:?xt=urn:btih:abc');
+    await h.host.files.openExternal?.('mailto:agent@example.com?subject=kotori%3A%20%5Bv0.1.32%5D%20test');
+    expect(h.opener).toHaveBeenCalledWith('mailto:agent@example.com?subject=kotori%3A%20%5Bv0.1.32%5D%20test');
     await expect(h.host.files.openExternal?.('javascript:alert(1)')).rejects.toMatchObject({ code: 'invalid-argument' });
     await expect(h.host.files.openExternal?.('file:///tmp/evil.command')).rejects.toMatchObject({ code: 'invalid-argument' });
     await expect(h.host.files.openExternal?.('/tmp/evil.app')).rejects.toMatchObject({ code: 'invalid-argument' });
-    expect(h.opener).toHaveBeenCalledTimes(1);
+    expect(h.opener).toHaveBeenCalledTimes(2);
     await expect(h.host.files.listDirectory?.('relative')).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 });

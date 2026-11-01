@@ -55,6 +55,14 @@ writeFileSync(
   'utf8',
 );
 
+const uiFeedbackPath = resolve(rootDir, 'packages/ui/src/features/settings/agentFeedback.ts');
+const uiFeedback = readFileSync(uiFeedbackPath, 'utf8');
+writeFileSync(
+  uiFeedbackPath,
+  uiFeedback.replace(/export const KOTORI_UI_VERSION = '[^']+';/, `export const KOTORI_UI_VERSION = '${nextVersion}';`),
+  'utf8',
+);
+
 const gradlePath = resolve(rootDir, 'packages/host-android/android/app/build.gradle');
 const gradle = readFileSync(gradlePath, 'utf8');
 let nextVersionCode = 1;

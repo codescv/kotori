@@ -26,10 +26,11 @@ export function TextField(props: TextFieldProps) {
   const id = useId();
   const helpId = `${id}-help`;
   const hasHelp = Boolean(error || supportingText);
+  const customPlaceholder = typeof rest.placeholder === 'string' && rest.placeholder.length > 0 ? rest.placeholder : ' ';
   const common = {
     id,
     value,
-    placeholder: ' ',
+    placeholder: customPlaceholder,
     'aria-invalid': error ? true : undefined,
     'aria-describedby': hasHelp ? helpId : undefined,
     className: 'k-field__input',

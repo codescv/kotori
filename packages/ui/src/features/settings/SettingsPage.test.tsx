@@ -1,14 +1,26 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HostProvider } from '../../host/HostContext';
 import { createMockPlatformHost, type MockPlatformHost } from '../../host/mock-host';
 import { useSettingsStore } from '../../stores/settings';
+import {
+  AGENT_FEEDBACK_EMAIL_STORAGE_KEY,
+  KOTORI_UI_VERSION,
+  buildAgentFeedbackMailto,
+  buildAgentFeedbackSubject,
+  isValidFeedbackEmail,
+  readAgentFeedbackEmail,
+  writeAgentFeedbackEmail,
+} from './agentFeedback';
 import { SettingsPage } from './SettingsPage';
 
 const baseCss = readFileSync(resolve(import.meta.dirname, '../../theme/styles.css'), 'utf8');
 const settingsCss = readFileSync(resolve(import.meta.dirname, './settings.css'), 'utf8');
+const uiPkg = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as {
+  version: string;
+};
 
 async function setup(opts: Parameters<typeof createMockPlatformHost>[0] = {}): Promise<MockPlatformHost> {
   const host = createMockPlatformHost({ latencyMs: 0, ...opts });
@@ -21,12 +33,16 @@ async function setup(opts: Parameters<typeof createMockPlatformHost>[0] = {}): P
   return host;
 }
 
-beforeEach(() => useSettingsStore.getState().reset());
+beforeEach(() => {
+  useSettingsStore.getState().reset();
+  localStorage.removeItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY);
+});
 afterEach(() => cleanup());
 
 describe('SettingsPage', () => {
   it('renders the 5 simplified cards and full-width about footer', async () => {
     await setup();
+    expect(document.querySelectorAll('.k-settings-section')).toHaveLength(5);
     for (const id of ['settings-ai', 'settings-dictionary', 'settings-learning', 'settings-appearance', 'settings-media', 'settings-about']) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
@@ -38,6 +54,8 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('settings-about-origin')).toBeInTheDocument();
     expect(screen.getByTestId('settings-about-platform')).toHaveTextContent('mock · linux · v0.1.0-mock');
     expect(within(about).getByTestId('settings-update-section')).toBeInTheDocument();
+    expect(within(about).getByTestId('settings-agent-feedback')).toBeInTheDocument();
+    expect(within(about).getByTestId('open-agent-feedback-btn')).toHaveTextContent('发送反馈给 Agent');
   });
 
   it('appearance changes apply immediately (theme, compact app icon grid, seed preset, locale, font preview)', async () => {
@@ -153,5 +171,124 @@ describe('SettingsPage', () => {
     const dictManageBtn = screen.getByTestId('dict-manage-btn');
     expect(dictManageBtn).toHaveClass('k-btn');
     expect(dictManageBtn.parentElement).toHaveClass('k-row');
+  });
+
+  it('builds kotori: [v0.1.32] mailto links and validates/persists Agent feedback email locally', () => {
+    expect(KOTORI_UI_VERSION).toBe(uiPkg.version);
+    expect(KOTORI_UI_VERSION).toBe('0.1.32');
+
+    expect(isValidFeedbackEmail('agent@example.com')).toBe(true);
+    expect(isValidFeedbackEmail('  dev.agent+kotori@example.org  ')).toBe(true);
+    expect(isValidFeedbackEmail('')).toBe(false);
+    expect(isValidFeedbackEmail('not-an-email')).toBe(false);
+    expect(isValidFeedbackEmail('agent@example.com\r\nBcc:other@example.com')).toBe(false);
+
+    expect(buildAgentFeedbackSubject('字幕行距优化', '0.1.32')).toBe('kotori: [v0.1.32] 字幕行距优化');
+    expect(buildAgentFeedbackSubject('字幕行距优化', 'v0.1.32')).toBe('kotori: [v0.1.32] 字幕行距优化');
+    expect(buildAgentFeedbackSubject('漫画缩放手势', '0.1.0-mock', 'mock')).toBe(
+      `kotori: [v${KOTORI_UI_VERSION}] 漫画缩放手势`,
+    );
+
+    const url = buildAgentFeedbackMailto({
+      email: 'agent@example.com',
+      summary: '字幕双语对齐建议',
+      details: '横屏全屏播放时希望副字幕再靠近底部一点',
+      version: '0.1.32',
+      platform: 'android',
+      os: 'android',
+    });
+    expect(url.startsWith('mailto:agent@example.com?')).toBe(true);
+    const query = new URLSearchParams(url.slice('mailto:agent@example.com?'.length));
+    expect(query.get('subject')).toBe('kotori: [v0.1.32] 字幕双语对齐建议');
+    expect(query.get('body')).toContain('字幕双语对齐建议');
+    expect(query.get('body')).toContain('横屏全屏播放时希望副字幕再靠近底部一点');
+    expect(query.get('body')).toContain('App: Kotori v0.1.32');
+    expect(query.get('body')).toContain('Platform: android · android');
+
+    // Derives summary from first line of details when summary is left blank.
+    const detailsOnlyUrl = buildAgentFeedbackMailto({
+      email: 'agent@example.com',
+      summary: '   ',
+      details: '点击生词卡片时希望展示更多例句\n第二行补充说明',
+      version: '0.1.32',
+    });
+    const detailsQuery = new URLSearchParams(detailsOnlyUrl.slice('mailto:agent@example.com?'.length));
+    expect(detailsQuery.get('subject')).toBe('kotori: [v0.1.32] 点击生词卡片时希望展示更多例句');
+
+    expect(() =>
+      buildAgentFeedbackMailto({ email: 'invalid-email', summary: 'test', version: '0.1.32' }),
+    ).toThrow(/Invalid agent feedback email/);
+
+    expect(readAgentFeedbackEmail()).toBe('');
+    writeAgentFeedbackEmail('  agent@example.com  ');
+    expect(localStorage.getItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY)).toBe('agent@example.com');
+    expect(readAgentFeedbackEmail()).toBe('agent@example.com');
+    writeAgentFeedbackEmail('   ');
+    expect(localStorage.getItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY)).toBeNull();
+  });
+
+  it('opens Agent feedback dialog from settings-about, persists email in localStorage, and launches mailto', async () => {
+    const host = await setup();
+    const openExternalSpy = vi.spyOn(host.files, 'openExternal');
+
+    const about = screen.getByTestId('settings-about');
+    expect(within(about).getByTestId('agent-feedback-status')).toHaveTextContent('配置 Agent 反馈邮箱后');
+    fireEvent.click(within(about).getByTestId('open-agent-feedback-btn'));
+
+    const dialog = await screen.findByTestId('agent-feedback-dialog');
+    const emailInput = within(dialog).getByTestId('agent-feedback-email-input') as HTMLInputElement;
+    expect(emailInput).toHaveAttribute('placeholder', 'agent@example.com');
+    expect(screen.getByPlaceholderText('agent@example.com')).toBe(emailInput);
+
+    // Validation blocks sending when email is missing/invalid or summary+details are empty.
+    fireEvent.click(within(dialog).getByTestId('send-agent-feedback-btn'));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请输入有效的邮箱地址');
+    expect(openExternalSpy).not.toHaveBeenCalled();
+
+    fireEvent.change(emailInput, { target: { value: 'agent@example.com' } });
+    fireEvent.click(within(dialog).getByTestId('save-agent-feedback-email-btn'));
+    expect(localStorage.getItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY)).toBe('agent@example.com');
+    expect(within(about).getByTestId('agent-feedback-status')).toHaveTextContent('agent@example.com');
+
+    fireEvent.click(within(dialog).getByTestId('send-agent-feedback-btn'));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请输入反馈摘要或详细内容');
+    expect(openExternalSpy).not.toHaveBeenCalled();
+
+    const summaryInput = within(dialog).getByTestId('agent-feedback-summary-input');
+    const detailsInput = within(dialog).getByTestId('agent-feedback-details-input');
+    fireEvent.change(summaryInput, { target: { value: '词典弹窗深色模式对比度' } });
+    fireEvent.change(detailsInput, { target: { value: '夜间阅读漫画时边框可以稍微亮一点' } });
+    expect(dialog).toHaveTextContent(`kotori: [v${KOTORI_UI_VERSION}] 词典弹窗深色模式对比度`);
+
+    fireEvent.click(within(dialog).getByTestId('send-agent-feedback-btn'));
+    await waitFor(() => expect(openExternalSpy).toHaveBeenCalledTimes(1));
+
+    const launchedUrl = openExternalSpy.mock.calls[0]?.[0] ?? '';
+    expect(launchedUrl).toContain(
+      `mailto:agent@example.com?subject=${encodeURIComponent(`kotori: [v${KOTORI_UI_VERSION}] 词典弹窗深色模式对比度`)}&body=`,
+    );
+    const params = new URLSearchParams(launchedUrl.slice('mailto:agent@example.com?'.length));
+    expect(params.get('subject')).toBe('kotori: [v0.1.32] 词典弹窗深色模式对比度');
+    expect(params.get('body')).toContain('夜间阅读漫画时边框可以稍微亮一点');
+    await waitFor(() => expect(screen.queryByTestId('agent-feedback-dialog')).toBeNull());
+
+    // Re-mounting SettingsPage restores saved email from localStorage automatically.
+    cleanup();
+    useSettingsStore.getState().reset();
+    await setup();
+    expect(screen.getByTestId('agent-feedback-status')).toHaveTextContent('agent@example.com');
+    fireEvent.click(screen.getByTestId('open-agent-feedback-btn'));
+    const reopened = await screen.findByTestId('agent-feedback-dialog');
+    expect(within(reopened).getByTestId('agent-feedback-email-input')).toHaveValue('agent@example.com');
+  });
+
+  it('never hardcodes non-example email addresses in feedback source files', () => {
+    for (const rel of ['./agentFeedback.ts', './AgentFeedbackSection.tsx', './SettingsPage.tsx']) {
+      const content = readFileSync(resolve(import.meta.dirname, rel), 'utf8');
+      const matches = content.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) ?? [];
+      for (const email of matches) {
+        expect(email.toLowerCase()).toMatch(/@example\.(com|org|net|invalid)$/);
+      }
+    }
   });
 });

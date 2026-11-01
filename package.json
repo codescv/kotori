@@ -1,7 +1,7 @@
 {
   "name": "kotori-monorepo",
   "private": true,
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Kotori（小鳥 / 言採り）— 表面是可爱的「小鸟」，拆开则是「言（こと）+ 採り（とり）」：采撷词句之人（Sentence Miner 的绝佳和风雅称）。",
   "license": "MIT",
   "type": "module",
@@ -23,6 +23,7 @@
     "start:new": "pnpm --filter @kotori/host-node start:app",
     "bump:version": "node scripts/bump-version.mjs",
     "build:apk": "pnpm --filter @kotori/host-android build:apk",
+    "build:apk:ci": "pnpm --filter @kotori/host-android build:apk:ci",
     "dev:ui": "pnpm --filter @kotori/ui dev",
     "dev:node": "pnpm --filter @kotori/host-node dev",
     "start:node": "pnpm --filter @kotori/host-node start"

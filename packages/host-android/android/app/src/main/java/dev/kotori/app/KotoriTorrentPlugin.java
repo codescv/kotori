@@ -254,7 +254,19 @@ public class KotoriTorrentPlugin extends Plugin {
             return;
         }
         try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            Uri uri = Uri.parse(url);
+            if (url.regionMatches(true, 0, "mailto:", 0, 7)) {
+                try {
+                    Intent sendTo = new Intent(Intent.ACTION_SENDTO, uri);
+                    sendTo.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(sendTo);
+                    call.resolve();
+                    return;
+                } catch (ActivityNotFoundException ignored) {
+                    // Fall back to ACTION_VIEW if no ACTION_SENDTO handler is registered
+                }
+            }
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(intent);
             call.resolve();

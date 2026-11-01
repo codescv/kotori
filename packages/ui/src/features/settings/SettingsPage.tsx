@@ -12,6 +12,7 @@ import { SettingsSection } from './fields';
 import { LearningSection } from './LearningSection';
 import { MediaSection } from './MediaSection';
 import { DictionarySection } from './sections/DictionarySection';
+import { AgentFeedbackSection } from './AgentFeedbackSection';
 import { UpdateSection } from '../updater/UpdateBanner';
 import './settings.css';
 
@@ -48,6 +49,7 @@ export function SettingsPage() {
       </div>
       <footer id="settings-about" data-testid="settings-about" className="k-settings__footer">
         <UpdateSection />
+        <AgentFeedbackSection />
         <div className="k-settings__footer-meta k-body-small k-muted">
           <p data-testid="settings-about-origin">{t('settings.about.nameOrigin')}</p>
           <p>
