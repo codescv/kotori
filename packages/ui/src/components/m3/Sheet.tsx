@@ -47,6 +47,8 @@ export function SideSheet({ open, onClose, title, headerActions, footer, childre
 
 export type BottomSheetSnap = 'peek' | 'expanded';
 
+const CLOSE_CLEANUP_MS = 240;
+
 /**
  * Modal bottom sheet with drag handle and two snap points:
  * - `peek` (default, ≈ 52vh) keeps the manga bubble / video frame visible above it;
@@ -66,10 +68,33 @@ export function BottomSheet({
   closeLabel = 'close',
   initialSnap = 'peek',
 }: SheetProps & { readonly initialSnap?: BottomSheetSnap }) {
+  const [rendered, setRendered] = useState(open);
+  const [entering, setEntering] = useState(open);
+  const [prevOpen, setPrevOpen] = useState(open);
   const [dragY, setDragY] = useState(0);
+  const [exitDragY, setExitDragY] = useState(0);
   const [snap, setSnap] = useState<BottomSheetSnap>(initialSnap);
+  const exitDragYRef = useRef(0);
   const snapRef = useRef<BottomSheetSnap>(snap);
   snapRef.current = snap;
+
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setRendered(true);
+      setEntering(true);
+      setDragY(0);
+      setExitDragY(0);
+      setSnap(initialSnap);
+    } else {
+      setEntering(false);
+      setDragY(0);
+    }
+  }
+
+  const isVisible = open || rendered;
+  const isClosing = !open && rendered;
+
   const start = useRef<{ y: number; lastY: number; t: number } | null>(null);
   const headerPullRef = useRef<{
     startX: number;
@@ -98,10 +123,33 @@ export function BottomSheet({
   onCloseRef.current = onClose;
   const openedAtRef = useRef(0);
 
+  const updateDragY = (next: number): void => {
+    if (next > 0) setEntering(false);
+    setDragY(next);
+  };
+
+  const expandSnap = (): void => {
+    snapRef.current = 'expanded';
+    openedAtRef.current = -1000;
+    setEntering(false);
+    setSnap('expanded');
+  };
+
+  const toggleSnap = (): void => {
+    setEntering(false);
+    if (snapRef.current === 'peek') expandSnap();
+    else {
+      snapRef.current = 'peek';
+      setSnap('peek');
+    }
+  };
+
   useEffect(() => {
     if (!open) return;
     openedAtRef.current = performance.now();
+    exitDragYRef.current = 0;
     setDragY(0);
+    setExitDragY(0);
     setSnap(initialSnap);
     snapRef.current = initialSnap;
     start.current = null;
@@ -113,8 +161,24 @@ export function BottomSheet({
   }, [open]);
 
   useEffect(() => {
+    if (!isClosing) return;
+    const timer = setTimeout(() => {
+      exitDragYRef.current = 0;
+      setExitDragY(0);
+      setRendered(false);
+    }, CLOSE_CLEANUP_MS);
+    return () => clearTimeout(timer);
+  }, [isClosing]);
+
+  useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        exitDragYRef.current = 0;
+        setExitDragY(0);
+        onClose();
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -149,10 +213,8 @@ export function BottomSheet({
     state.lastY = clientY;
 
     if (!state.active && !state.fromInteractive && snapRef.current === 'peek' && dy < -28 && Math.abs(dy) > Math.abs(dx) * 1.15) {
-      snapRef.current = 'expanded';
       state.expandedOnPullUp = true;
-      openedAtRef.current = -1000;
-      setSnap('expanded');
+      expandSnap();
       return;
     }
 
@@ -185,9 +247,9 @@ export function BottomSheet({
       const pullDy = clientY - state.anchorY;
       if (pullDy > 0) {
         cancelEvent?.();
-        setDragY(pullDy);
+        updateDragY(pullDy);
       } else {
-        setDragY(0);
+        updateDragY(0);
         state.active = false;
         state.anchorY = null;
       }
@@ -207,13 +269,19 @@ export function BottomSheet({
     if (state.active && state.anchorY !== null) {
       const pullDy = Math.max(0, state.lastY - state.anchorY);
       const velocity = pullDy / Math.max(1, performance.now() - state.anchorTime);
-      setDragY(0);
       suppressBodyClickRef.current = true;
       setTimeout(() => {
         suppressBodyClickRef.current = false;
       }, 80);
       if (pullDy >= 56 || (pullDy >= 24 && velocity > 0.5)) {
+        exitDragYRef.current = pullDy;
+        setExitDragY(pullDy);
+        setDragY(0);
         onCloseRef.current();
+      } else {
+        exitDragYRef.current = 0;
+        setExitDragY(0);
+        setDragY(0);
       }
     }
   };
@@ -268,19 +336,7 @@ export function BottomSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  if (!open) return null;
-  const expandSnap = (): void => {
-    snapRef.current = 'expanded';
-    openedAtRef.current = -1000;
-    setSnap('expanded');
-  };
-  const toggleSnap = (): void => {
-    if (snapRef.current === 'peek') expandSnap();
-    else {
-      snapRef.current = 'peek';
-      setSnap('peek');
-    }
-  };
+  if (!isVisible) return null;
 
   const finishHandleDrag = (endY: number): void => {
     const s = start.current;
@@ -288,10 +344,27 @@ export function BottomSheet({
     if (!s) return;
     const dy = endY - s.y;
     const velocity = dy / Math.max(1, performance.now() - s.t);
-    setDragY(0);
-    if (Math.abs(dy) < 6) toggleSnap();
-    else if (dy < -24 || velocity < -0.5) expandSnap();
-    else if (dy >= 56 || (dy >= 24 && velocity > 0.55)) onCloseRef.current();
+    if (Math.abs(dy) < 6) {
+      exitDragYRef.current = 0;
+      setExitDragY(0);
+      setDragY(0);
+      toggleSnap();
+    } else if (dy < -24 || velocity < -0.5) {
+      exitDragYRef.current = 0;
+      setExitDragY(0);
+      setDragY(0);
+      expandSnap();
+    } else if (dy >= 56 || (dy >= 24 && velocity > 0.55)) {
+      const pullDy = Math.max(0, dy);
+      exitDragYRef.current = pullDy;
+      setExitDragY(pullDy);
+      setDragY(0);
+      onCloseRef.current();
+    } else {
+      exitDragYRef.current = 0;
+      setExitDragY(0);
+      setDragY(0);
+    }
   };
 
   const isHeaderActionTarget = (target: EventTarget | null): boolean =>
@@ -317,7 +390,7 @@ export function BottomSheet({
       if (snapRef.current === 'peek' && dy < -28 && Math.abs(dy) > Math.abs(dx) * 1.15) {
         expandSnap();
       }
-      setDragY(Math.max(0, dy));
+      updateDragY(Math.max(0, dy));
     }
   };
 
@@ -327,33 +400,77 @@ export function BottomSheet({
     if (!s) return;
     const dy = s.lastY - s.startY;
     const velocity = dy / Math.max(1, performance.now() - s.startTime);
-    setDragY(0);
-    if (!s.active) return;
+    if (!s.active) {
+      exitDragYRef.current = 0;
+      setExitDragY(0);
+      setDragY(0);
+      return;
+    }
     suppressHeaderClickRef.current = true;
     setTimeout(() => {
       suppressHeaderClickRef.current = false;
     }, 80);
-    if (dy >= 56 || (dy >= 24 && velocity > 0.5)) onCloseRef.current();
-    else if (dy < -24 || velocity < -0.5) expandSnap();
+    if (dy >= 56 || (dy >= 24 && velocity > 0.5)) {
+      const pullDy = Math.max(0, dy);
+      exitDragYRef.current = pullDy;
+      setExitDragY(pullDy);
+      setDragY(0);
+      onCloseRef.current();
+    } else {
+      exitDragYRef.current = 0;
+      setExitDragY(0);
+      setDragY(0);
+      if (dy < -24 || velocity < -0.5) expandSnap();
+    }
   };
 
   const isPassthrough = !modal && snap === 'peek';
   const isModal = modal || snap === 'expanded';
+  const closeStartY = Math.round(exitDragY);
 
   return (
     <div
-      className={cx('k-bottom-sheet-scrim', isPassthrough && 'is-passthrough')}
+      className={cx('k-bottom-sheet-scrim', isPassthrough && 'is-passthrough', isClosing && 'is-closing')}
+      aria-hidden={isClosing ? 'true' : undefined}
       onMouseDown={(e) => {
-        if (isModal && e.target === e.currentTarget && performance.now() - openedAtRef.current >= 350) onClose();
+        if (!isClosing && isModal && e.target === e.currentTarget && performance.now() - openedAtRef.current >= 350) {
+          exitDragYRef.current = 0;
+          setExitDragY(0);
+          onClose();
+        }
       }}
     >
       <div
-        className={cx('k-bottom-sheet', snap === 'peek' ? 'is-peek' : 'is-expanded', dragY > 0 && 'is-dragging', className)}
+        className={cx(
+          'k-bottom-sheet',
+          snap === 'peek' ? 'is-peek' : 'is-expanded',
+          entering && !isClosing && dragY === 0 && 'is-entering',
+          !isClosing && dragY > 0 && 'is-dragging',
+          isClosing && 'is-closing',
+          className,
+        )}
         role="dialog"
         aria-modal={isModal ? 'true' : 'false'}
         aria-label={typeof title === 'string' ? title : undefined}
         data-snap={snap}
-        style={dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none', animation: 'none' } : undefined}
+        data-closing={isClosing ? 'true' : undefined}
+        style={
+          isClosing
+            ? { ['--k-sheet-drag-y' as string]: `${closeStartY}px` }
+            : dragY > 0
+              ? { transform: `translateY(${dragY}px)`, transition: 'none', animation: 'none' }
+              : undefined
+        }
+        onAnimationEnd={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (isClosing) {
+            exitDragYRef.current = 0;
+            setExitDragY(0);
+            setRendered(false);
+          } else {
+            setEntering(false);
+          }
+        }}
       >
         <div
           className="k-bottom-sheet__handle-area"
@@ -377,7 +494,7 @@ export function BottomSheet({
             if (!start.current || e.touches.length !== 1) return;
             const y = e.touches[0]!.clientY;
             start.current.lastY = y;
-            setDragY(Math.max(0, y - start.current.y));
+            updateDragY(Math.max(0, y - start.current.y));
           }}
           onTouchEnd={(e) => {
             if (!start.current || e.touches.length > 0) return;
@@ -400,7 +517,7 @@ export function BottomSheet({
           onPointerMove={(e) => {
             if (e.pointerType === 'touch' || !start.current) return;
             start.current.lastY = e.clientY;
-            setDragY(Math.max(0, e.clientY - start.current.y));
+            updateDragY(Math.max(0, e.clientY - start.current.y));
           }}
           onPointerUp={(e) => {
             if (e.pointerType === 'touch' || !start.current) return;
@@ -481,7 +598,16 @@ export function BottomSheet({
           <h2 className="k-sheet__title">{title}</h2>
           <div className="k-sheet__header-actions">
             {headerActions}
-            <IconButton icon="close" label={closeLabel} onClick={onClose} data-dialog-close />
+            <IconButton
+              icon="close"
+              label={closeLabel}
+              onClick={() => {
+                exitDragYRef.current = 0;
+                setExitDragY(0);
+                onClose();
+              }}
+              data-dialog-close
+            />
           </div>
         </header>
         <div

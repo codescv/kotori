@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BottomSheet } from './Sheet';
 
@@ -234,5 +235,191 @@ describe('BottomSheet snap points', () => {
     // Accidental child click immediately after drag-to-expand is suppressed.
     fireEvent.click(card);
     expect(onChildClick).not.toHaveBeenCalled();
+  });
+});
+
+describe('BottomSheet close animation & drag release transition', () => {
+  it('stays mounted with is-closing and --k-sheet-drag-y: 90px on pull-to-dismiss, and unmounts on animationEnd', () => {
+    const onCloseSpy = vi.fn();
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <BottomSheet
+          open={open}
+          onClose={() => {
+            onCloseSpy();
+            setOpen(false);
+          }}
+          title="AI 解析"
+        >
+          <p data-testid="sheet-child">释义内容</p>
+        </BottomSheet>
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    body.scrollTop = 0;
+    expect(sheet).toHaveClass('is-entering');
+
+    // Pull down 90px (>= 56px dismiss threshold) and release.
+    fireEvent.touchStart(body, { touches: [{ clientX: 180, clientY: 260 }] });
+    fireEvent.touchMove(body, { touches: [{ clientX: 181, clientY: 350 }] });
+    expect(sheet).toHaveClass('is-dragging');
+    expect(sheet).not.toHaveClass('is-entering');
+    expect(sheet.style.transform).toBe('translateY(90px)');
+
+    fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 181, clientY: 350 }] });
+
+    // 1. onClose fires immediately, while .k-bottom-sheet stays mounted in exit animation state.
+    expect(onCloseSpy).toHaveBeenCalledTimes(1);
+    const closingSheet = container.querySelector<HTMLElement>('.k-bottom-sheet');
+    const closingScrim = container.querySelector<HTMLElement>('.k-bottom-sheet-scrim');
+    expect(closingSheet).not.toBeNull();
+    expect(closingSheet).toHaveClass('is-closing');
+    expect(closingSheet).not.toHaveClass('is-entering');
+    expect(closingSheet).not.toHaveClass('is-dragging');
+    expect(closingSheet).toHaveAttribute('data-closing', 'true');
+    expect(closingSheet!.style.getPropertyValue('--k-sheet-drag-y')).toBe('90px');
+    expect(closingScrim).toHaveClass('is-closing');
+    expect(closingScrim).toHaveAttribute('aria-hidden', 'true');
+
+    // Bubbled animationEnd from a child element must NOT prematurely unmount the sheet.
+    fireEvent.animationEnd(screen.getByTestId('sheet-child'));
+    expect(container.querySelector('.k-bottom-sheet')).not.toBeNull();
+
+    // Once .k-bottom-sheet finishes its own exit animation, it unmounts cleanly.
+    fireEvent.animationEnd(closingSheet!);
+    expect(container.querySelector('.k-bottom-sheet')).toBeNull();
+    expect(container.querySelector('.k-bottom-sheet-scrim')).toBeNull();
+  });
+
+  it('unmounts cleanly after the 240ms fallback timer when animationEnd does not fire, and cancels close if re-opened mid-flight', () => {
+    vi.useFakeTimers();
+    try {
+      function Harness({ open, onClose }: { readonly open: boolean; readonly onClose: () => void }) {
+        return (
+          <BottomSheet open={open} onClose={onClose} title="AI 解析">
+            <p>释义内容</p>
+          </BottomSheet>
+        );
+      }
+
+      const { container, rerender } = render(<Harness open onClose={() => {}} />);
+      const header = container.querySelector<HTMLElement>('.k-sheet__header')!;
+
+      // Pull down 80px on header and close via controlled prop update.
+      fireEvent.pointerDown(header, { clientX: 160, clientY: 200, pointerId: 3 });
+      fireEvent.pointerMove(header, { clientX: 160, clientY: 280, pointerId: 3 });
+      fireEvent.pointerUp(header, { clientX: 160, clientY: 280, pointerId: 3 });
+      rerender(<Harness open={false} onClose={() => {}} />);
+
+      const closingSheet = container.querySelector<HTMLElement>('.k-bottom-sheet')!;
+      expect(closingSheet).toHaveClass('is-closing');
+      expect(closingSheet.style.getPropertyValue('--k-sheet-drag-y')).toBe('80px');
+
+      // Re-open mid-close at 100ms -> cancels fallback unmount timer and plays entry animation.
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(container.querySelector('.k-bottom-sheet')).not.toBeNull();
+
+      rerender(<Harness open onClose={() => {}} />);
+      const reopenedSheet = container.querySelector<HTMLElement>('.k-bottom-sheet')!;
+      expect(reopenedSheet).not.toHaveClass('is-closing');
+      expect(reopenedSheet).toHaveClass('is-entering');
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(container.querySelector('.k-bottom-sheet')).not.toBeNull();
+
+      // Close again and let the 240ms fallback timer unmount without animationEnd.
+      rerender(<Harness open={false} onClose={() => {}} />);
+      expect(container.querySelector('.k-bottom-sheet')).toHaveClass('is-closing');
+
+      act(() => {
+        vi.advanceTimersByTime(239);
+      });
+      expect(container.querySelector('.k-bottom-sheet')).not.toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(container.querySelector('.k-bottom-sheet')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('animates out with is-closing and --k-sheet-drag-y: 0px when closed via the close button', () => {
+    const onCloseSpy = vi.fn();
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <BottomSheet
+          open={open}
+          onClose={() => {
+            onCloseSpy();
+            setOpen(false);
+          }}
+          title="AI 解析"
+          closeLabel="关闭"
+        >
+          <p>释义内容</p>
+        </BottomSheet>
+      );
+    }
+
+    const { container } = render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+
+    expect(onCloseSpy).toHaveBeenCalledTimes(1);
+    const closingSheet = container.querySelector<HTMLElement>('.k-bottom-sheet');
+    expect(closingSheet).not.toBeNull();
+    expect(closingSheet).toHaveClass('is-closing');
+    expect(closingSheet!.style.getPropertyValue('--k-sheet-drag-y')).toBe('0px');
+
+    fireEvent.animationEnd(closingSheet!);
+    expect(container.querySelector('.k-bottom-sheet')).toBeNull();
+  });
+
+  it('clears is-entering on small non-dismissing pull (< 56px) so k-sheet-up does not replay on release', () => {
+    const onClose = vi.fn();
+    render(
+      <BottomSheet open onClose={onClose} title="AI 解析">
+        <p>释义内容</p>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    body.scrollTop = 0;
+
+    // Starts with is-entering on initial open.
+    expect(sheet).toHaveClass('is-entering');
+
+    // Pull down slightly (30px < 56px) and release slowly so neither distance nor velocity dismisses.
+    let now = 1000;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      fireEvent.touchStart(body, { touches: [{ clientX: 200, clientY: 300 }] });
+      now += 120;
+      fireEvent.touchMove(body, { touches: [{ clientX: 201, clientY: 330 }] });
+      expect(sheet).toHaveClass('is-dragging');
+      expect(sheet).not.toHaveClass('is-entering');
+      expect(sheet.style.transform).toBe('translateY(30px)');
+
+      now += 200;
+      fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 201, clientY: 330 }] });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(sheet).not.toHaveClass('is-dragging');
+    expect(sheet).not.toHaveClass('is-closing');
+    expect(sheet).not.toHaveClass('is-entering');
+    expect(sheet.style.transform).toBe('');
   });
 });

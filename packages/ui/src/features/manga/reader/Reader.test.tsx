@@ -276,7 +276,8 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     // Jump directly to page 5 (0-based index 4) from the page directory list
     fireEvent.click(screen.getByTestId('toc-page-4'));
     expect(spread().dataset['pageIndexes']).toBe('4');
-    expect(screen.queryByTestId('manga-toc-sheet')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('manga-toc-sheet')).toBeNull());
 
     // Jumping >= 3 pages shows the floating "↩ 跳回第 2 页" pill button, which returns on click
     const jumpBackBtn = screen.getByTestId('jump-return-btn');
