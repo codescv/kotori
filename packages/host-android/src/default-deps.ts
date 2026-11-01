@@ -254,7 +254,7 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
     try {
       version = (await App.getInfo()).version;
     } catch {
-      version = '0.1.30';
+      version = '0.1.31';
     }
   }
   return {
