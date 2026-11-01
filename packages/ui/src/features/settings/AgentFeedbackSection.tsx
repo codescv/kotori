@@ -2,23 +2,30 @@
  * Footer control + M3 dialog for configuring the local-only Agent Feedback Email
  * (`localStorage` key `kotori_agent_feedback_email`) and launching a pre-prefixed
  * `kotori: [vX.Y.Z] <summary>` email to the Vibe Coding dispatcher.
+ *
+ * The dialog collects 标题 (title), 问题描述 (issue description) and an optional
+ * image (增加图片); on Android the image is attached natively via `ACTION_SEND`.
  */
-import { useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '../../components/m3/Button';
 import { Dialog } from '../../components/m3/Dialog';
+import { IconButton } from '../../components/m3/IconButton';
 import { TextField } from '../../components/m3/TextField';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { showSnackbar } from '../../stores/snackbar';
 import {
   AGENT_FEEDBACK_EMAIL_PLACEHOLDER,
-  buildAgentFeedbackMailto,
+  AGENT_FEEDBACK_MAX_IMAGE_BYTES,
+  buildAgentFeedbackEmail,
   buildAgentFeedbackSubject,
   deriveFeedbackSummary,
   isValidFeedbackEmail,
   launchAgentFeedbackMailto,
+  readAgentFeedbackAttachment,
   readAgentFeedbackEmail,
   writeAgentFeedbackEmail,
+  type AgentFeedbackAttachment,
 } from './agentFeedback';
 
 export function AgentFeedbackSection() {
@@ -32,6 +39,39 @@ export function AgentFeedbackSection() {
   const [emailError, setEmailError] = useState<string | undefined>(undefined);
   const [summaryError, setSummaryError] = useState<string | undefined>(undefined);
   const [sending, setSending] = useState(false);
+  const [attachment, setAttachment] = useState<AgentFeedbackAttachment | undefined>(undefined);
+  const [readingImage, setReadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const pickImage = (): void => {
+    imageInputRef.current?.click();
+  };
+
+  const handleImageChange = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    // Reset so picking the same file again still fires `change`.
+    input.value = '';
+    if (!file) return;
+    if (file.type && !file.type.startsWith('image/')) {
+      showSnackbar(t('settings.feedback.imageInvalid'), { tone: 'error' });
+      return;
+    }
+    if (file.size > AGENT_FEEDBACK_MAX_IMAGE_BYTES) {
+      showSnackbar(t('settings.feedback.imageTooLarge'), { tone: 'error' });
+      return;
+    }
+    setReadingImage(true);
+    try {
+      const picked = await readAgentFeedbackAttachment(file);
+      setAttachment(picked);
+      setSummaryError(undefined);
+    } catch (e) {
+      showSnackbar(e instanceof Error ? e.message : String(e), { tone: 'error' });
+    } finally {
+      setReadingImage(false);
+    }
+  };
 
   const openDialog = (): void => {
     const current = readAgentFeedbackEmail();
@@ -75,7 +115,7 @@ export function AgentFeedbackSection() {
       setEmailError(t('settings.feedback.emailInvalid'));
       return;
     }
-    if (summary.trim().length === 0 && details.trim().length === 0) {
+    if (summary.trim().length === 0 && details.trim().length === 0 && !attachment) {
       setSummaryError(t('settings.feedback.summaryRequired'));
       return;
     }
@@ -85,21 +125,25 @@ export function AgentFeedbackSection() {
     setEmailError(undefined);
     setSummaryError(undefined);
 
-    const mailtoUrl = buildAgentFeedbackMailto({
-      email: persisted,
-      summary,
-      details,
-      version: host.info.version,
-      platform: host.info.platform,
-      os: host.info.os,
-    });
+    const feedback = buildAgentFeedbackEmail(
+      {
+        email: persisted,
+        summary,
+        details,
+        version: host.info.version,
+        platform: host.info.platform,
+        os: host.info.os,
+      },
+      attachment,
+    );
 
     setSending(true);
     try {
-      await launchAgentFeedbackMailto(host, mailtoUrl);
+      await launchAgentFeedbackMailto(host, feedback.mailtoUrl, feedback);
       showSnackbar(t('settings.feedback.launched'), { tone: 'info' });
       setSummary('');
       setDetails('');
+      setAttachment(undefined);
       setOpen(false);
     } catch (e) {
       showSnackbar(e instanceof Error ? e.message : String(e), { tone: 'error' });
@@ -156,7 +200,7 @@ export function AgentFeedbackSection() {
             <Button
               variant="filled"
               icon="send"
-              disabled={sending}
+              disabled={sending || readingImage}
               onClick={() => void handleSend()}
               data-testid="send-agent-feedback-btn"
             >
@@ -203,6 +247,43 @@ export function AgentFeedbackSection() {
           supportingText={t('settings.feedback.subjectPreview', { subject: previewSubject })}
           data-testid="agent-feedback-details-input"
         />
+        <div className="k-agent-feedback__image" data-testid="agent-feedback-image">
+          <span className="k-label-large">{t('settings.feedback.imageLabel')}</span>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(event) => void handleImageChange(event)}
+            data-testid="agent-feedback-image-input"
+          />
+          <div className="k-agent-feedback__image-row">
+            <Button
+              variant="outlined"
+              icon={attachment ? 'refresh' : 'add'}
+              disabled={readingImage}
+              onClick={pickImage}
+              data-testid="agent-feedback-add-image-btn"
+            >
+              {attachment ? t('settings.feedback.changeImage') : t('settings.feedback.addImage')}
+            </Button>
+            {attachment && (
+              <span className="k-agent-feedback__image-chip">
+                <span className="k-body-small k-agent-feedback__image-name" data-testid="agent-feedback-image-name" title={attachment.name}>
+                  {attachment.name}
+                </span>
+                <IconButton
+                  icon="close"
+                  size="small"
+                  label={t('settings.feedback.removeImage')}
+                  onClick={() => setAttachment(undefined)}
+                  data-testid="agent-feedback-remove-image-btn"
+                />
+              </span>
+            )}
+          </div>
+          <span className="k-body-small k-muted">{t('settings.feedback.imageHelp')}</span>
+        </div>
       </Dialog>
     </div>
   );

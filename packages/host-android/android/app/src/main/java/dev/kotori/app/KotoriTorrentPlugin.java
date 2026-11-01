@@ -1,6 +1,7 @@
 package dev.kotori.app;
 
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -11,6 +12,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.Base64;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
@@ -275,6 +277,141 @@ public class KotoriTorrentPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Failed to open external link: " + e.getMessage(), e);
         }
+    }
+
+    /** Max decoded size of a feedback image attachment (mirrors the UI's 10 MB limit). */
+    private static final int FEEDBACK_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+    /**
+     * Send an Agent feedback email with an image attachment.
+     *
+     * Decodes `base64` into `cacheDir/feedback/<safeName>`, exposes it through the
+     * app FileProvider and fires `ACTION_SEND` (`EXTRA_EMAIL` / `EXTRA_SUBJECT` /
+     * `EXTRA_TEXT` / `EXTRA_STREAM`) with a `mailto:` `ACTION_SENDTO` selector so
+     * only email apps are offered; falls back to a generic share chooser when no
+     * email app matches the selector.
+     */
+    @PluginMethod
+    public void sendFeedbackEmail(PluginCall call) {
+        final String email = call.getString("email", "");
+        final String subject = call.getString("subject", "");
+        final String body = call.getString("body", "");
+        final String fileName = call.getString("fileName", "");
+        final String mimeTypeArg = call.getString("mimeType", "");
+        final String base64 = call.getString("base64", "");
+        if (base64 == null || base64.isEmpty()) {
+            call.reject("base64 image payload is required");
+            return;
+        }
+        executor.execute(() -> {
+            try {
+                byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+                if (bytes.length == 0) {
+                    call.reject("Image payload is empty");
+                    return;
+                }
+                if (bytes.length > FEEDBACK_IMAGE_MAX_BYTES) {
+                    call.reject("Image is too large");
+                    return;
+                }
+                File dir = new File(getContext().getCacheDir(), "feedback");
+                if (!dir.exists() && !dir.mkdirs()) {
+                    call.reject("Failed to create feedback cache directory");
+                    return;
+                }
+                File[] stale = dir.listFiles();
+                if (stale != null) {
+                    for (File old : stale) {
+                        //noinspection ResultOfMethodCallIgnored
+                        old.delete();
+                    }
+                }
+                String safeName = sanitizeFeedbackFileName(fileName, mimeTypeArg);
+                File imageFile = new File(dir, safeName);
+                try (FileOutputStream out = new FileOutputStream(imageFile)) {
+                    out.write(bytes);
+                }
+                Uri contentUri = FileProvider.getUriForFile(
+                    getContext(),
+                    getContext().getPackageName() + ".fileprovider",
+                    imageFile
+                );
+                String mimeType = (mimeTypeArg != null && mimeTypeArg.startsWith("image/") && !mimeTypeArg.equals("image/*"))
+                    ? mimeTypeArg
+                    : "image/*";
+                mainHandler.post(() -> launchFeedbackEmailIntent(call, email, subject, body, mimeType, contentUri));
+            } catch (IllegalArgumentException e) {
+                call.reject("Invalid image payload: " + e.getMessage(), e);
+            } catch (Exception e) {
+                call.reject("Failed to prepare feedback email: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    private Intent buildFeedbackSendIntent(String email, String subject, String body, String mimeType, Uri contentUri) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType(mimeType);
+        if (email != null && !email.isEmpty()) {
+            send.putExtra(Intent.EXTRA_EMAIL, new String[] { email });
+        }
+        send.putExtra(Intent.EXTRA_SUBJECT, subject == null ? "" : subject);
+        send.putExtra(Intent.EXTRA_TEXT, body == null ? "" : body);
+        send.putExtra(Intent.EXTRA_STREAM, contentUri);
+        send.setClipData(ClipData.newRawUri("feedback_image", contentUri));
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        return send;
+    }
+
+    private void launchFeedbackEmailIntent(PluginCall call, String email, String subject, String body, String mimeType, Uri contentUri) {
+        try {
+            Intent send = buildFeedbackSendIntent(email, subject, body, mimeType, contentUri);
+            send.setSelector(new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")));
+            send.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(send);
+            JSObject ret = new JSObject();
+            ret.put("ok", true);
+            ret.put("mode", "email");
+            call.resolve(ret);
+            return;
+        } catch (ActivityNotFoundException ignored) {
+            // No email app matched the mailto: selector; fall back to a generic share chooser.
+        } catch (Exception e) {
+            call.reject("Failed to launch email app: " + e.getMessage(), e);
+            return;
+        }
+        try {
+            Intent plain = buildFeedbackSendIntent(email, subject, body, mimeType, contentUri);
+            Intent chooser = Intent.createChooser(plain, subject == null || subject.isEmpty() ? "Send feedback" : subject);
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getContext().startActivity(chooser);
+            JSObject ret = new JSObject();
+            ret.put("ok", true);
+            ret.put("mode", "chooser");
+            call.resolve(ret);
+        } catch (ActivityNotFoundException e) {
+            call.reject("No installed app can send email", e);
+        } catch (Exception e) {
+            call.reject("Failed to launch share chooser: " + e.getMessage(), e);
+        }
+    }
+
+    /** Keep only a safe basename (`[A-Za-z0-9._-]`, max 80 chars) with an image extension. */
+    static String sanitizeFeedbackFileName(String rawName, String mimeType) {
+        String name = rawName == null ? "" : rawName;
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0) name = name.substring(slash + 1);
+        name = name.replaceAll("[^A-Za-z0-9._-]", "_").replaceAll("^[._]+", "");
+        if (name.length() > 80) name = name.substring(name.length() - 80);
+        if (name.isEmpty() || !name.contains(".")) {
+            String ext = "png";
+            if (mimeType != null && mimeType.startsWith("image/")) {
+                String sub = mimeType.substring(6).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+                if (sub.equals("jpeg")) sub = "jpg";
+                if (!sub.isEmpty()) ext = sub;
+            }
+            name = (name.isEmpty() ? "feedback_image" : name) + "." + ext;
+        }
+        return name;
     }
 
     /**

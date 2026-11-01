@@ -58,6 +58,15 @@ interface FilePickerPlugin {
 
 interface KotoriTorrentNativePlugin {
   openExternal(options: { url: string }): Promise<void>;
+  /** Agent feedback email with an image: `ACTION_SEND` + FileProvider `EXTRA_STREAM` (used by `@kotori/ui` via `window.Capacitor.Plugins`). */
+  sendFeedbackEmail?(options: {
+    email: string;
+    subject: string;
+    body: string;
+    fileName: string;
+    mimeType: string;
+    base64: string;
+  }): Promise<{ ok: boolean; mode: 'email' | 'chooser' }>;
   setAppIcon(options: { iconId: AppIconId }): Promise<{ iconId: AppIconId; changed: boolean }>;
   setImmersive?(options: { immersive: boolean; orientation: ScreenOrientationMode }): Promise<void>;
   startTorrent(options: {
@@ -254,7 +263,7 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
     try {
       version = (await App.getInfo()).version;
     } catch {
-      version = '0.1.32';
+      version = '0.1.33';
     }
   }
   return {

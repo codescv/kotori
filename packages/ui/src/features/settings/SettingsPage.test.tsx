@@ -8,10 +8,14 @@ import { useSettingsStore } from '../../stores/settings';
 import {
   AGENT_FEEDBACK_EMAIL_STORAGE_KEY,
   KOTORI_UI_VERSION,
+  buildAgentFeedbackBody,
+  buildAgentFeedbackEmail,
   buildAgentFeedbackMailto,
   buildAgentFeedbackSubject,
   isValidFeedbackEmail,
+  launchAgentFeedbackMailto,
   readAgentFeedbackEmail,
+  sanitizeAttachmentName,
   writeAgentFeedbackEmail,
 } from './agentFeedback';
 import { SettingsPage } from './SettingsPage';
@@ -37,7 +41,29 @@ beforeEach(() => {
   useSettingsStore.getState().reset();
   localStorage.removeItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY);
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  delete (window as CapacitorWindow).Capacitor;
+});
+
+type CapacitorWindow = Window & { Capacitor?: unknown };
+
+/** Install a fake native `KotoriTorrent.sendFeedbackEmail` plugin on `window.Capacitor`. */
+function installNativeFeedbackPlugin(impl: (...args: unknown[]) => Promise<unknown> = async () => ({ ok: true })) {
+  const sendFeedbackEmail = vi.fn(impl);
+  (window as CapacitorWindow).Capacitor = {
+    isNativePlatform: () => true,
+    Plugins: { KotoriTorrent: { sendFeedbackEmail } },
+  };
+  return sendFeedbackEmail;
+}
+
+// 1x1 transparent PNG.
+const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+function pngFile(name = 'screenshot.png'): File {
+  const bytes = Uint8Array.from(atob(PNG_BASE64), (c) => c.charCodeAt(0));
+  return new File([bytes], name, { type: 'image/png' });
+}
 
 describe('SettingsPage', () => {
   it('renders the 5 simplified cards and full-width about footer', async () => {
@@ -173,9 +199,9 @@ describe('SettingsPage', () => {
     expect(dictManageBtn.parentElement).toHaveClass('k-row');
   });
 
-  it('builds kotori: [v0.1.32] mailto links and validates/persists Agent feedback email locally', () => {
+  it('builds kotori: [v0.1.33] mailto links and validates/persists Agent feedback email locally', () => {
     expect(KOTORI_UI_VERSION).toBe(uiPkg.version);
-    expect(KOTORI_UI_VERSION).toBe('0.1.32');
+    expect(KOTORI_UI_VERSION).toBe('0.1.33');
 
     expect(isValidFeedbackEmail('agent@example.com')).toBe(true);
     expect(isValidFeedbackEmail('  dev.agent+kotori@example.org  ')).toBe(true);
@@ -251,7 +277,7 @@ describe('SettingsPage', () => {
     expect(within(about).getByTestId('agent-feedback-status')).toHaveTextContent('agent@example.com');
 
     fireEvent.click(within(dialog).getByTestId('send-agent-feedback-btn'));
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('请输入反馈摘要或详细内容');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请填写标题、问题描述或添加图片');
     expect(openExternalSpy).not.toHaveBeenCalled();
 
     const summaryInput = within(dialog).getByTestId('agent-feedback-summary-input');
@@ -268,7 +294,8 @@ describe('SettingsPage', () => {
       `mailto:agent@example.com?subject=${encodeURIComponent(`kotori: [v${KOTORI_UI_VERSION}] 词典弹窗深色模式对比度`)}&body=`,
     );
     const params = new URLSearchParams(launchedUrl.slice('mailto:agent@example.com?'.length));
-    expect(params.get('subject')).toBe('kotori: [v0.1.32] 词典弹窗深色模式对比度');
+    expect(params.get('subject')).toBe('kotori: [v0.1.33] 词典弹窗深色模式对比度');
+    expect(params.get('body')).not.toContain('Attachment:');
     expect(params.get('body')).toContain('夜间阅读漫画时边框可以稍微亮一点');
     await waitFor(() => expect(screen.queryByTestId('agent-feedback-dialog')).toBeNull());
 
@@ -280,6 +307,165 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByTestId('open-agent-feedback-btn'));
     const reopened = await screen.findByTestId('agent-feedback-dialog');
     expect(within(reopened).getByTestId('agent-feedback-email-input')).toHaveValue('agent@example.com');
+  });
+
+  it('labels the feedback dialog with 标题 / 问题描述 / 增加图片 and attaches an image natively on Android', async () => {
+    const sendFeedbackEmail = installNativeFeedbackPlugin();
+    localStorage.setItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY, 'agent@example.com');
+    const host = await setup();
+    const openExternalSpy = vi.spyOn(host.files, 'openExternal');
+
+    fireEvent.click(screen.getByTestId('open-agent-feedback-btn'));
+    const dialog = await screen.findByTestId('agent-feedback-dialog');
+
+    // 标题 / 问题描述 labels.
+    const summaryInput = within(dialog).getByTestId('agent-feedback-summary-input');
+    const detailsInput = within(dialog).getByTestId('agent-feedback-details-input');
+    expect(within(dialog).getByLabelText('标题')).toBe(summaryInput);
+    expect(within(dialog).getByLabelText('问题描述')).toBe(detailsInput);
+
+    // 增加图片: hidden image-only file input + action button.
+    const imageInput = within(dialog).getByTestId('agent-feedback-image-input') as HTMLInputElement;
+    expect(imageInput).toHaveAttribute('type', 'file');
+    expect(imageInput).toHaveAttribute('accept', 'image/*');
+    expect(imageInput).not.toBeVisible();
+    const addImageBtn = within(dialog).getByTestId('agent-feedback-add-image-btn');
+    expect(addImageBtn).toHaveTextContent('增加图片');
+    expect(within(dialog).queryByTestId('agent-feedback-image-name')).toBeNull();
+    expect(within(dialog).queryByTestId('agent-feedback-remove-image-btn')).toBeNull();
+
+    const clickSpy = vi.spyOn(imageInput, 'click');
+    fireEvent.click(addImageBtn);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    // Picking an image shows the filename chip + remove button and flips the label.
+    fireEvent.change(imageInput, { target: { files: [pngFile('screenshot.png')] } });
+    expect(await within(dialog).findByTestId('agent-feedback-image-name')).toHaveTextContent('screenshot.png');
+    expect(within(dialog).getByTestId('agent-feedback-add-image-btn')).toHaveTextContent('更换图片');
+
+    // Removing clears the chip; re-adding restores it.
+    fireEvent.click(within(dialog).getByTestId('agent-feedback-remove-image-btn'));
+    expect(within(dialog).queryByTestId('agent-feedback-image-name')).toBeNull();
+    expect(within(dialog).getByTestId('agent-feedback-add-image-btn')).toHaveTextContent('增加图片');
+    fireEvent.change(imageInput, { target: { files: [pngFile('screenshot.png')] } });
+    await within(dialog).findByTestId('agent-feedback-image-name');
+
+    fireEvent.change(summaryInput, { target: { value: '漫画翻页卡顿' } });
+    fireEvent.change(detailsInput, { target: { value: '连续翻页 20 页后出现明显掉帧' } });
+    fireEvent.click(within(dialog).getByTestId('send-agent-feedback-btn'));
+
+    await waitFor(() => expect(sendFeedbackEmail).toHaveBeenCalledTimes(1));
+    expect(openExternalSpy).not.toHaveBeenCalled();
+    const payload = sendFeedbackEmail.mock.calls[0]?.[0] as Record<string, string>;
+    expect(payload.email).toBe('agent@example.com');
+    expect(payload.subject).toBe(`kotori: [v${KOTORI_UI_VERSION}] 漫画翻页卡顿`);
+    expect(payload.body).toContain('漫画翻页卡顿');
+    expect(payload.body).toContain('连续翻页 20 页后出现明显掉帧');
+    expect(payload.body).toContain('Attachment: screenshot.png');
+    expect(payload.fileName).toBe('screenshot.png');
+    expect(payload.mimeType).toBe('image/png');
+    expect(payload.base64).toBe(PNG_BASE64);
+    await waitFor(() => expect(screen.queryByTestId('agent-feedback-dialog')).toBeNull());
+
+    // Reopening starts without the previous attachment.
+    fireEvent.click(screen.getByTestId('open-agent-feedback-btn'));
+    const reopened = await screen.findByTestId('agent-feedback-dialog');
+    expect(within(reopened).queryByTestId('agent-feedback-image-name')).toBeNull();
+  });
+
+  it('allows sending an image-only feedback and falls back to mailto with Attachment metadata off Android', async () => {
+    localStorage.setItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY, 'agent@example.com');
+    const host = await setup();
+    const openExternalSpy = vi.spyOn(host.files, 'openExternal');
+
+    fireEvent.click(screen.getByTestId('open-agent-feedback-btn'));
+    const dialog = await screen.findByTestId('agent-feedback-dialog');
+
+    // Empty title + description + no image → blocked.
+    fireEvent.click(within(dialog).getByTestId('send-agent-feedback-btn'));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请填写标题、问题描述或添加图片');
+    expect(openExternalSpy).not.toHaveBeenCalled();
+
+    // An image alone is enough to send.
+    const imageInput = within(dialog).getByTestId('agent-feedback-image-input') as HTMLInputElement;
+    fireEvent.change(imageInput, { target: { files: [pngFile('bug.png')] } });
+    expect(await within(dialog).findByTestId('agent-feedback-image-name')).toHaveTextContent('bug.png');
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+
+    fireEvent.click(within(dialog).getByTestId('send-agent-feedback-btn'));
+    await waitFor(() => expect(openExternalSpy).toHaveBeenCalledTimes(1));
+    const launchedUrl = openExternalSpy.mock.calls[0]?.[0] ?? '';
+    const params = new URLSearchParams(launchedUrl.slice('mailto:agent@example.com?'.length));
+    expect(params.get('subject')).toBe(`kotori: [v${KOTORI_UI_VERSION}] 用户反馈`);
+    expect(params.get('body')).toContain('Attachment: bug.png');
+  });
+
+  it('rejects non-image files picked for the feedback attachment', async () => {
+    localStorage.setItem(AGENT_FEEDBACK_EMAIL_STORAGE_KEY, 'agent@example.com');
+    await setup();
+    fireEvent.click(screen.getByTestId('open-agent-feedback-btn'));
+    const dialog = await screen.findByTestId('agent-feedback-dialog');
+    const imageInput = within(dialog).getByTestId('agent-feedback-image-input') as HTMLInputElement;
+    fireEvent.change(imageInput, { target: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(within(dialog).queryByTestId('agent-feedback-image-name')).toBeNull();
+  });
+
+  it('builds Attachment metadata and routes image feedback via native plugin or mailto fallback', async () => {
+    expect(sanitizeAttachmentName('C:\\Users\\me\\shot\n1.png')).toBe('shot 1.png');
+    expect(sanitizeAttachmentName('/sdcard/DCIM/a.jpg')).toBe('a.jpg');
+
+    const body = buildAgentFeedbackBody({ summary: '标题', details: '描述', version: '0.1.33', attachmentName: 'a.png' });
+    expect(body).toContain('App: Kotori v0.1.33');
+    expect(body).toContain('Attachment: a.png');
+    expect(buildAgentFeedbackBody({ summary: '标题', version: '0.1.33' })).not.toContain('Attachment:');
+
+    const attachment = { name: 'a.png', type: 'image/png', base64: PNG_BASE64 };
+    const feedback = buildAgentFeedbackEmail({ email: 'agent@example.com', summary: '标题', version: '0.1.33' }, attachment);
+    expect(feedback.subject).toBe('kotori: [v0.1.33] 标题');
+    expect(feedback.body).toContain('Attachment: a.png');
+    expect(feedback.attachment).toEqual(attachment);
+    expect(new URLSearchParams(feedback.mailtoUrl.split('?')[1]).get('body')).toContain('Attachment: a.png');
+
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const openExternal = vi.spyOn(host.files, 'openExternal');
+
+    // No native plugin → mailto via openExternal.
+    await launchAgentFeedbackMailto(host, feedback.mailtoUrl, feedback);
+    expect(openExternal).toHaveBeenCalledWith(feedback.mailtoUrl);
+
+    // Native plugin present → ACTION_SEND path, no mailto.
+    openExternal.mockClear();
+    const sendFeedbackEmail = installNativeFeedbackPlugin();
+    await launchAgentFeedbackMailto(host, feedback.mailtoUrl, feedback);
+    expect(sendFeedbackEmail).toHaveBeenCalledWith({
+      email: 'agent@example.com',
+      subject: 'kotori: [v0.1.33] 标题',
+      body: feedback.body,
+      fileName: 'a.png',
+      mimeType: 'image/png',
+      base64: PNG_BASE64,
+    });
+    expect(openExternal).not.toHaveBeenCalled();
+
+    // Without an image the native plugin is never used.
+    sendFeedbackEmail.mockClear();
+    const plain = buildAgentFeedbackEmail({ email: 'agent@example.com', summary: '标题', version: '0.1.33' });
+    await launchAgentFeedbackMailto(host, plain.mailtoUrl, plain);
+    expect(sendFeedbackEmail).not.toHaveBeenCalled();
+    expect(openExternal).toHaveBeenCalledWith(plain.mailtoUrl);
+
+    // Older native shells (UNIMPLEMENTED) fall back to mailto; other errors propagate.
+    openExternal.mockClear();
+    installNativeFeedbackPlugin(async () => {
+      throw Object.assign(new Error('not implemented'), { code: 'UNIMPLEMENTED' });
+    });
+    await launchAgentFeedbackMailto(host, feedback.mailtoUrl, feedback);
+    expect(openExternal).toHaveBeenCalledWith(feedback.mailtoUrl);
+    installNativeFeedbackPlugin(async () => {
+      throw new Error('No installed app can send email');
+    });
+    await expect(launchAgentFeedbackMailto(host, feedback.mailtoUrl, feedback)).rejects.toThrow(/No installed app/);
   });
 
   it('never hardcodes non-example email addresses in feedback source files', () => {
