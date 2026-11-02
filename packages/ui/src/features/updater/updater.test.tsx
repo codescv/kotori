@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HostProvider } from '../../host/HostContext';
 import { createMockPlatformHost } from '../../host/mock-host';
 import { resetStores } from '../../test/utils';
 import {
   compareSemanticVersions,
+  handleApkInstallResumed,
   parseGithubReleaseJson,
   parseGithubReleasesAtom,
   parseSemanticVersion,
@@ -122,5 +123,129 @@ describe('updater version & GitHub release parser', () => {
     fireEvent.click(screen.getByTestId('update-banner-dismiss'));
     expect(screen.queryByTestId('update-banner')).toBeNull();
     await host.dispose();
+  });
+});
+
+describe('v0.1.34 Android direct update install (single tap)', () => {
+  type Listener = (ev: Record<string, unknown>) => void;
+
+  function installNativePlugin(downloadResult: { installed: boolean; needsPermission?: boolean }) {
+    const listeners = new Map<string, Listener[]>();
+    const plugin = {
+      downloadAndInstallApk: vi.fn(async () => {
+        for (const l of listeners.get('apkDownloadProgress') ?? []) {
+          l({ downloadedBytes: 2560000, totalBytes: 5120000, percent: 50 });
+        }
+        return { filePath: '/cache/updates/kotori-9.9.9.apk', sizeBytes: 5120000, ...downloadResult };
+      }),
+      installApkFile: vi.fn(async () => ({ installed: true, needsPermission: false })),
+      addListener: vi.fn(async (name: string, listener: Listener) => {
+        listeners.set(name, [...(listeners.get(name) ?? []), listener]);
+        return {
+          remove: async () => {
+            listeners.set(
+              name,
+              (listeners.get(name) ?? []).filter((l) => l !== listener),
+            );
+          },
+        };
+      }),
+    };
+    (globalThis as Record<string, unknown>).Capacitor = {
+      isNativePlatform: () => true,
+      Plugins: { KotoriTorrent: plugin },
+    };
+    const emit = (name: string, ev: Record<string, unknown>) => {
+      for (const l of listeners.get(name) ?? []) l(ev);
+    };
+    return { plugin, emit, listeners };
+  }
+
+  function seedAvailableRelease() {
+    useUpdateStore.setState({
+      status: 'available',
+      currentVersion: '0.1.33',
+      release: {
+        tagName: 'v9.9.9',
+        version: '9.9.9',
+        title: 'Kotori v9.9.9',
+        notes: '- Direct install',
+        publishedAt: '2026-11-02T00:00:00Z',
+        htmlUrl: 'https://github.com/codescv/kotori/releases/tag/v9.9.9',
+        apkUrl: 'https://github.com/codescv/kotori/releases/download/v9.9.9/kotori-9.9.9-android.apk',
+        apkName: 'kotori-9.9.9-android.apk',
+        apkSizeBytes: 5120000,
+      },
+    });
+  }
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).Capacitor;
+  });
+
+  it('one tap on 下载并安装 downloads and launches the installer without a second click', async () => {
+    const { plugin } = installNativePlugin({ installed: true, needsPermission: false });
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const openExternal = vi.spyOn(host.files, 'openExternal');
+    seedAvailableRelease();
+    render(
+      <HostProvider host={host}>
+        <UpdateSection />
+      </HostProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('download-update-btn'));
+    await waitFor(() => expect(useUpdateStore.getState().status).toBe('ready-to-install'));
+
+    expect(plugin.downloadAndInstallApk).toHaveBeenCalledTimes(1);
+    expect(plugin.downloadAndInstallApk).toHaveBeenCalledWith({
+      url: 'https://github.com/codescv/kotori/releases/download/v9.9.9/kotori-9.9.9-android.apk',
+      version: '9.9.9',
+    });
+    // Installer is launched natively inside downloadAndInstallApk: no second native call needed.
+    expect(plugin.installApkFile).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(useUpdateStore.getState().needsPermission).toBe(false);
+    expect(screen.getByTestId('update-status-text')).toHaveTextContent('已调起系统安装器');
+
+    // Re-trigger button stays available in case the user dismissed the system installer.
+    fireEvent.click(screen.getByTestId('install-update-btn'));
+    await waitFor(() =>
+      expect(plugin.installApkFile).toHaveBeenCalledWith({ filePath: '/cache/updates/kotori-9.9.9.apk' }),
+    );
+    await host.dispose();
+  });
+
+  it('missing unknown-sources permission auto-resumes install via apkInstallResumed', async () => {
+    const { plugin, emit } = installNativePlugin({ installed: false, needsPermission: true });
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    seedAvailableRelease();
+    render(
+      <HostProvider host={host}>
+        <UpdateBanner />
+        <UpdateSection />
+      </HostProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('update-banner-download'));
+    await waitFor(() => expect(useUpdateStore.getState().needsPermission).toBe(true));
+    expect(screen.getByTestId('update-status-text')).toHaveTextContent('返回后将自动安装');
+    expect(plugin.addListener).toHaveBeenCalledWith('apkInstallResumed', expect.any(Function));
+
+    // Native handleOnResume() launched the installer after the permission was granted.
+    act(() => emit('apkInstallResumed', { filePath: '/cache/updates/kotori-9.9.9.apk', installed: true }));
+    expect(useUpdateStore.getState().needsPermission).toBe(false);
+    expect(useUpdateStore.getState().status).toBe('ready-to-install');
+    expect(plugin.installApkFile).not.toHaveBeenCalled();
+    expect(screen.getByTestId('update-banner-install')).toHaveTextContent('安装更新');
+    await host.dispose();
+  });
+
+  it('handleApkInstallResumed surfaces installer launch failures', () => {
+    seedAvailableRelease();
+    useUpdateStore.setState({ status: 'ready-to-install', needsPermission: true });
+    handleApkInstallResumed({ installed: false, error: 'boom' });
+    expect(useUpdateStore.getState().needsPermission).toBe(false);
+    expect(useUpdateStore.getState().status).toBe('ready-to-install');
   });
 });

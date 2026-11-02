@@ -1,6 +1,10 @@
 /**
  * Top notification banner when a newer Kotori version is available or
  * downloading, plus the Settings "About & Update" action block.
+ *
+ * v0.1.34: one tap on 「立即更新」 / 「下载并安装」 downloads, verifies and launches
+ * the system installer directly; 「安装更新」 only remains as a re-trigger in case
+ * the user dismissed the installer (or to retry after granting permission).
  */
 import { Button } from '../../components/m3/Button';
 import { IconButton } from '../../components/m3/IconButton';
@@ -123,7 +127,9 @@ export function UpdateSection() {
             {status === 'downloading' &&
               `正在下载 v${release?.version ?? ''}… ${progressPercent > 0 ? `${progressPercent}%` : ''}`}
             {status === 'ready-to-install' &&
-              (needsPermission ? '已下载完成，请允许安装未知应用后点击安装' : `v${release?.version ?? ''} 已下载就绪`)}
+              (needsPermission
+                ? '已下载完成，请允许「安装未知应用」，返回后将自动安装'
+                : `v${release?.version ?? ''} 已下载，已调起系统安装器（如已取消可点击「安装更新」重新安装）`)}
             {status === 'error' && `检查或下载失败：${error ?? '未知错误'}`}
             {status === 'idle' && `当前版本 v${host.info.version} · 自动检查 GitHub Releases 更新`}
           </span>
@@ -144,7 +150,7 @@ export function UpdateSection() {
               onClick={() => void downloadUpdate(host)}
               data-testid="download-update-btn"
             >
-              下载并更新 v{release.version}
+              下载并安装 v{release.version}
             </Button>
           )}
           {status === 'ready-to-install' && (

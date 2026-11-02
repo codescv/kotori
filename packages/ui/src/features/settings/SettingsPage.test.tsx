@@ -199,9 +199,9 @@ describe('SettingsPage', () => {
     expect(dictManageBtn.parentElement).toHaveClass('k-row');
   });
 
-  it('builds kotori: [v0.1.33] mailto links and validates/persists Agent feedback email locally', () => {
+  it('builds kotori: [v0.1.34] mailto links and validates/persists Agent feedback email locally', () => {
     expect(KOTORI_UI_VERSION).toBe(uiPkg.version);
-    expect(KOTORI_UI_VERSION).toBe('0.1.33');
+    expect(KOTORI_UI_VERSION).toBe('0.1.34');
 
     expect(isValidFeedbackEmail('agent@example.com')).toBe(true);
     expect(isValidFeedbackEmail('  dev.agent+kotori@example.org  ')).toBe(true);
@@ -294,7 +294,7 @@ describe('SettingsPage', () => {
       `mailto:agent@example.com?subject=${encodeURIComponent(`kotori: [v${KOTORI_UI_VERSION}] 词典弹窗深色模式对比度`)}&body=`,
     );
     const params = new URLSearchParams(launchedUrl.slice('mailto:agent@example.com?'.length));
-    expect(params.get('subject')).toBe('kotori: [v0.1.33] 词典弹窗深色模式对比度');
+    expect(params.get('subject')).toBe('kotori: [v0.1.34] 词典弹窗深色模式对比度');
     expect(params.get('body')).not.toContain('Attachment:');
     expect(params.get('body')).toContain('夜间阅读漫画时边框可以稍微亮一点');
     await waitFor(() => expect(screen.queryByTestId('agent-feedback-dialog')).toBeNull());
@@ -415,14 +415,14 @@ describe('SettingsPage', () => {
     expect(sanitizeAttachmentName('C:\\Users\\me\\shot\n1.png')).toBe('shot 1.png');
     expect(sanitizeAttachmentName('/sdcard/DCIM/a.jpg')).toBe('a.jpg');
 
-    const body = buildAgentFeedbackBody({ summary: '标题', details: '描述', version: '0.1.33', attachmentName: 'a.png' });
-    expect(body).toContain('App: Kotori v0.1.33');
+    const body = buildAgentFeedbackBody({ summary: '标题', details: '描述', version: '0.1.34', attachmentName: 'a.png' });
+    expect(body).toContain('App: Kotori v0.1.34');
     expect(body).toContain('Attachment: a.png');
-    expect(buildAgentFeedbackBody({ summary: '标题', version: '0.1.33' })).not.toContain('Attachment:');
+    expect(buildAgentFeedbackBody({ summary: '标题', version: '0.1.34' })).not.toContain('Attachment:');
 
     const attachment = { name: 'a.png', type: 'image/png', base64: PNG_BASE64 };
-    const feedback = buildAgentFeedbackEmail({ email: 'agent@example.com', summary: '标题', version: '0.1.33' }, attachment);
-    expect(feedback.subject).toBe('kotori: [v0.1.33] 标题');
+    const feedback = buildAgentFeedbackEmail({ email: 'agent@example.com', summary: '标题', version: '0.1.34' }, attachment);
+    expect(feedback.subject).toBe('kotori: [v0.1.34] 标题');
     expect(feedback.body).toContain('Attachment: a.png');
     expect(feedback.attachment).toEqual(attachment);
     expect(new URLSearchParams(feedback.mailtoUrl.split('?')[1]).get('body')).toContain('Attachment: a.png');
@@ -440,7 +440,7 @@ describe('SettingsPage', () => {
     await launchAgentFeedbackMailto(host, feedback.mailtoUrl, feedback);
     expect(sendFeedbackEmail).toHaveBeenCalledWith({
       email: 'agent@example.com',
-      subject: 'kotori: [v0.1.33] 标题',
+      subject: 'kotori: [v0.1.34] 标题',
       body: feedback.body,
       fileName: 'a.png',
       mimeType: 'image/png',
@@ -450,7 +450,7 @@ describe('SettingsPage', () => {
 
     // Without an image the native plugin is never used.
     sendFeedbackEmail.mockClear();
-    const plain = buildAgentFeedbackEmail({ email: 'agent@example.com', summary: '标题', version: '0.1.33' });
+    const plain = buildAgentFeedbackEmail({ email: 'agent@example.com', summary: '标题', version: '0.1.34' });
     await launchAgentFeedbackMailto(host, plain.mailtoUrl, plain);
     expect(sendFeedbackEmail).not.toHaveBeenCalled();
     expect(openExternal).toHaveBeenCalledWith(plain.mailtoUrl);

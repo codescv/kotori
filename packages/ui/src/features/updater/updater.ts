@@ -6,7 +6,11 @@
  * - Compares semantic versions (`vX.Y.Z`) against `host.info.version`.
  * - On Android (`window.Capacitor?.Plugins?.KotoriTorrent?.downloadAndInstallApk`),
  *   streams the release APK to cache with live progress (`apkDownloadProgress`)
- *   and launches the Android package installer via `FileProvider`.
+ *   and launches the Android package installer via `FileProvider` in the same tap
+ *   (v0.1.34 direct install: no second "安装更新" click). If the "install unknown
+ *   apps" permission is missing, the native plugin opens the settings screen and
+ *   auto-resumes the install on Activity resume (`apkInstallResumed`). The
+ *   「安装更新」 button stays as a re-trigger if the user dismisses the installer.
  * - On Desktop / Web, opens the release asset / page via `host.files.openExternal`.
  */
 import { create } from 'zustand';
@@ -81,7 +85,20 @@ interface NativeUpdaterPlugin {
     eventName: 'apkDownloadProgress',
     listener: (event: { downloadedBytes: number; totalBytes: number; percent: number }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
+  addListener?(
+    eventName: 'apkInstallResumed',
+    listener: (event: ApkInstallResumedEvent) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
 }
+
+/** Native `apkInstallResumed` event: the pending install auto-resumed after permission was granted. */
+export interface ApkInstallResumedEvent {
+  readonly filePath?: string;
+  readonly installed?: boolean;
+  readonly error?: string;
+}
+
+let installResumedHandle: Promise<{ remove: () => Promise<void> } | undefined> | undefined;
 
 function getNativeUpdaterPlugin(): NativeUpdaterPlugin | undefined {
   const g = globalThis as {
@@ -382,7 +399,8 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           needsPermission: Boolean(res.needsPermission),
         });
         if (res.needsPermission) {
-          showSnackbar('请授予「安装未知应用」权限后点击「安装更新」', { tone: 'info' });
+          watchInstallResumed(nativePlugin);
+          showSnackbar('请允许 Kotori「安装未知应用」，返回后将自动安装更新', { tone: 'info' });
         } else {
           showSnackbar(`v${release.version} 下载完成，正在调起系统安装器…`, { tone: 'info' });
         }
@@ -421,7 +439,10 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         const res = await nativePlugin.installApkFile({ filePath: downloadedFilePath });
         set({ needsPermission: Boolean(res.needsPermission) });
         if (res.needsPermission) {
-          showSnackbar('请先在系统设置中允许安装未知应用', { tone: 'info' });
+          watchInstallResumed(nativePlugin);
+          showSnackbar('请允许 Kotori「安装未知应用」，返回后将自动安装更新', { tone: 'info' });
+        } else if (release) {
+          showSnackbar(`正在调起系统安装器安装 v${release.version}…`, { tone: 'info' });
         }
         return;
       } catch (e) {
@@ -439,6 +460,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   reset() {
+    stopWatchingInstallResumed();
     set({
       status: 'idle',
       release: undefined,
@@ -452,3 +474,41 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     });
   },
 }));
+
+/**
+ * Subscribe (once) to the native `apkInstallResumed` event fired from
+ * `KotoriTorrentPlugin.handleOnResume()` after the user granted "install unknown
+ * apps" and returned: the installer was launched automatically, so the UI drops
+ * its "needs permission" hint while keeping 「安装更新」 as a re-trigger.
+ */
+export function handleApkInstallResumed(event: ApkInstallResumedEvent): void {
+  const state = useUpdateStore.getState();
+  if (event.installed === false) {
+    useUpdateStore.setState({ needsPermission: false });
+    showSnackbar(`无法启动安装程序：${event.error ?? '未知错误'}，请点击「安装更新」重试`, { tone: 'error' });
+    return;
+  }
+  useUpdateStore.setState({
+    needsPermission: false,
+    ...(event.filePath ? { downloadedFilePath: event.filePath } : {}),
+  });
+  const version = state.release?.version;
+  showSnackbar(version ? `已获得安装权限，正在安装 v${version}…` : '已获得安装权限，正在调起系统安装器…', {
+    tone: 'info',
+  });
+}
+
+function watchInstallResumed(plugin: NativeUpdaterPlugin): void {
+  if (installResumedHandle || !plugin.addListener) return;
+  installResumedHandle = plugin
+    .addListener('apkInstallResumed', handleApkInstallResumed)
+    .catch(() => undefined);
+}
+
+function stopWatchingInstallResumed(): void {
+  const pending = installResumedHandle;
+  installResumedHandle = undefined;
+  if (pending) {
+    void pending.then((h) => h?.remove().catch(() => undefined));
+  }
+}

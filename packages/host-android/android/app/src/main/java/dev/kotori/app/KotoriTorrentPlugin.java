@@ -3,8 +3,10 @@ package dev.kotori.app;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -105,6 +107,7 @@ public class KotoriTorrentPlugin extends Plugin {
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Map<String, TorrentSession> sessions = new ConcurrentHashMap<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final DirectInstallCoordinator directInstallCoordinator = new DirectInstallCoordinator();
 
     // --- Japanese TTS (Android System WebView has no working window.speechSynthesis) ---
     private static final String ONLINE_TTS_URL = "https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=";
@@ -287,9 +290,9 @@ public class KotoriTorrentPlugin extends Plugin {
      *
      * Decodes `base64` into `cacheDir/feedback/<safeName>`, exposes it through the
      * app FileProvider and fires `ACTION_SEND` (`EXTRA_EMAIL` / `EXTRA_SUBJECT` /
-     * `EXTRA_TEXT` / `EXTRA_STREAM`) with a `mailto:` `ACTION_SENDTO` selector so
-     * only email apps are offered; falls back to a generic share chooser when no
-     * email app matches the selector.
+     * `EXTRA_TEXT` / `EXTRA_STREAM`) directly in the resolved email app's compose
+     * activity (v0.1.34, see {@link #launchFeedbackEmailIntent}); falls back to an
+     * untyped `mailto:` selector and only then to a generic share chooser.
      */
     @PluginMethod
     public void sendFeedbackEmail(PluginCall call) {
@@ -348,51 +351,146 @@ public class KotoriTorrentPlugin extends Plugin {
         });
     }
 
-    private Intent buildFeedbackSendIntent(String email, String subject, String body, String mimeType, Uri contentUri) {
-        Intent send = new Intent(Intent.ACTION_SEND);
-        send.setType(mimeType);
-        if (email != null && !email.isEmpty()) {
-            send.putExtra(Intent.EXTRA_EMAIL, new String[] { email });
+    /**
+     * v0.1.34: opens the email app's compose screen directly instead of the share sheet. Tries,
+     * in order: (1) typed {@code ACTION_SEND} pinned to the email app (and its compose activity)
+     * resolved from a {@code mailto:} {@code ACTION_SENDTO} probe, (2) untyped
+     * {@code ACTION_SEND} + {@code mailto:} selector (never {@code setType} + selector together,
+     * which made every {@code mailto:} filter fail with {@code MATCH_NO_TYPE}), and only then
+     * (3) the generic chooser. Planning lives in {@link FeedbackEmailIntentBuilder}.
+     */
+    private void launchFeedbackEmailIntent(PluginCall call, String email, String subject, String body, String mimeType, Uri contentUri) {
+        Context context = getContext();
+        String to = email == null ? "" : email.trim();
+        String safeSubject = subject == null ? "" : subject;
+        String safeBody = body == null ? "" : body;
+        List<FeedbackEmailIntentBuilder.SendTarget> targets;
+        try {
+            targets = resolveFeedbackEmailTargets(context, to, mimeType);
+        } catch (Exception e) {
+            targets = new ArrayList<>();
         }
-        send.putExtra(Intent.EXTRA_SUBJECT, subject == null ? "" : subject);
-        send.putExtra(Intent.EXTRA_TEXT, body == null ? "" : body);
-        send.putExtra(Intent.EXTRA_STREAM, contentUri);
-        send.setClipData(ClipData.newRawUri("feedback_image", contentUri));
-        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        return send;
+        List<FeedbackEmailIntentBuilder.Spec> plan = FeedbackEmailIntentBuilder.plan(targets, to, mimeType);
+        Exception lastError = null;
+        for (FeedbackEmailIntentBuilder.Spec spec : plan) {
+            try {
+                Intent send = buildFeedbackSendIntent(context, spec, to, safeSubject, safeBody, contentUri);
+                Intent toStart = send;
+                if (spec.strategy == FeedbackEmailIntentBuilder.Strategy.CHOOSER) {
+                    toStart = Intent.createChooser(send, safeSubject.isEmpty() ? "Send feedback" : safeSubject);
+                    toStart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }
+                if (spec.packageName != null) {
+                    context.grantUriPermission(spec.packageName, contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }
+                context.startActivity(toStart);
+                JSObject ret = new JSObject();
+                ret.put("ok", true);
+                ret.put("mode", spec.mode());
+                ret.put("strategy", spec.strategy.name());
+                if (spec.packageName != null) ret.put("packageName", spec.packageName);
+                call.resolve(ret);
+                return;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                // Try the next strategy (selector fallback, then chooser).
+                lastError = e;
+            } catch (Exception e) {
+                lastError = e;
+            }
+        }
+        if (lastError == null || lastError instanceof ActivityNotFoundException) {
+            call.reject("No installed app can send email", lastError);
+        } else {
+            call.reject("Failed to launch email app: " + lastError.getMessage(), lastError);
+        }
     }
 
-    private void launchFeedbackEmailIntent(PluginCall call, String email, String subject, String body, String mimeType, Uri contentUri) {
-        try {
-            Intent send = buildFeedbackSendIntent(email, subject, body, mimeType, contentUri);
-            send.setSelector(new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")));
-            send.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(send);
-            JSObject ret = new JSObject();
-            ret.put("ok", true);
-            ret.put("mode", "email");
-            call.resolve(ret);
-            return;
-        } catch (ActivityNotFoundException ignored) {
-            // No email app matched the mailto: selector; fall back to a generic share chooser.
-        } catch (Exception e) {
-            call.reject("Failed to launch email app: " + e.getMessage(), e);
-            return;
+    /**
+     * Resolves concrete email apps from a {@code mailto:} {@code ACTION_SENDTO} probe (default
+     * handler first when it is not a system resolver, then Gmail, then other handlers) and, for
+     * each, the {@code ACTION_SEND} activity and MIME type that accept the attachment.
+     */
+    private static List<FeedbackEmailIntentBuilder.SendTarget> resolveFeedbackEmailTargets(
+        Context context,
+        String to,
+        String mimeType
+    ) {
+        PackageManager pm = context.getPackageManager();
+        Intent mailtoProbe = new Intent(Intent.ACTION_SENDTO, Uri.parse(FeedbackEmailIntentBuilder.mailtoUri(to)));
+
+        String defaultPackage = null;
+        String defaultActivity = null;
+        ResolveInfo defaultInfo = pm.resolveActivity(mailtoProbe, PackageManager.MATCH_DEFAULT_ONLY);
+        if (defaultInfo != null && defaultInfo.activityInfo != null) {
+            defaultPackage = defaultInfo.activityInfo.packageName;
+            defaultActivity = defaultInfo.activityInfo.name;
         }
-        try {
-            Intent plain = buildFeedbackSendIntent(email, subject, body, mimeType, contentUri);
-            Intent chooser = Intent.createChooser(plain, subject == null || subject.isEmpty() ? "Send feedback" : subject);
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            getContext().startActivity(chooser);
-            JSObject ret = new JSObject();
-            ret.put("ok", true);
-            ret.put("mode", "chooser");
-            call.resolve(ret);
-        } catch (ActivityNotFoundException e) {
-            call.reject("No installed app can send email", e);
-        } catch (Exception e) {
-            call.reject("Failed to launch share chooser: " + e.getMessage(), e);
+
+        List<String> candidates = new ArrayList<>();
+        addResolvedPackages(candidates, pm.queryIntentActivities(mailtoProbe, PackageManager.MATCH_DEFAULT_ONLY));
+        addResolvedPackages(candidates, pm.queryIntentActivities(mailtoProbe, 0));
+
+        List<String> packages = FeedbackEmailIntentBuilder.orderEmailPackages(
+            defaultPackage,
+            defaultActivity,
+            candidates,
+            context.getPackageName()
+        );
+
+        List<FeedbackEmailIntentBuilder.SendTarget> targets = new ArrayList<>();
+        for (String pkg : packages) {
+            for (String type : FeedbackEmailIntentBuilder.sendTypeCandidates(mimeType)) {
+                Intent sendProbe = new Intent(Intent.ACTION_SEND);
+                sendProbe.setType(type);
+                sendProbe.setPackage(pkg);
+                List<ResolveInfo> sendActivities = pm.queryIntentActivities(sendProbe, PackageManager.MATCH_DEFAULT_ONLY);
+                if (sendActivities == null || sendActivities.isEmpty()) continue;
+                String className = null;
+                if (sendActivities.size() == 1 && sendActivities.get(0).activityInfo != null) {
+                    className = sendActivities.get(0).activityInfo.name;
+                }
+                targets.add(new FeedbackEmailIntentBuilder.SendTarget(pkg, className, type));
+                break;
+            }
         }
+        return targets;
+    }
+
+    private static void addResolvedPackages(List<String> out, List<ResolveInfo> infos) {
+        if (infos == null) return;
+        for (ResolveInfo info : infos) {
+            if (info != null && info.activityInfo != null && info.activityInfo.packageName != null) {
+                if (!out.contains(info.activityInfo.packageName)) out.add(info.activityInfo.packageName);
+            }
+        }
+    }
+
+    /** Converts a {@link FeedbackEmailIntentBuilder.Spec} into the concrete {@code ACTION_SEND} Intent. */
+    private static Intent buildFeedbackSendIntent(
+        Context context,
+        FeedbackEmailIntentBuilder.Spec spec,
+        String to,
+        String subject,
+        String body,
+        Uri contentUri
+    ) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        if (spec.type != null) send.setType(spec.type);
+        if (!to.isEmpty()) send.putExtra(Intent.EXTRA_EMAIL, new String[] { to });
+        send.putExtra(Intent.EXTRA_SUBJECT, subject);
+        send.putExtra(Intent.EXTRA_TEXT, body);
+        send.putExtra(Intent.EXTRA_STREAM, contentUri);
+        send.setClipData(ClipData.newUri(context.getContentResolver(), "feedback_image", contentUri));
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (spec.className != null) {
+            send.setClassName(spec.packageName, spec.className);
+        } else if (spec.packageName != null) {
+            send.setPackage(spec.packageName);
+        }
+        if (spec.selectorMailto != null) {
+            send.setSelector(new Intent(Intent.ACTION_SENDTO, Uri.parse(spec.selectorMailto)));
+        }
+        return send;
     }
 
     /** Keep only a safe basename (`[A-Za-z0-9._-]`, max 80 chars) with an image extension. */
@@ -910,8 +1008,10 @@ public class KotoriTorrentPlugin extends Plugin {
 
     /**
      * Download a release APK to the app cache directory with live progress events
-     * (`apkDownloadProgress`) and launch the Android system package installer via
-     * `FileProvider`.
+     * (`apkDownloadProgress`), verify it (size + ZIP magic) and immediately launch the
+     * Android system package installer via `FileProvider` in the same tap. When the
+     * "install unknown apps" permission is missing, the settings screen is opened and the
+     * install auto-resumes from {@link #handleOnResume()} once granted (v0.1.34).
      */
     @PluginMethod
     public void downloadAndInstallApk(PluginCall call) {
@@ -1061,18 +1161,43 @@ public class KotoriTorrentPlugin extends Plugin {
         }
     }
 
+    /**
+     * v0.1.34 direct install: launches the system package installer right away when the
+     * "install unknown apps" permission is granted. Otherwise opens
+     * {@code ACTION_MANAGE_UNKNOWN_APP_SOURCES} and records the APK as pending in
+     * {@link #directInstallCoordinator}; {@link #handleOnResume()} then auto-launches the installer
+     * as soon as the user grants the permission and returns — no second tap required.
+     *
+     * @return {@code true} when the installer was launched, {@code false} when permission is pending
+     */
     private boolean launchApkInstaller(File apkFile) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (!getContext().getPackageManager().canRequestPackageInstalls()) {
+        boolean canInstall = canRequestPackageInstallsCompat();
+        DirectInstallCoordinator.Action action =
+            directInstallCoordinator.onApkReady(apkFile.getAbsolutePath(), canInstall);
+        if (action == DirectInstallCoordinator.Action.REQUEST_PERMISSION) {
+            try {
                 Intent permIntent = new Intent(
                     Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:" + getContext().getPackageName())
                 );
                 permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 getContext().startActivity(permIntent);
-                return false;
+            } catch (RuntimeException e) {
+                directInstallCoordinator.clearPending();
+                throw e;
             }
+            return false;
         }
+        startApkInstallerIntent(apkFile);
+        return true;
+    }
+
+    private boolean canRequestPackageInstallsCompat() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true;
+        return getContext().getPackageManager().canRequestPackageInstalls();
+    }
+
+    private void startApkInstallerIntent(File apkFile) {
         Uri apkUri = FileProvider.getUriForFile(
             getContext(),
             getContext().getPackageName() + ".fileprovider",
@@ -1083,7 +1208,41 @@ public class KotoriTorrentPlugin extends Plugin {
         installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         getContext().startActivity(installIntent);
-        return true;
+    }
+
+    /**
+     * Auto-resumes a pending update install when the user comes back from the
+     * "install unknown apps" settings screen with the permission granted, and notifies JS via
+     * {@code apkInstallResumed} so the UI can drop its "needs permission" hint. The 「安装更新」
+     * button stays available in the UI to re-trigger the installer if the user dismisses it.
+     */
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        if (!directInstallCoordinator.hasPending()) return;
+        String pendingPath = directInstallCoordinator.getPendingApkPath();
+        File pendingFile = pendingPath == null ? null : new File(pendingPath);
+        boolean canInstall;
+        try {
+            canInstall = canRequestPackageInstallsCompat();
+        } catch (Exception e) {
+            return;
+        }
+        DirectInstallCoordinator.Action action = directInstallCoordinator.onAppForegrounded(
+            canInstall,
+            pendingFile != null && pendingFile.isFile()
+        );
+        if (action != DirectInstallCoordinator.Action.LAUNCH_INSTALLER || pendingFile == null) return;
+        JSObject ev = new JSObject();
+        ev.put("filePath", pendingFile.getAbsolutePath());
+        try {
+            startApkInstallerIntent(pendingFile);
+            ev.put("installed", true);
+        } catch (Exception e) {
+            ev.put("installed", false);
+            ev.put("error", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        }
+        notifyListeners("apkInstallResumed", ev);
     }
 
     @PluginMethod
