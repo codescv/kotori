@@ -26,14 +26,26 @@ export interface RouteSnapshot {
   readonly downloadsTab: DownloadsTab;
 }
 
+/** Options for top-level / Downloads sub-tab switches. */
+export interface TabNavOptions {
+  /** Downloads sub-tab to land on when switching to `downloads` (one history entry, not two). */
+  readonly downloadsTab?: DownloadsTab;
+  /**
+   * Set for horizontal swipe gestures: swiping back onto the snapshot at the top of
+   * the history stack pops it instead of pushing, so swiping back and forth across
+   * tabs never bloats the Android back stack.
+   */
+  readonly gesture?: boolean;
+}
+
 export interface RouteState extends RouteSnapshot {
   readonly personaOpen: boolean;
   readonly readerImmersive: boolean;
   readonly history: readonly RouteSnapshot[];
-  setTab(tab: Tab): void;
+  setTab(tab: Tab, options?: TabNavOptions): void;
   openAnime(view: AnimeView): void;
   openManga(view: MangaView): void;
-  setDownloadsTab(tab: DownloadsTab): void;
+  setDownloadsTab(tab: DownloadsTab, options?: Pick<TabNavOptions, 'gesture'>): void;
   setPersonaOpen(open: boolean): void;
   setReaderImmersive(immersive: boolean): void;
   toggleReaderImmersive(): void;
@@ -80,6 +92,19 @@ const pushSnapshot = (history: readonly RouteSnapshot[], prev: RouteSnapshot, ne
   const last = history[history.length - 1];
   const base = last && sameSnapshot(last, prev) ? history : [...history, snapshotOf(prev)];
   return base.length > MAX_HISTORY ? base.slice(base.length - MAX_HISTORY) : base;
+};
+
+/** `pushSnapshot`, except a gesture returning to the top-of-stack snapshot pops it. */
+const navigateSnapshot = (
+  history: readonly RouteSnapshot[],
+  prev: RouteSnapshot,
+  next: RouteSnapshot,
+  gesture: boolean | undefined,
+): readonly RouteSnapshot[] => {
+  if (sameSnapshot(prev, next)) return history;
+  const last = history[history.length - 1];
+  if (gesture && last && sameSnapshot(last, next)) return history.slice(0, -1);
+  return pushSnapshot(history, prev, next);
 };
 
 const initial = {
@@ -143,13 +168,15 @@ export function dispatchBackNavigation(): boolean {
 
 export const useRouteStore = create<RouteState>()((set, get) => ({
   ...initial,
-  setTab: (tab) =>
+  setTab: (tab, options) =>
     set((s) => {
-      const next: RouteSnapshot = { tab, anime: s.anime, manga: s.manga, downloadsTab: s.downloadsTab };
+      const downloadsTab = tab === 'downloads' && options?.downloadsTab ? options.downloadsTab : s.downloadsTab;
+      const next: RouteSnapshot = { tab, anime: s.anime, manga: s.manga, downloadsTab };
       return {
         tab,
+        downloadsTab,
         readerImmersive: tab === 'manga' && s.manga.kind === 'reader' ? s.readerImmersive : false,
-        history: pushSnapshot(s.history, s, next),
+        history: navigateSnapshot(s.history, s, next, options?.gesture),
       };
     }),
   openAnime: (anime) =>
@@ -172,14 +199,14 @@ export const useRouteStore = create<RouteState>()((set, get) => ({
         history: pushSnapshot(s.history, s, next),
       };
     }),
-  setDownloadsTab: (downloadsTab) =>
+  setDownloadsTab: (downloadsTab, options) =>
     set((s) => {
       const next: RouteSnapshot = { tab: 'downloads', anime: s.anime, manga: s.manga, downloadsTab };
       return {
         tab: 'downloads',
         downloadsTab,
         readerImmersive: false,
-        history: pushSnapshot(s.history, s, next),
+        history: navigateSnapshot(s.history, s, next, options?.gesture),
       };
     }),
   setPersonaOpen: (personaOpen) => set({ personaOpen }),

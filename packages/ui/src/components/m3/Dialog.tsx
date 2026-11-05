@@ -18,31 +18,53 @@ export interface DialogProps {
   readonly 'data-testid'?: string | undefined;
 }
 
+const AUTOFOCUS_SELECTOR = '[data-autofocus]:not([data-autofocus="false"]), [autofocus]';
+const FOCUSABLE_SELECTOR = 'input:not([type="hidden"]):not([hidden]), textarea, select, button:not([data-dialog-close])';
+
+/**
+ * Initial dialog focus (runs once per `open` transition): an explicit
+ * `[data-autofocus]` / `[autofocus]` element wins, otherwise the first field or
+ * button. Never steals focus from an element already focused inside the dialog.
+ */
+function focusInitial(root: HTMLElement | null): void {
+  if (!root) return;
+  if (typeof document !== 'undefined' && document.activeElement && root.contains(document.activeElement)) return;
+  const target =
+    root.querySelector<HTMLElement>(AUTOFOCUS_SELECTOR) ?? root.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+  target?.focus();
+}
+
 export function Dialog({ open, onClose, title, icon, children, actions, className, wide, 'data-testid': testId }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
+  // Callers usually pass an inline (unmemoized) `onClose`; keep the latest one in a
+  // ref so the effects below depend on `open` only. Otherwise every keystroke in a
+  // nested field re-renders the caller, re-runs the effects, re-registers the back
+  // interceptor and — worst of all — re-runs initial focus, yanking the caret back
+  // into the dialog's first input while the user is typing elsewhere.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     return registerBackInterceptor(() => {
-      onClose();
+      onCloseRef.current();
       return true;
     });
-  }, [open, onClose]);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
     };
     window.addEventListener('keydown', onKey, true);
-    const first = ref.current?.querySelector<HTMLElement>('input, textarea, select, button:not([data-dialog-close])');
-    first?.focus();
+    focusInitial(ref.current);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   const node = (
-    <div className="k-dialog-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="k-dialog-scrim" onMouseDown={(e) => e.target === e.currentTarget && onCloseRef.current()}>
       <div
         ref={ref}
         className={cx('k-dialog', wide && 'k-dialog--wide', className)}

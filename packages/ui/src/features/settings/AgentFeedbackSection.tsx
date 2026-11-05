@@ -41,6 +41,9 @@ export function AgentFeedbackSection() {
   const [sending, setSending] = useState(false);
   const [attachment, setAttachment] = useState<AgentFeedbackAttachment | undefined>(undefined);
   const [readingImage, setReadingImage] = useState(false);
+  // Decided once per open: with a valid saved email the dialog opens on 标题, so
+  // the user starts writing feedback instead of landing in the configured email box.
+  const [focusSummaryOnOpen, setFocusSummaryOnOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const pickImage = (): void => {
@@ -79,6 +82,7 @@ export function AgentFeedbackSection() {
     setEmail(current);
     setEmailError(undefined);
     setSummaryError(undefined);
+    setFocusSummaryOnOpen(isValidFeedbackEmail(current));
     setOpen(true);
   };
 
@@ -232,6 +236,7 @@ export function AgentFeedbackSection() {
             if (summaryError) setSummaryError(undefined);
           }}
           error={summaryError}
+          data-autofocus={focusSummaryOnOpen ? 'true' : undefined}
           data-testid="agent-feedback-summary-input"
         />
         <TextField

@@ -25,6 +25,7 @@ import { Chip } from '../../components/m3/Chip';
 import { Icon } from '../../components/m3/Icon';
 import { IconButton } from '../../components/m3/IconButton';
 import { LinearProgress } from '../../components/m3/Progress';
+import { useTabSwipe } from '../../components/m3/Tabs';
 import { TextField } from '../../components/m3/TextField';
 import { useBackInterceptor } from '../../app/routes';
 import { useHost } from '../../host/HostContext';
@@ -50,6 +51,8 @@ type PackScope = 'all' | 'batch' | 'episode';
 type SearchMode = 'series' | 'direct';
 type SeriesSort = 'popularity' | 'score' | 'year' | 'name';
 type DetailTab = 'torrents' | 'subtitles';
+/** Stage-2 detail tabs, swipeable (nested inside the Downloads + Shell swipe strips). */
+const DETAIL_TAB_ORDER: readonly DetailTab[] = ['torrents', 'subtitles'];
 
 const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   '1_2': '多语/英译',
@@ -112,6 +115,11 @@ export function NyaaSearch() {
   const [keywordFilter, setKeywordFilter] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const isExpanded = useIsExpanded();
+  // Stage 2 only: swipe 视频种子 ⇄ 日语字幕; at either edge the gesture falls through
+  // to the Downloads sub-tabs (and from there to the Shell tabs).
+  const detailSwipe = useTabSwipe<DetailTab>(DETAIL_TAB_ORDER, detailTab, setDetailTab, {
+    enabled: Boolean(selectedSeries),
+  });
 
   useBackInterceptor(
     () => {
@@ -424,7 +432,7 @@ export function NyaaSearch() {
   );
 
   return (
-    <section className="k-dl-search">
+    <section className="k-dl-search" data-detail-tab={selectedSeries ? detailTab : undefined} {...detailSwipe}>
       {/* Top Search Bar */}
       <form
         className="k-dl-search__bar"

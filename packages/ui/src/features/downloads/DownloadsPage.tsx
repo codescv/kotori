@@ -28,7 +28,8 @@ export function DownloadsPage() {
   const load = useDownloadsStore((s) => s.load);
   const receive = useDownloadsStore((s) => s.receive);
   const activeCount = useDownloadsStore((s) => [...s.tasks.values()].filter((x) => ACTIVE.has(x.status)).length);
-  const swipeHandlers = useTabSwipe<DownloadsTab>(DOWNLOAD_TAB_ORDER, tab, setTab);
+  // Nested inside the Shell swipe: at 'tasks' / 'manga' edges the gesture falls through to the Shell.
+  const swipeHandlers = useTabSwipe<DownloadsTab>(DOWNLOAD_TAB_ORDER, tab, (next) => setTab(next, { gesture: true }));
 
   useEffect(() => {
     void load(host);
@@ -44,7 +45,7 @@ export function DownloadsPage() {
       <Tabs<DownloadsTab>
         label={t('downloads.title')}
         value={tab}
-        onChange={setTab}
+        onChange={(next) => setTab(next)}
         tabs={[
           { value: 'tasks', label: t('downloads.tab.tasks'), icon: 'download', badge: activeCount },
           { value: 'anime', label: t('downloads.tab.anime'), icon: 'movie' },

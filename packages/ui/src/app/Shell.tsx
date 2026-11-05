@@ -3,12 +3,16 @@
  * bottom navigation bar on phones (hidden inside the player and the manga reader),
  * with the four tabs
  * 🎬 Anime · 📖 Manga · ⬇️ Downloads · ⚙️ Settings.
+ * Horizontal swipes on the content area switch tabs (except inside the player and
+ * the manga reader, whose horizontal gestures are page turns / scrubbing), chaining
+ * through the Downloads sub-tabs like nested Android ViewPager2 pages.
  */
 import { useEffect, useState } from 'react';
 import type { DownloadTask } from '@kotori/core';
 import { AssistantAvatar, PersonaDialog } from '../components/AssistantAvatar';
 import { cx } from '../components/m3/cx';
 import { Icon, type IconName } from '../components/m3/Icon';
+import { useTabSwipe, type TabSwipeDirection } from '../components/m3/Tabs';
 import { useHost } from '../host/HostContext';
 import { useHostEvents } from '../host/useHostEvents';
 import { useIsExpanded, useIsMobileLandscape } from '../hooks/useMediaQuery';
@@ -18,7 +22,7 @@ import { DownloadsPage } from '../features/downloads/DownloadsPage';
 import { MangaPage } from '../features/manga/MangaPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { UpdateBanner } from '../features/updater/UpdateBanner';
-import { useRouteStore, type Tab } from './routes';
+import { useRouteStore, type DownloadsTab, type Tab } from './routes';
 
 const TABS: readonly { readonly tab: Tab; readonly icon: IconName; readonly label: MessageKey }[] = [
   { tab: 'anime', icon: 'movie', label: 'nav.anime' },
@@ -26,6 +30,16 @@ const TABS: readonly { readonly tab: Tab; readonly icon: IconName; readonly labe
   { tab: 'downloads', icon: 'download', label: 'nav.downloads' },
   { tab: 'settings', icon: 'settings', label: 'nav.settings' },
 ];
+
+/** Swipe order of the top-level destinations (swipe left = next). */
+const SHELL_TAB_ORDER: readonly Tab[] = TABS.map((d) => d.tab);
+
+/**
+ * Downloads sub-tab to land on when a swipe enters Downloads: swiping left (from
+ * Manga) enters its first sub-tab, swiping right (from Settings) its last one, so
+ * the sub-tabs read as one continuous strip in both directions.
+ */
+const DOWNLOADS_ENTRY: Readonly<Record<TabSwipeDirection, DownloadsTab>> = { next: 'tasks', prev: 'manga' };
 
 const ACTIVE: ReadonlySet<DownloadTask['status']> = new Set(['queued', 'resolving', 'downloading', 'importing']);
 
@@ -73,6 +87,14 @@ export function Shell() {
   // Immersive player / reader on phones: the bottom NavBar would eat ~17% of the
   // viewport height, and both views have their own back button.
   const hideCompactNav = !expanded && (inReader || inPlayer);
+  const swipeHandlers = useTabSwipe<Tab>(
+    SHELL_TAB_ORDER,
+    tab,
+    (next, direction) =>
+      setTab(next, next === 'downloads' ? { downloadsTab: DOWNLOADS_ENTRY[direction], gesture: true } : { gesture: true }),
+    // Horizontal gestures inside the player / reader belong to them (scrub, page turn, zoom-pan).
+    { enabled: !inPlayer && !inReader },
+  );
   const nav = (
     <nav className={expanded ? 'k-nav-rail' : 'k-nav-bar'} aria-label={t('app.name')}>
       {expanded && (
@@ -109,7 +131,7 @@ export function Shell() {
   return (
     <div className={cx('k-shell', expanded ? 'k-shell--expanded' : 'k-shell--compact')} data-kotori-shell>
       {expanded && nav}
-      <main className="k-shell__content" data-tab={tab}>
+      <main className="k-shell__content" data-tab={tab} {...swipeHandlers}>
         {!hideCompactChrome && <UpdateBanner />}
         {tab === 'anime' && <AnimePage />}
         {tab === 'manga' && <MangaPage />}

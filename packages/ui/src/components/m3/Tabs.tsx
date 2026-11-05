@@ -1,5 +1,5 @@
 /** M3 primary tabs with an animated active indicator and horizontal swipe hook. */
-import { useEffect, useRef, type PointerEvent, type TouchEvent } from 'react';
+import { useEffect, useRef, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
 import { cx } from './cx';
 import { Icon, type IconName } from './Icon';
 
@@ -29,10 +29,72 @@ interface SwipeStartState {
   readonly pointerId?: number | undefined;
 }
 
+/** `'next'` = swipe left (`dx < 0`, idx + 1); `'prev'` = swipe right (`dx > 0`, idx - 1). */
+export type TabSwipeDirection = 'next' | 'prev';
+
+export interface TabSwipeOptions {
+  /** When `false` every handler is inert (e.g. the Shell swipe inside Player / Reader). Default `true`. */
+  readonly enabled?: boolean;
+}
+
+export interface TabSwipeHandlers {
+  readonly onTouchStart: (e: TouchEvent<HTMLElement>) => void;
+  readonly onTouchMove: (e: TouchEvent<HTMLElement>) => void;
+  readonly onTouchEnd: (e: TouchEvent<HTMLElement>) => void;
+  readonly onTouchCancel: (e: TouchEvent<HTMLElement>) => void;
+  readonly onPointerDown: (e: PointerEvent<HTMLElement>) => void;
+  readonly onPointerMove: (e: PointerEvent<HTMLElement>) => void;
+  readonly onPointerUp: (e: PointerEvent<HTMLElement>) => void;
+  readonly onPointerCancel: (e: PointerEvent<HTMLElement>) => void;
+  readonly onClickCapture: (e: MouseEvent<HTMLElement>) => void;
+}
+
+/** Minimum horizontal travel (px) for a tab swipe. */
+const SWIPE_MIN_DX = 40;
+/** Horizontal travel must dominate vertical travel by this ratio. */
+const SWIPE_AXIS_RATIO = 1.15;
+/** Viewport edge band (px) reserved for the Android edge-back gesture. */
+const EDGE_GUARD_PX = 24;
+/** How long after a committed swipe the trailing synthetic `click` is swallowed. */
+const CLICK_GUARD_MS = 400;
+
+/** Overlay surfaces whose gestures never belong to a tab swipe container *around* them. */
+const OVERLAY_SELECTOR =
+  '.k-dialog, .k-dialog-scrim, [role="dialog"], .k-bottom-sheet, .k-bottom-sheet-scrim, .k-side-sheet, .k-menu';
+/** Controls that own horizontal drags (text selection / caret, sliders) or opt out explicitly. */
+const INTERACTIVE_SELECTOR =
+  'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="slider"], [data-no-tab-swipe]';
+
+/**
+ * Native events whose swipe was already claimed by an inner (nested) `useTabSwipe`.
+ * React dispatches bubbling handlers innermost-first, so an inner tab strip that can
+ * still move in the swipe direction claims the gesture and outer strips skip it; an
+ * inner strip already at its edge leaves it unclaimed and the outer strip moves.
+ */
+const claimedSwipeEvents = new WeakSet<Event>();
+
+/**
+ * One-shot guard against the synthetic `click` that follows a horizontal drag which
+ * started on a card / button (mouse drags always click; some WebViews do for touch).
+ * Scoped to the outermost container that saw the swipe so stale guards never leak
+ * into unrelated trees.
+ */
+let clickGuard: { readonly container: HTMLElement; readonly until: number } | null = null;
+
+function armClickGuard(container: HTMLElement): void {
+  const now = Date.now();
+  if (clickGuard && clickGuard.until >= now && clickGuard.container !== container && clickGuard.container.contains(container)) {
+    clickGuard = { container: clickGuard.container, until: now + CLICK_GUARD_MS };
+    return;
+  }
+  clickGuard = { container, until: now + CLICK_GUARD_MS };
+}
+
 function findHorizontalScrollAncestor(target: EventTarget | null, boundary: HTMLElement | null): HTMLElement | null {
-  let el = target instanceof HTMLElement ? target : null;
+  if (typeof window === 'undefined') return null;
+  let el: Element | null = target instanceof Element ? target : null;
   while (el && el !== boundary) {
-    if (el.scrollWidth > el.clientWidth + 4 && typeof window !== 'undefined') {
+    if (el instanceof HTMLElement && el.scrollWidth > el.clientWidth + 4) {
       const ox = window.getComputedStyle(el).overflowX;
       if (ox === 'auto' || ox === 'scroll') return el;
     }
@@ -50,29 +112,49 @@ function canScrollHorizontallyInDirection(el: HTMLElement | null, dx: number, st
 }
 
 /**
+ * Whether a gesture starting on `target` at `clientX` must be ignored by the swipe
+ * container `container`:
+ * - outer 24 px viewport edges (Android edge-back gesture);
+ * - events bubbling through the React tree out of a portal (`Dialog`, `BottomSheet`)
+ *   whose DOM target is not inside the container;
+ * - overlays nested between the target and the container (dialogs, sheets, menus) —
+ *   unless the container itself lives in that overlay (e.g. the Player SideSheet tabs);
+ * - text fields, sliders, `contenteditable` and `[data-no-tab-swipe]` opt-outs.
+ */
+function isIgnoredSwipeStart(target: EventTarget | null, container: HTMLElement, clientX: number): boolean {
+  if (typeof window !== 'undefined' && window.innerWidth > 200) {
+    if (clientX <= EDGE_GUARD_PX || clientX >= window.innerWidth - EDGE_GUARD_PX) return true;
+  }
+  if (typeof Node !== 'undefined' && target instanceof Node && !container.contains(target)) return true;
+  if (!(target instanceof Element)) return false;
+  const overlay = target.closest(OVERLAY_SELECTOR);
+  if (overlay && overlay !== container && container.contains(overlay)) return true;
+  return Boolean(target.closest(INTERACTIVE_SELECTOR));
+}
+
+/**
  * Horizontal touch/pointer swipe hook for switching between ordered tabs (`order`).
  * - Swiping left (`dx < 0`, right-to-left) advances to the next tab (`idx + 1`).
  * - Swiping right (`dx > 0`, left-to-right) returns to the previous tab (`idx - 1`).
+ * - Nests like Android ViewPager2: an inner strip that can move claims the gesture;
+ *   at its edge the gesture falls through to the enclosing strip — one swipe never
+ *   switches two levels, and the user is never trapped inside an inner strip.
  * - Attaches a native `{ passive: false }` `touchmove` listener during active touches
  *   so Android WebView never cancels (`touchcancel`) horizontal swipes on blank areas.
  * - Ignores touches starting within 24 px of the viewport left/right edge so
  *   Android full-screen edge-back gestures never accidentally switch tabs.
- * - Ignores touches on inputs/sliders or horizontally scrollable bars that are not at their edge.
+ * - Ignores portaled overlays, inputs/sliders, and horizontally scrollable bars that
+ *   can still scroll in the swipe direction.
+ * - Swallows the trailing `click` of a committed horizontal swipe so dragging across
+ *   a cover card switches tabs without also opening the card.
  */
 export function useTabSwipe<T extends string>(
   order: readonly T[],
   value: T,
-  onChange: (next: T) => void,
-): {
-  readonly onTouchStart: (e: TouchEvent<HTMLElement>) => void;
-  readonly onTouchMove: (e: TouchEvent<HTMLElement>) => void;
-  readonly onTouchEnd: (e: TouchEvent<HTMLElement>) => void;
-  readonly onTouchCancel: () => void;
-  readonly onPointerDown: (e: PointerEvent<HTMLElement>) => void;
-  readonly onPointerMove: (e: PointerEvent<HTMLElement>) => void;
-  readonly onPointerUp: (e: PointerEvent<HTMLElement>) => void;
-  readonly onPointerCancel: () => void;
-} {
+  onChange: (next: T, direction: TabSwipeDirection) => void,
+  options: TabSwipeOptions = {},
+): TabSwipeHandlers {
+  const enabled = options.enabled ?? true;
   const stateRef = useRef<SwipeStartState | null>(null);
   const lastTouchTimeRef = useRef(0);
   const cleanupWindowTouchMoveRef = useRef<(() => void) | null>(null);
@@ -85,19 +167,29 @@ export function useTabSwipe<T extends string>(
   };
 
   useEffect(() => () => detachWindowTouchMove(), []);
+  useEffect(() => {
+    if (enabled) return;
+    stateRef.current = null;
+    detachWindowTouchMove();
+  }, [enabled]);
 
-  const commitSwipe = (s: SwipeStartState, endX: number, endY: number): void => {
+  const commitSwipe = (s: SwipeStartState, endX: number, endY: number, container: HTMLElement, nativeEvent: Event): void => {
     const dx = endX - s.startX;
     const dy = endY - s.startY;
     if (s.locked === 'y') return;
     if (canScrollHorizontallyInDirection(s.scrollableEl, dx, s.startScrollLeft)) return;
-    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy) * 1.15) return;
+    if (Math.abs(dx) < SWIPE_MIN_DX || Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_RATIO) return;
+    // A deliberate horizontal swipe is never a tap, even at the outermost edge.
+    armClickGuard(container);
+    if (claimedSwipeEvents.has(nativeEvent)) return;
     const idx = order.indexOf(value);
     if (idx < 0) return;
     if (dx < 0 && idx < order.length - 1) {
-      onChange(order[idx + 1]!);
+      claimedSwipeEvents.add(nativeEvent);
+      onChange(order[idx + 1]!, 'next');
     } else if (dx > 0 && idx > 0) {
-      onChange(order[idx - 1]!);
+      claimedSwipeEvents.add(nativeEvent);
+      onChange(order[idx - 1]!, 'prev');
     }
   };
 
@@ -110,48 +202,45 @@ export function useTabSwipe<T extends string>(
       if (Math.hypot(dx, dy) > 10) {
         if (
           !canScrollHorizontallyInDirection(s.scrollableEl, dx, s.startScrollLeft) &&
-          Math.abs(dx) > Math.abs(dy) * 1.15
+          Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO
         ) {
           s.locked = 'x';
-        } else if (Math.abs(dy) > Math.abs(dx) * 1.15) {
+        } else if (Math.abs(dy) > Math.abs(dx) * SWIPE_AXIS_RATIO) {
           s.locked = 'y';
         }
       }
     }
   };
 
-  const isIgnoredTarget = (target: EventTarget | null, clientX: number): boolean => {
-    if (typeof window !== 'undefined' && window.innerWidth > 200) {
-      if (clientX <= 24 || clientX >= window.innerWidth - 24) return true;
-    }
-    return (
-      target instanceof Element &&
-      Boolean(target.closest('input, textarea, select, [role="slider"], [data-no-tab-swipe]'))
-    );
+  const beginSwipe = (target: EventTarget | null, container: HTMLElement, clientX: number, clientY: number, pointerId?: number): void => {
+    const scrollableEl = findHorizontalScrollAncestor(target, container);
+    stateRef.current = {
+      startX: clientX,
+      startY: clientY,
+      lastX: clientX,
+      lastY: clientY,
+      locked: null,
+      scrollableEl,
+      startScrollLeft: scrollableEl ? scrollableEl.scrollLeft : 0,
+      pointerId,
+    };
   };
 
   const onTouchStart = (e: TouchEvent<HTMLElement>): void => {
+    if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
+    clickGuard = null;
     detachWindowTouchMove();
     if (e.touches.length !== 1) {
       stateRef.current = null;
       return;
     }
     const t = e.touches[0]!;
-    if (isIgnoredTarget(e.target, t.clientX)) {
+    if (isIgnoredSwipeStart(e.target, e.currentTarget, t.clientX)) {
       stateRef.current = null;
       return;
     }
-    const scrollableEl = findHorizontalScrollAncestor(e.target, e.currentTarget);
-    stateRef.current = {
-      startX: t.clientX,
-      startY: t.clientY,
-      lastX: t.clientX,
-      lastY: t.clientY,
-      locked: null,
-      scrollableEl,
-      startScrollLeft: scrollableEl ? scrollableEl.scrollLeft : 0,
-    };
+    beginSwipe(e.target, e.currentTarget, t.clientX, t.clientY);
 
     if (typeof window !== 'undefined') {
       const onNativeTouchMove = (ev: globalThis.TouchEvent): void => {
@@ -169,13 +258,21 @@ export function useTabSwipe<T extends string>(
   };
 
   const onTouchMove = (e: TouchEvent<HTMLElement>): void => {
+    if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
-    if (e.touches.length !== 1 || !stateRef.current) return;
+    if (!stateRef.current) return;
+    if (e.touches.length !== 1) {
+      // A second finger joined (pinch): abandon the swipe.
+      stateRef.current = null;
+      detachWindowTouchMove();
+      return;
+    }
     const t = e.touches[0]!;
     updateMoveLock(stateRef.current, t.clientX, t.clientY);
   };
 
   const onTouchEnd = (e: TouchEvent<HTMLElement>): void => {
+    if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
     detachWindowTouchMove();
     const s = stateRef.current;
@@ -184,52 +281,62 @@ export function useTabSwipe<T extends string>(
     const changed = e.changedTouches?.[0];
     const endX = changed ? changed.clientX : s.lastX;
     const endY = changed ? changed.clientY : s.lastY;
-    commitSwipe(s, endX, endY);
+    commitSwipe(s, endX, endY, e.currentTarget, e.nativeEvent);
   };
 
-  const onTouchCancel = (): void => {
+  const onTouchCancel = (e: TouchEvent<HTMLElement>): void => {
+    if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
     detachWindowTouchMove();
     const s = stateRef.current;
     stateRef.current = null;
+    // Android WebView may cancel a horizontal pan it decided not to scroll: still honour it.
     if (s && s.locked === 'x') {
-      commitSwipe(s, s.lastX, s.lastY);
+      commitSwipe(s, s.lastX, s.lastY, e.currentTarget, e.nativeEvent);
     }
   };
 
   const onPointerDown = (e: PointerEvent<HTMLElement>): void => {
+    if (!enabled) return;
     if (e.pointerType === 'touch' || Date.now() - lastTouchTimeRef.current < 500) return;
-    if (e.button !== 0 || isIgnoredTarget(e.target, e.clientX)) {
+    clickGuard = null;
+    if (e.button !== 0 || isIgnoredSwipeStart(e.target, e.currentTarget, e.clientX)) {
       stateRef.current = null;
       return;
     }
-    const scrollableEl = findHorizontalScrollAncestor(e.target, e.currentTarget);
-    stateRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      lastX: e.clientX,
-      lastY: e.clientY,
-      locked: null,
-      scrollableEl,
-      startScrollLeft: scrollableEl ? scrollableEl.scrollLeft : 0,
-      pointerId: e.pointerId,
-    };
+    beginSwipe(e.target, e.currentTarget, e.clientX, e.clientY, e.pointerId);
   };
 
   const onPointerMove = (e: PointerEvent<HTMLElement>): void => {
+    if (!enabled) return;
     if (e.pointerType === 'touch' || !stateRef.current || stateRef.current.pointerId !== e.pointerId) return;
     updateMoveLock(stateRef.current, e.clientX, e.clientY);
   };
 
   const onPointerUp = (e: PointerEvent<HTMLElement>): void => {
+    if (!enabled) return;
     if (e.pointerType === 'touch' || !stateRef.current || stateRef.current.pointerId !== e.pointerId) return;
     const s = stateRef.current;
     stateRef.current = null;
-    commitSwipe(s, e.clientX, e.clientY);
+    commitSwipe(s, e.clientX, e.clientY, e.currentTarget, e.nativeEvent);
   };
 
-  const onPointerCancel = (): void => {
+  const onPointerCancel = (e: PointerEvent<HTMLElement>): void => {
+    if (e.pointerType === 'touch') return;
     stateRef.current = null;
+  };
+
+  const onClickCapture = (e: MouseEvent<HTMLElement>): void => {
+    const guard = clickGuard;
+    if (!guard) return;
+    if (Date.now() > guard.until) {
+      clickGuard = null;
+      return;
+    }
+    if (!(e.target instanceof Node) || !guard.container.contains(e.target)) return;
+    clickGuard = null;
+    e.stopPropagation();
+    e.preventDefault();
   };
 
   return {
@@ -241,6 +348,7 @@ export function useTabSwipe<T extends string>(
     onPointerMove,
     onPointerUp,
     onPointerCancel,
+    onClickCapture,
   };
 }
 

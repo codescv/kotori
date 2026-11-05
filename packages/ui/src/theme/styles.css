@@ -207,7 +207,11 @@ button:disabled { cursor: default; }
 .k-nav-item__label { font: var(--md-sys-typescale-label-medium); }
 .k-nav-item.is-active .k-nav-item__label { font-weight: 700; }
 
-.k-page { flex: 1 0 auto; width: 100%; display: flex; flex-direction: column; padding: 24px; max-width: 1400px; margin: 0 auto; box-sizing: border-box; }
+/* Tab pages stretch to the full content height (blank space stays swipeable) and
+   declare pan-y so Android WebView keeps vertical scrolling native while horizontal
+   tab swipes reach JS instead of ending in touchcancel. The player / reader do not
+   use .k-page, so the reader's .k-zoompan keeps touch-action: none for pinch-zoom. */
+.k-page { flex: 1 0 auto; width: 100%; display: flex; flex-direction: column; padding: 24px; max-width: 1400px; margin: 0 auto; box-sizing: border-box; touch-action: pan-y; }
 .k-page__header { flex: none; display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .k-page__header .k-spacer { flex: 1; }
 .k-shell--compact .k-page {

@@ -176,12 +176,12 @@ export function BottomSheet({
       if (e.key === 'Escape') {
         exitDragYRef.current = 0;
         setExitDragY(0);
-        onClose();
+        onCloseRef.current();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   const beginBodyPull = (clientX: number, clientY: number, target: EventTarget | null, pointerId?: number): void => {
     const bodyEl = bodyRef.current;
