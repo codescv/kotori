@@ -63,6 +63,20 @@ writeFileSync(
   'utf8',
 );
 
+const uiSettingsTestPath = resolve(rootDir, 'packages/ui/src/features/settings/SettingsPage.test.tsx');
+const uiSettingsTest = readFileSync(uiSettingsTestPath, 'utf8');
+writeFileSync(
+  uiSettingsTestPath,
+  uiSettingsTest
+    .replace(/builds kotori: \[v[0-9]+\.[0-9]+\.[0-9]+\] mailto links/, `builds kotori: [v${nextVersion}] mailto links`)
+    .replace(/expect\(KOTORI_UI_VERSION\)\.toBe\('[0-9]+\.[0-9]+\.[0-9]+'\);/, `expect(KOTORI_UI_VERSION).toBe('${nextVersion}');`)
+    .replace(
+      /expect\(params\.get\('subject'\)\)\.toBe\('kotori: \[v[0-9]+\.[0-9]+\.[0-9]+\] 词典弹窗深色模式对比度'\);/,
+      `expect(params.get('subject')).toBe('kotori: [v${nextVersion}] 词典弹窗深色模式对比度');`,
+    ),
+  'utf8',
+);
+
 const gradlePath = resolve(rootDir, 'packages/host-android/android/app/build.gradle');
 const gradle = readFileSync(gradlePath, 'utf8');
 let nextVersionCode = 1;
