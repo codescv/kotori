@@ -67,6 +67,38 @@ describe.each<Backend>(['memory', 'file'])('ExplanationRepository (%s db)', (bac
     expect(repos.explanations.count()).toBe(1);
   });
 
+  it('hasMany answers bulk probes with chunked parameterised IN queries (≤ 200 params each)', () => {
+    const { db, repos } = open(backend);
+    for (let i = 0; i < 450; i++) repos.explanations.put(expl({ id: `ex_${i}`, sentence: `文${i}` }));
+    const cold = new ExplanationRepository(db);
+    const prepared: string[] = [];
+    const origPrepare = db.prepare.bind(db);
+    (db as { prepare: typeof db.prepare }).prepare = ((sql: string) => {
+      prepared.push(sql);
+      return origPrepare(sql);
+    }) as typeof db.prepare;
+    const ids = [...Array.from({ length: 500 }, (_, i) => `ex_${i}`), 'ex_1', "x' OR 1=1 --"];
+    const started = performance.now();
+    const hits = cold.hasMany(ids);
+    expect(performance.now() - started).toBeLessThan(200);
+    expect(hits.size).toBe(450);
+    expect(hits.has('ex_449')).toBe(true);
+    expect(hits.has('ex_450')).toBe(false);
+    expect(hits.has("x' OR 1=1 --")).toBe(false);
+    const inQueries = prepared.filter((q) => q.includes('IN ('));
+    expect(inQueries).toHaveLength(3);
+    for (const q of inQueries) {
+      expect(q).not.toContain('ex_');
+      expect((q.match(/\?/g) ?? []).length).toBeLessThanOrEqual(200);
+    }
+    // Hot entries are answered from memory without SQL.
+    prepared.length = 0;
+    repos.explanations.put(expl({ id: 'hot', sentence: 'hot' }));
+    expect(repos.explanations.hasMany(['hot'])).toEqual(new Set(['hot']));
+    expect(prepared.filter((q) => q.includes('IN ('))).toHaveLength(0);
+    expect(cold.hasMany([])).toEqual(new Set());
+  });
+
   it('persists to the table: a fresh repository instance (cold cache) reads it back', () => {
     const { db, repos } = open(backend);
     repos.explanations.put(expl());

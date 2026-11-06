@@ -17,6 +17,7 @@ import { useHostEvent } from '../../host/useHostEvents';
 import { useT } from '../../i18n';
 import { formatMangaVolumeTitle, inferMangaSeriesTitle, sortVolumesInSeries } from '../../lib/manga';
 import { showSnackbar } from '../../stores/snackbar';
+import { CacheExplainButton } from '../ai-cache/CacheExplainButton';
 import { ImportVolumeDialog } from './ImportVolumeDialog';
 
 export interface MangaLibraryProps {
@@ -136,6 +137,12 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
                   {v.progress && ` · ${t('manga.reader.page', { current: v.progress.pageIndex + 1, total: v.pageCount })}`}
                 </div>
                 {progress !== undefined && <LinearProgress value={progress} />}
+                <CacheExplainButton
+                  className="k-volume-card__cache"
+                  target={{ kind: 'manga', volumeId: v.id, title: displayTitle }}
+                  variant="compact"
+                  data-testid={`volume-cache-explain-${v.id}`}
+                />
               </div>
               <IconButton
                 className="k-volume-card__remove"

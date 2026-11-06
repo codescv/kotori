@@ -37,6 +37,24 @@ export function createIdbExplanationCache(db: KotoriDb): ExplanationCache {
       if (stored) remember(stored);
       return stored;
     },
+    async hasMany(ids) {
+      // Hot LRU first, then ONE readonly transaction with parallel key-only probes
+      // (`getKey` never deserialises the stored explanation).
+      const found = new Set<string>();
+      const pending: string[] = [];
+      for (const id of new Set(ids)) {
+        if (memory.has(id)) found.add(id);
+        else pending.push(id);
+      }
+      if (pending.length === 0) return found;
+      const tx = db.transaction('explanations', 'readonly');
+      const keys = await Promise.all(pending.map((id) => tx.store.getKey(id)));
+      await tx.done;
+      keys.forEach((key, i) => {
+        if (key !== undefined) found.add(pending[i]!);
+      });
+      return found;
+    },
     async put(explanation) {
       const stored: SentenceExplanation = { ...explanation, fromCache: false };
       await db.put('explanations', stored);

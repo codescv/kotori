@@ -31,13 +31,12 @@ export function defaultSettings(dataDir: string): AppSettings {
       preferredSubtitleLanguages: ['ja'],
       secondarySubtitle: 'auto',
       preferredSecondarySubtitleLanguages: ['zh-CN', 'zh', 'zh-TW', 'en'],
-      autoPreExplain: false,
       furiganaMode: 'all',
       showRomaji: false,
       collapseTranslation: false,
       pauseOnTranscriptClick: true,
     },
-    manga: { defaultReadingMode: 'spread-rtl', showBlockOutlines: false, fit: 'contain', background: 'black', preloadPages: 2, autoPreExplain: false },
+    manga: { defaultReadingMode: 'spread-rtl', showBlockOutlines: false, fit: 'contain', background: 'black', preloadPages: 2 },
     downloads: {
       downloadDir: join(dataDir, 'anime'),
       maxActiveDownloads: 3,
@@ -171,7 +170,6 @@ export function validateSettings(s: AppSettings): void {
   if (s.anime.preferredSecondarySubtitleLanguages !== undefined) {
     strings('anime.preferredSecondarySubtitleLanguages', s.anime.preferredSecondarySubtitleLanguages);
   }
-  if (s.anime.autoPreExplain !== undefined) bool('anime.autoPreExplain', s.anime.autoPreExplain);
   if (s.anime.furiganaMode !== undefined) oneOf('anime.furiganaMode', s.anime.furiganaMode, FURIGANA_MODES);
   if (s.anime.showRomaji !== undefined) bool('anime.showRomaji', s.anime.showRomaji);
   if (s.anime.collapseTranslation !== undefined) bool('anime.collapseTranslation', s.anime.collapseTranslation);
@@ -182,7 +180,6 @@ export function validateSettings(s: AppSettings): void {
   oneOf('manga.fit', s.manga.fit, FITS);
   oneOf('manga.background', s.manga.background, BACKGROUNDS);
   number('manga.preloadPages', s.manga.preloadPages, 0, 20);
-  if (s.manga.autoPreExplain !== undefined) bool('manga.autoPreExplain', s.manga.autoPreExplain);
   // downloads
   str('downloads.downloadDir', s.downloads.downloadDir);
   number('downloads.maxActiveDownloads', s.downloads.maxActiveDownloads, 1, 20);
@@ -211,6 +208,25 @@ export function redactSecrets<T>(value: T): T {
 }
 
 const ROW_KEY = 'app';
+
+/** Settings keys removed in later versions (v0.1.38: 预解读 `autoPreExplain`); dropped on load. */
+const LEGACY_SECTION_KEYS: Readonly<Record<string, readonly string[]>> = {
+  anime: ['autoPreExplain'],
+  manga: ['autoPreExplain'],
+};
+
+/** Drop obsolete persisted keys so upgrading users load cleanly. */
+export function stripLegacySettingsKeys(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...raw };
+  for (const [section, keys] of Object.entries(LEGACY_SECTION_KEYS)) {
+    const value = out[section];
+    if (!isPlainObject(value)) continue;
+    const next: Record<string, unknown> = { ...value };
+    for (const key of keys) delete next[key];
+    out[section] = next;
+  }
+  return out;
+}
 
 export class SettingsStore {
   private cache: AppSettings | undefined;
@@ -263,6 +279,6 @@ export class SettingsStore {
     if (isPlainObject(out['ai']) && out['ai']['explainModel'] === 'gemini-3.8-flash') {
       out['ai'] = { ...out['ai'], explainModel: 'gemini-3.5-flash-lite' };
     }
-    return out;
+    return stripLegacySettingsKeys(out);
   }
 }

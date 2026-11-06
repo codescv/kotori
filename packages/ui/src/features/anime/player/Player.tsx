@@ -53,7 +53,8 @@ import { activeRowIndex, TranscriptPanel } from './TranscriptPanel';
 import { useFullscreenState } from './useFullscreenState';
 import { useMediaClock, usePlayerSync } from './usePlayerSync';
 import { useSubtitleBreakdown } from './useSubtitleBreakdown';
-import { useSubtitlePreExplain } from './useSubtitlePreExplain';
+import { useSubtitleCacheStatus } from './useSubtitleCacheStatus';
+import { CacheExplainButton } from '../../ai-cache/CacheExplainButton';
 import './player.css';
 
 type PanelTab = 'transcript' | 'breakdown';
@@ -384,19 +385,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   );
 
   const currentRowIdx = activeRowIndex(rows, activeRaw, clock.currentMs);
-  const preExplain = useSubtitlePreExplain({
-    enabled: Boolean(animeSettings.autoPreExplain),
-    episodeId,
-    trackId,
-    rows,
-    currentRowIdx,
-    sceneHint: seriesQ.data?.title,
-  });
-  const togglePreExplain = useCallback(() => {
-    const next = !animeSettings.autoPreExplain;
-    void updateSettings(host, { anime: { autoPreExplain: next } });
-    showSnackbar(t(next ? 'player.preExplainOn' : 'player.preExplainOff'));
-  }, [animeSettings.autoPreExplain, updateSettings, host, t]);
+  // Read-only ✦ / ◌ badges: one bulk cache probe, never a model call while playing.
+  const cacheStatus = useSubtitleCacheStatus({ episodeId, trackId, rows });
 
   const nextRow = useCallback(() => {
     const ms = clock.currentMs + animeSettings.seekPaddingMs + 10;
@@ -676,6 +666,21 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     (explainedAtMsRef.current !== undefined && Math.abs(clock.currentMs - explainedAtMsRef.current) < 500) ||
     (sb.source !== undefined && clock.currentMs >= sb.source.startMs - 500 && clock.currentMs <= sb.source.endMs + 500);
 
+  const duration = clock.durationMs || episode.durationMs || 0;
+  const formattedSeriesTitle = formatAnimeSeriesTitle(seriesQ.data);
+  const seriesTitle = formattedSeriesTitle || episode.parsedName.title || episode.title;
+  const episodeTitle = formatAnimeEpisodeTitle(episode, formattedSeriesTitle);
+  const cacheTarget = useMemo(
+    () => ({
+      kind: 'anime' as const,
+      episodeId,
+      trackId,
+      title: episode.parsedName.episode !== undefined ? `${seriesTitle} #${episode.parsedName.episode}` : episodeTitle,
+    }),
+    [episodeId, trackId, seriesTitle, episodeTitle, episode.parsedName.episode],
+  );
+  const cacheKnown = rows.length > 0 ? { done: cacheStatus.cachedExplainableCount, total: cacheStatus.explainableCount } : undefined;
+
   const transcript = (
     <TranscriptPanel
       rows={rows}
@@ -687,18 +692,14 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       onCharClick={onTranscriptChar}
       onExplainSelection={(rs) => sb.openMerged(rs.map((r) => r.cue))}
       highlightFor={sb.highlightFor}
-      cachedCueIndexes={preExplain.cachedCueIndexes}
-      prefetchingCueIndexes={preExplain.prefetchingCueIndexes}
+      cachedCueIndexes={cacheStatus.cachedCueIndexes}
+      cachingCueIndexes={cacheStatus.cachingCueIndexes}
       secondaryTextByRep={secondaryTextByRep}
       preferExplainingOnMount={preferExplainingOnMount}
+      toolbarExtra={layout === 'portrait' ? <CacheExplainButton target={cacheTarget} variant="compact" known={cacheKnown} data-testid="player-cache-explain-btn" /> : undefined}
       t={t}
     />
   );
-
-  const duration = clock.durationMs || episode.durationMs || 0;
-  const formattedSeriesTitle = formatAnimeSeriesTitle(seriesQ.data);
-  const seriesTitle = formattedSeriesTitle || episode.parsedName.title || episode.title;
-  const episodeTitle = formatAnimeEpisodeTitle(episode, formattedSeriesTitle);
 
   return (
     <div
@@ -733,6 +734,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               onTracksChanged={onTracksChanged}
               t={t}
             />
+            {layout === 'expanded' && <CacheExplainButton target={cacheTarget} variant="full" known={cacheKnown} data-testid="player-cache-explain-btn" />}
             {layout === 'expanded' && (
               <IconButton icon="list" label={t('player.transcript')} selected={expandedPanelOpen} onClick={() => setExpandedPanelOpen((o) => !o)} />
             )}
@@ -787,8 +789,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               onToggleRepeatCue={toggleRepeatCue}
               onToggleAb={toggleAb}
               canAb={selected.size > 0}
-              autoPreExplain={Boolean(animeSettings.autoPreExplain)}
-              onTogglePreExplain={togglePreExplain}
+              cacheExplain={<CacheExplainButton target={cacheTarget} variant="icon" known={cacheKnown} data-testid="player-cache-explain-btn" />}
               blind={blind}
               onToggleBlind={() => setBlind((b) => !b)}
               canExitFullscreen={fullscreen || Boolean(host.screen)}
@@ -862,13 +863,6 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               </span>
               <span className="k-spacer" />
               <RepeatControls repeat={repeat} onToggleCue={toggleRepeatCue} onToggleAb={toggleAb} canAb={selected.size > 0} t={t} />
-              <IconButton
-                icon="sparkle"
-                label={t('player.preExplain')}
-                selected={Boolean(animeSettings.autoPreExplain)}
-                data-testid="pre-explain-toggle"
-                onClick={togglePreExplain}
-              />
               <IconButton
                 icon={blind ? 'visibilityOff' : 'visibility'}
                 label={t('player.blind')}

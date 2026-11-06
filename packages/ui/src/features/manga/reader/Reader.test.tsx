@@ -5,6 +5,7 @@ import { createMockPlatformHost, type MockPlatformHost } from '../../../host/moc
 import { MOBILE_PORTRAIT_QUERY } from '../../../hooks/useMediaQuery';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
+import { setAiCacheDeps, useAiCacheStore } from '../../ai-cache/useAiCacheStore';
 import { Reader } from './Reader';
 
 const VOL = 'vol-houkago-1';
@@ -30,6 +31,8 @@ const key = (k: string): void => {
 beforeEach(() => {
   useBreakdownStore.getState().reset();
   useSettingsStore.getState().reset();
+  useAiCacheStore.getState().reset();
+  setAiCacheDeps({ loadPageImage: async (p) => ({ mimeType: 'image/jpeg', base64: 'AAAA', width: p.width, height: p.height }) });
 });
 afterEach(cleanup);
 
@@ -286,17 +289,78 @@ describe('Reader — Android default width-fit & touch gestures', () => {
     expect(spread().dataset['pageIndexes']).toBe('1');
   });
 
-  it('toggles silent manga bubble pre-explain from the reader toolbar', async () => {
+  it('never pre-explains in the background: staying on a spread makes 0 ai.explainBatch / ai.explain calls', async () => {
     const host = createMockPlatformHost({ latencyMs: 0 });
     setup(host);
     await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
-    const toggle = screen.getByTestId('manga-pre-explain-toggle');
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(toggle);
-    await waitFor(async () => {
-      const s = await host.settings.get();
-      expect(s.manga.autoPreExplain).toBe(true);
+    expect(screen.queryByTestId('manga-pre-explain-toggle')).toBeNull();
+    key('ArrowLeft');
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 700));
     });
+    expect(host.calls.get('ai.explainBatch') ?? 0).toBe(0);
+    expect(host.calls.get('ai.explain') ?? 0).toBe(0);
+    expect(host.calls.get('ai.getCachedExplanation') ?? 0).toBe(0);
+  });
+
+  it('「缓存AI解读」 caches the whole .mokuro volume in batches with progress, then resumes at 0 extra LLM calls', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
+    const btn = screen.getByTestId('manga-cache-explain-btn');
+    expect(btn).toHaveAttribute('aria-label', '缓存AI解读');
+    fireEvent.click(btn);
+    await waitFor(() => expect(useAiCacheStore.getState().jobs[`manga:${VOL}`]?.phase).toBe('done'));
+    const job = useAiCacheStore.getState().jobs[`manga:${VOL}`]!;
+    expect(job.totalItems).toBeGreaterThan(5);
+    expect(job.cachedInitially + job.completedItems).toBe(job.totalItems);
+    expect(job.failedItems).toBe(0);
+    expect(host.calls.get('ai.getCachedStatus')).toBe(1);
+    const batches = host.calls.get('ai.explainBatch') ?? 0;
+    expect(batches).toBe(Math.ceil(job.totalItems / 8));
+    expect(screen.getByTestId('manga-cache-explain-btn')).toHaveAttribute('aria-label', `已缓存 ${job.totalItems}/${job.totalItems}`);
+
+    // Every OCR bubble of the volume is now an instant cache hit (same key as a tap).
+    const pages = await host.manga.getPages(VOL);
+    const someBlock = pages.flatMap((p) => p.blocks).find((b) => b.text.length >= 2)!;
+    expect(await host.ai.getCachedExplanation({ sentence: someBlock.text, source: { kind: 'manual' }, targetLanguage: 'zh-CN' })).toBeDefined();
+
+    // Re-running only re-checks the cache: no new LLM calls.
+    fireEvent.click(screen.getByTestId('manga-cache-explain-btn'));
+    await waitFor(() => expect(host.calls.get('ai.getCachedStatus')).toBe(2));
+    await waitFor(() => expect(useAiCacheStore.getState().jobs[`manga:${VOL}`]?.phase).toBe('done'));
+    expect(host.calls.get('ai.explainBatch') ?? 0).toBe(batches);
+    expect(useAiCacheStore.getState().jobs[`manga:${VOL}`]?.cachedInitially).toBe(job.totalItems);
+  });
+
+  it('「缓存AI解读」 shows a cancellable progress pill and keeps cached chunks when cancelled', async () => {
+    const host = createMockPlatformHost({ latencyMs: 20 });
+    setup(host);
+    await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
+    fireEvent.click(screen.getByTestId('manga-cache-explain-btn'));
+    const pill = await screen.findByTestId('manga-cache-progress');
+    await waitFor(() => expect(useAiCacheStore.getState().jobs[`manga:${VOL}`]?.phase).toBe('explaining'));
+    expect(screen.getByTestId('manga-cache-explain-btn')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(pill.querySelector('button')!);
+    await waitFor(() => expect(useAiCacheStore.getState().jobs[`manga:${VOL}`]?.phase).toBe('cancelled'));
+    expect(screen.queryByTestId('manga-cache-progress')).toBeNull();
+    expect(screen.getByTestId('manga-cache-explain-btn')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('「缓存AI解读」 supports raw (OCR-less) volumes via ai.pageGuide + batched bubble caching', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    setup(host, 'vol-hoshikuzu-raw-1');
+    await screen.findByTestId('manga-cache-explain-btn');
+    fireEvent.click(screen.getByTestId('manga-cache-explain-btn'));
+    await waitFor(() => expect(useAiCacheStore.getState().jobs['manga:vol-hoshikuzu-raw-1']?.phase).toBe('done'), { timeout: 4000 });
+    const job = useAiCacheStore.getState().jobs['manga:vol-hoshikuzu-raw-1']!;
+    const pages = await host.manga.getPages('vol-hoshikuzu-raw-1');
+    expect(job.ocrTotal).toBe(pages.length);
+    expect(job.ocrDone).toBe(pages.length);
+    expect(host.calls.get('ai.pageGuide')).toBe(pages.length);
+    expect(job.totalItems).toBeGreaterThan(0);
+    expect(job.completedItems).toBe(job.totalItems);
+    expect(host.calls.get('ai.explainBatch')).toBeGreaterThanOrEqual(1);
   });
 
   it('toggles immersive mode (hiding top & bottom UI) when single-tapping a blank center area, while keeping UI state on double-tap zoom', async () => {
@@ -487,7 +551,7 @@ describe('Reader — guide context, HUD & no bubble stepper', () => {
     expect(req?.contextAfter).toEqual(['[ことり] 朝の空気が好きなんだ。']);
   });
 
-  it('gives the silent pre-explain toggle a ⚡ bolt icon distinct from ✨ 陪读本页, persists outlines, and shows a page HUD in immersive mode', async () => {
+  it('gives 「缓存AI解读」 its own icon distinct from ✨ 陪读本页, persists outlines, and shows a page HUD in immersive mode', async () => {
     const host = setup();
     await waitFor(() => expect(spread().dataset['pageIndexes']).toBe('1,2'));
     const toc = screen.getByTestId('toc-toggle');
@@ -495,11 +559,10 @@ describe('Reader — guide context, HUD & no bubble stepper', () => {
     expect(toc).toHaveTextContent('▾');
     expect(screen.getByTestId('page-indicator')).toHaveTextContent('第 2–3 / 10 页');
 
-    const pre = screen.getByTestId('manga-pre-explain-toggle');
+    const cacheBtn = screen.getByTestId('manga-cache-explain-btn');
     const guide = screen.getByTestId('guide-toggle');
-    expect(pre).toHaveClass('k-reader__pre-explain');
-    expect(pre.querySelector('path')?.getAttribute('d')).toContain('M11 21h-1l1-7');
-    expect(pre.querySelector('svg')?.innerHTML).not.toBe(guide.querySelector('svg')?.innerHTML);
+    expect(screen.queryByTestId('manga-pre-explain-toggle')).toBeNull();
+    expect(cacheBtn.querySelector('svg')?.innerHTML).not.toBe(guide.querySelector('svg')?.innerHTML);
 
     // Opening guide then clicking toc-toggle closes guide and opens TOC.
     fireEvent.click(guide);
@@ -664,7 +727,7 @@ describe('Reader — mobile one-hand dock, edge-page-peek, non-modal bubble swit
       for (const id of [
         'toc-toggle',
         'page-indicator',
-        'manga-pre-explain-toggle',
+        'manga-cache-explain-btn',
         'outlines-toggle',
         'select-toggle',
         'guide-toggle',

@@ -28,6 +28,7 @@ import { DownloadsPage } from '../features/downloads/DownloadsPage';
 import { MangaPage } from '../features/manga/MangaPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { UpdateBanner } from '../features/updater/UpdateBanner';
+import { AiCacheGlobalBar } from '../features/ai-cache/AiCacheGlobalBar';
 import { useRouteStore, type DownloadsTab, type Tab } from './routes';
 
 const TABS: readonly { readonly tab: Tab; readonly icon: IconName; readonly label: MessageKey }[] = [
@@ -158,6 +159,7 @@ export function Shell() {
       {expanded && nav}
       <main className="k-shell__content" data-tab={tab} {...swipeHandlers}>
         {!hideCompactChrome && <UpdateBanner />}
+        {!hideCompactChrome && <AiCacheGlobalBar />}
         <TabPager<Tab>
           pager={pager}
           order={SHELL_TAB_ORDER}

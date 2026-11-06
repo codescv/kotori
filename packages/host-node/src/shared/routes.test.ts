@@ -36,8 +36,8 @@ describe('route table', () => {
     const routed = new Set<string>(ROUTE_KEYS);
     const clientOnly = new Set<string>(CLIENT_ONLY_METHODS);
     for (const key of hostMethodKeys()) expect(routed.has(key) || clientOnly.has(key), key).toBe(true);
-    // 58 routed methods = 3 settings + 16 anime + 10 manga + 9 ai + 12 downloads + 2 files + 6 dict.
-    expect(ROUTE_KEYS).toHaveLength(58);
+    // 59 routed methods = 3 settings + 16 anime + 10 manga + 10 ai + 12 downloads + 2 files + 6 dict.
+    expect(ROUTE_KEYS).toHaveLength(59);
     for (const key of ROUTE_KEYS) expect(hostMethodKeys()).toContain(key);
   });
 
@@ -140,3 +140,31 @@ describe('wire envelope', () => {
 /** Compile-time: SAMPLE_ARGS keys are exactly the routed keys. */
 const _keysCheck: Record<RoutedMethodKey, unknown> = SAMPLE_ARGS;
 void _keysCheck;
+
+describe('ai.getCachedStatus route validation', () => {
+  const route = ROUTES['ai.getCachedStatus'];
+  const decode = (body: unknown) => route.decode({ params: {}, query: {}, body });
+
+  it('round-trips and strips unknown fields', () => {
+    const wire = route.encode([{ sentence: '猫', targetLanguage: 'en' }, { sentence: '犬' }]);
+    expect(route.method).toBe('POST');
+    expect(decode(JSON.parse(JSON.stringify(wire.body)))).toEqual([[{ sentence: '猫', targetLanguage: 'en' }, { sentence: '犬' }]]);
+    expect(decode({ requests: [{ sentence: '猫', extra: 'x', source: { kind: 'manual' } }] })).toEqual([[{ sentence: '猫' }]]);
+  });
+
+  it('rejects malformed, oversized and unknown-language payloads', () => {
+    expect(() => decode(undefined)).toThrow(TypeError);
+    expect(() => decode({ requests: 'nope' })).toThrow(/array/);
+    expect(() => decode({ requests: [1] })).toThrow(/object/);
+    expect(() => decode({ requests: [{ sentence: 5 }] })).toThrow(/sentence/);
+    expect(() => decode({ requests: [{ sentence: 'x'.repeat(4001) }] })).toThrow(/too long/);
+    expect(() => decode({ requests: [{ sentence: '猫', targetLanguage: 'fr' }] })).toThrow(/targetLanguage/);
+    expect(() => decode({ requests: Array.from({ length: 5001 }, () => ({ sentence: 'a' })) })).toThrow(/at most/);
+  });
+
+  it('bounds ai.explainBatch payloads', () => {
+    const batch = ROUTES['ai.explainBatch'];
+    expect(() => batch.decode({ params: {}, query: {}, body: { requests: Array.from({ length: 65 }, () => ({ sentence: 'a' })) } })).toThrow(/at most/);
+    expect(() => batch.decode({ params: {}, query: {}, body: { requests: [{ nope: 1 }] } })).toThrow(/sentence/);
+  });
+});

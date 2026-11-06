@@ -2,6 +2,7 @@
 import { render, type RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { useRouteStore } from '../app/routes';
+import { useAiCacheStore, setAiCacheDeps } from '../features/ai-cache/useAiCacheStore';
 import { useAnimeStore } from '../features/anime/useAnimeStore';
 import { useUpdateStore } from '../features/updater/updater';
 import { HostProvider } from '../host/HostContext';
@@ -19,6 +20,8 @@ export function resetStores(): void {
   useAnimeStore.getState().reset();
   useUpdateStore.getState().reset();
   useDictStore.getState().reset();
+  useAiCacheStore.getState().reset();
+  setAiCacheDeps(undefined);
 }
 
 export function renderWithHost(ui: ReactElement, options: MockHostOptions = {}): RenderResult & { host: MockPlatformHost } {

@@ -242,6 +242,9 @@ export interface ExplainRequest {
   readonly speaker?: string | undefined;
 }
 
+/** Minimal request shape for {@link AiApi.getCachedStatus} (only the cache-key fields). */
+export type CachedStatusRequest = Pick<ExplainRequest, 'sentence'> & { readonly targetLanguage?: TargetLanguage | undefined };
+
 export interface SentenceExplanation {
   /** Stable cache key = hash(sentence, targetLanguage, model, promptVersion). */
   readonly id: Id;
@@ -1083,8 +1086,6 @@ export interface AnimeSettings {
   /** Pad in ms before/after when seeking to a cue. */
   readonly seekPaddingMs: number;
   readonly autoDownloadJimaku: boolean;
-  /** Automatically pre-explain the next 5 upcoming subtitle sentences in 1 batch request while watching. */
-  readonly autoPreExplain?: boolean;
   /** jimaku.cc API key (required for its API). */
   readonly jimakuApiKey: string;
   readonly preferredSubtitleLanguages: readonly LanguageTag[];
@@ -1112,8 +1113,6 @@ export interface MangaSettings {
   readonly background: 'black' | 'surface' | 'white';
   /** Preload ±N pages. */
   readonly preloadPages: number;
-  /** Automatically pre-explain speech bubbles on the current spread in 1 batch request while reading. */
-  readonly autoPreExplain?: boolean;
 }
 
 export interface DownloadSettings {
@@ -1484,6 +1483,14 @@ export interface AiApi {
   explainBatch?(requests: readonly ExplainRequest[], options?: AiCallOptions): Promise<readonly SentenceExplanation[]>;
   /** Cached explanation lookup without a model call (`undefined` on miss). */
   getCachedExplanation(request: ExplainRequest): Promise<SentenceExplanation | undefined>;
+  /**
+   * Bulk cache probe (「缓存AI解读」): one boolean per request, `true` when an
+   * explanation for `(sentence, targetLanguage)` under the current model /
+   * prompt version is already cached. A single host round-trip for hundreds of
+   * sentences; no model call. Hosts may omit it (callers fall back to
+   * `getCachedExplanation`).
+   */
+  getCachedStatus?(requests: readonly CachedStatusRequest[]): Promise<readonly boolean[]>;
   followUp(request: FollowUpRequest, options?: AiCallOptions): Promise<FollowUpMessage>;
   /** Streaming variant; hosts without `capabilities.streaming` may omit it. */
   followUpStream?(request: FollowUpRequest, onDelta: (delta: FollowUpDelta) => void, options?: AiCallOptions): Promise<FollowUpMessage>;

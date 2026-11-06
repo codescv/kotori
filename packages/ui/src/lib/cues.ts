@@ -67,7 +67,7 @@ export {
   type TranscriptOptions,
 };
 
-/** Context window shared by single-click explain and batch pre-explain (same prompt ⇒ same cache key). */
+/** Context window shared by single-click explain and 「缓存AI解读」 batch caching (same prompt ⇒ same cache key). */
 export const SUBTITLE_CONTEXT_BEFORE = 3;
 export const SUBTITLE_CONTEXT_AFTER = 2;
 

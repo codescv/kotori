@@ -7,7 +7,7 @@
  * chip; bilingual fansub cues show the Japanese line (the part sent to Gemini)
  * with the translation as a subtle, tap-to-expand sub-line.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import type { SubtitleCue, TranscriptRow } from '@kotori/core';
 import { RubyText } from '../../../components/breakdown/RubyText';
 import { Button } from '../../../components/m3/Button';
@@ -31,11 +31,13 @@ export interface TranscriptPanelProps {
   readonly onExplainSelection: (rows: readonly TranscriptRow[]) => void;
   readonly highlightFor: (cue: SubtitleCue) => CueHighlight;
   readonly cachedCueIndexes?: ReadonlySet<number> | undefined;
-  readonly prefetchingCueIndexes?: ReadonlySet<number> | undefined;
+  readonly cachingCueIndexes?: ReadonlySet<number> | undefined;
   /** 副字幕 text per `row.rep`, used when the row has no inline bilingual translation. */
   readonly secondaryTextByRep?: ReadonlyMap<number, string> | undefined;
   /** Whether to prefer scrolling to `explaining` row on mount before playback moves (default `true`). */
   readonly preferExplainingOnMount?: boolean | undefined;
+  /** Extra toolbar control (e.g. 「缓存AI解读」 on phones). */
+  readonly toolbarExtra?: ReactNode;
   readonly t: Translate;
 }
 
@@ -197,7 +199,7 @@ const Row = memo(function Row({ row, active, selected, selectMode, highlight, ca
         </span>
       )}
       {!selectMode && !cached && prefetching && (
-        <span className="k-transcript__badge k-transcript__badge--prefetching" title={prefetchingTitle} data-testid="cue-prefetching">
+        <span className="k-transcript__badge k-transcript__badge--prefetching" title={prefetchingTitle} data-testid="cue-caching">
           ◌
         </span>
       )}
@@ -217,9 +219,10 @@ export function TranscriptPanel({
   onExplainSelection,
   highlightFor,
   cachedCueIndexes,
-  prefetchingCueIndexes,
+  cachingCueIndexes,
   secondaryTextByRep,
   preferExplainingOnMount = true,
+  toolbarExtra,
   t,
 }: TranscriptPanelProps) {
   const [query, setQuery] = useState('');
@@ -291,6 +294,7 @@ export function TranscriptPanel({
     <section className="k-transcript" aria-label={t('player.transcript')}>
       <div className="k-transcript__toolbar">
         <TextField className="k-transcript__search" label={t('transcript.search')} value={query} onValueChange={setQuery} leadingIcon="search" />
+        {toolbarExtra}
         <IconButton icon="list" label={t('transcript.selectMode')} selected={selectMode} onClick={() => setSelectMode((m) => !m)} />
         <IconButton
           icon="sort"
@@ -330,9 +334,9 @@ export function TranscriptPanel({
             selectMode={selectMode}
             highlight={highlightFor(row.cue)}
             cached={Boolean(cachedCueIndexes?.has(row.rep))}
-            prefetching={Boolean(prefetchingCueIndexes?.has(row.rep))}
-            cachedTitle={t('transcript.preExplained')}
-            prefetchingTitle={t('transcript.prefetching')}
+            prefetching={Boolean(cachingCueIndexes?.has(row.rep))}
+            cachedTitle={t('transcript.cached')}
+            prefetchingTitle={t('transcript.caching')}
             secondaryText={secondaryTextByRep?.get(row.rep)}
             onRowClick={onRowClick}
             onSeek={onSeek}

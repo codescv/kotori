@@ -6,6 +6,7 @@ import type {
   AiApi,
   AiCallOptions,
   AiSettings,
+  CachedStatusRequest,
   ExplainRequest,
   FollowUpDelta,
   FollowUpMessage,
@@ -35,11 +36,18 @@ export interface ExplanationCache {
   getThread(explanationId: Id): Promise<readonly FollowUpMessage[]>;
   appendThread(explanationId: Id, message: FollowUpMessage): Promise<void>;
   clear(): Promise<{ readonly removed: number }>;
+  /**
+   * Optional bulk existence probe: the subset of `ids` that are cached. Hosts
+   * implement it with one batched query (SQLite `IN (...)`, one IndexedDB
+   * transaction); without it the service falls back to parallel `get`s.
+   */
+  hasMany?(ids: readonly Id[]): Promise<ReadonlySet<Id>>;
 }
 
-/** `AiApi` with streaming and batch explain always available. */
+/** `AiApi` with streaming, batch explain and bulk cache probing always available. */
 export interface ExplainService extends AiApi {
   explainBatch(requests: readonly ExplainRequest[], options?: AiCallOptions): Promise<readonly SentenceExplanation[]>;
+  getCachedStatus(requests: readonly CachedStatusRequest[]): Promise<readonly boolean[]>;
   followUpStream(request: FollowUpRequest, onDelta: (delta: FollowUpDelta) => void, options?: AiCallOptions): Promise<FollowUpMessage>;
 }
 
@@ -133,8 +141,14 @@ export function createMemoryExplanationCache(): ExplanationCache {
       threads.clear();
       return { removed };
     },
+    async hasMany(ids) {
+      return new Set(ids.filter((id) => explanations.has(id)));
+    },
   };
 }
+
+/** Upper bound of requests accepted by one `getCachedStatus` call (a long manga volume is ~1-2k bubbles). */
+export const MAX_CACHED_STATUS_REQUESTS = 5000;
 
 /**
  * Create the explain service. Flow for `explain`: cache lookup → prompt →
@@ -275,7 +289,10 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
           ...prompt,
           responseSchema: BATCH_EXPLAIN_RESPONSE_SCHEMA,
           ...commonKnobs,
-          timeoutMs: Math.max(commonKnobs.timeoutMs ?? 30_000, 60_000),
+          // 8–10 sentence batches produce long structured JSON: give them a generous
+          // deadline. `maxOutputTokens` is deliberately left unset (model maximum) so
+          // a big batch is never truncated mid-JSON by an artificial cap.
+          timeoutMs: Math.max(commonKnobs.timeoutMs ?? 30_000, 90_000),
         },
         RawBatchExplanationSchema,
         signal,
@@ -360,6 +377,31 @@ export function createExplainService(deps: ExplainServiceDeps): ExplainService {
       const normalized = { ...request, targetLanguage: request.targetLanguage ?? settings.targetLanguage ?? 'zh-CN' };
       const cached = await deps.cache.get(await keyFor(normalized, settings));
       return cached ? { ...cached, fromCache: true } : undefined;
+    },
+
+    async getCachedStatus(requests) {
+      if (!Array.isArray(requests)) throw new KotoriError('invalid-argument', 'requests must be an array');
+      if (requests.length > MAX_CACHED_STATUS_REQUESTS) {
+        throw new KotoriError('invalid-argument', `At most ${MAX_CACHED_STATUS_REQUESTS} requests per cache status call`);
+      }
+      const settings = deps.settings();
+      if (requests.length === 0 || !settings.cacheEnabled) return requests.map(() => false);
+      const fallbackLanguage = settings.targetLanguage ?? 'zh-CN';
+      const ids = await Promise.all(
+        requests.map((r) => keyFor({ sentence: String(r.sentence ?? ''), targetLanguage: r.targetLanguage ?? fallbackLanguage }, settings)),
+      );
+      if (deps.cache.hasMany) {
+        const hits = await deps.cache.hasMany([...new Set(ids)]);
+        return ids.map((id) => hits.has(id));
+      }
+      const unique = [...new Set(ids)];
+      const found = new Set<Id>();
+      await Promise.all(
+        unique.map(async (id) => {
+          if (await deps.cache.get(id)) found.add(id);
+        }),
+      );
+      return ids.map((id) => found.has(id));
     },
 
     followUp(request, options) {

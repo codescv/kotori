@@ -338,3 +338,59 @@ describe('createExplainService pageGuide cache', () => {
     expect(off.client.calls).toHaveLength(2);
   });
 });
+
+describe('createExplainService.getCachedStatus (缓存AI解读 bulk probe)', () => {
+  it('answers one boolean per request in a single hasMany call, honouring targetLanguage and duplicates', async () => {
+    const { service, cache } = setup([() => ({ text: rawText })]);
+    await service.explain(req);
+    let hasManyCalls = 0;
+    let getCalls = 0;
+    const origHasMany = cache.hasMany!.bind(cache);
+    const origGet = cache.get.bind(cache);
+    cache.hasMany = async (ids) => {
+      hasManyCalls++;
+      return origHasMany(ids);
+    };
+    cache.get = async (id) => {
+      getCalls++;
+      return origGet(id);
+    };
+    const status = await service.getCachedStatus([
+      { sentence: req.sentence, targetLanguage: 'zh-CN' },
+      { sentence: 'まだ説明されていない文', targetLanguage: 'zh-CN' },
+      { sentence: req.sentence, targetLanguage: 'en' },
+      { sentence: req.sentence },
+    ]);
+    expect(status).toEqual([true, false, false, true]);
+    expect(hasManyCalls).toBe(1);
+    expect(getCalls).toBe(0);
+  });
+
+  it('falls back to parallel cache.get when the cache has no hasMany, and is all-false when caching is disabled', async () => {
+    const { service, cache } = setup([() => ({ text: rawText })]);
+    await service.explain(req);
+    delete (cache as { hasMany?: unknown }).hasMany;
+    expect(await service.getCachedStatus([{ sentence: req.sentence }, { sentence: 'ほか' }])).toEqual([true, false]);
+    expect(await service.getCachedStatus([])).toEqual([]);
+
+    const off = setup([], { cacheEnabled: false });
+    expect(await off.service.getCachedStatus([{ sentence: req.sentence }])).toEqual([false]);
+  });
+
+  it('rejects oversized probes', async () => {
+    const { service } = setup([]);
+    const many = Array.from({ length: 5001 }, (_, i) => ({ sentence: `s${i}` }));
+    await expect(service.getCachedStatus(many)).rejects.toMatchObject({ code: 'invalid-argument' });
+  });
+
+  it('gives explainBatch a generous 90 s deadline without capping maxOutputTokens', async () => {
+    const two: ExplainRequest[] = [
+      { ...req, sentence: 'もう食べてんじゃねぇか' },
+      { ...req, sentence: '何してんの' },
+    ];
+    const { client, service } = setup([() => ({ text: JSON.stringify({ items: [slang.raw, slang.raw] }) }), () => ({ text: rawText }), () => ({ text: rawText }), () => ({ text: rawText }), () => ({ text: rawText })]);
+    await service.explainBatch(two).catch(() => undefined);
+    expect(client.calls[0]?.timeoutMs).toBe(90_000);
+    expect(client.calls[0]?.maxOutputTokens).toBeUndefined();
+  });
+});

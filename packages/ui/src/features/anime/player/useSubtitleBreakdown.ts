@@ -50,7 +50,7 @@ export function useSubtitleBreakdown(params: {
     (first: SubtitleCue, last: SubtitleCue) => {
       const i = contextCues.findIndex((c) => c.index === first.index);
       const j = contextCues.findIndex((c) => c.index === last.index);
-      // Same builder as `useSubtitlePreExplain` ⇒ identical request ⇒ same cache key.
+      // Same builder as 「缓存AI解读」 (`ai-cache/collect.ts`) ⇒ identical request ⇒ same cache key.
       return subtitleExplainContext(contextRows, i, j);
     },
     [contextCues, contextRows],

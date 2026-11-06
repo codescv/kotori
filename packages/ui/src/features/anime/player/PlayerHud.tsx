@@ -4,7 +4,7 @@
  * `<SubtitleOverlay />` so `.k-hud[data-visible="true"] ~ .k-sub-overlay` lifts
  * clickable subtitles cleanly above `.k-hud__bottom`.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { AnimeEpisode } from '@kotori/core';
 import { cx } from '../../../components/m3/cx';
 import { Icon } from '../../../components/m3/Icon';
@@ -44,8 +44,8 @@ export interface PlayerHudProps {
   readonly onToggleRepeatCue: () => void;
   readonly onToggleAb: () => void;
   readonly canAb: boolean;
-  readonly autoPreExplain: boolean;
-  readonly onTogglePreExplain: () => void;
+  /** 「缓存AI解读」 control for this episode (rendered in the HUD top bar). */
+  readonly cacheExplain?: ReactNode;
   readonly blind: boolean;
   readonly onToggleBlind: () => void;
   readonly canExitFullscreen: boolean;
@@ -85,8 +85,7 @@ export function PlayerHud({
   onToggleRepeatCue,
   onToggleAb,
   canAb,
-  autoPreExplain,
-  onTogglePreExplain,
+  cacheExplain,
   blind,
   onToggleBlind,
   canExitFullscreen,
@@ -133,6 +132,7 @@ export function PlayerHud({
           onTracksChanged={onTracksChanged}
           t={t}
         />
+        {cacheExplain}
         <IconButton
           icon="list"
           label={t('player.drawer')}
@@ -186,13 +186,6 @@ export function PlayerHud({
           </span>
           <div className="k-player__spacer" />
           <RepeatControls repeat={repeat} onToggleCue={onToggleRepeatCue} onToggleAb={onToggleAb} canAb={canAb} t={t} />
-          <IconButton
-            icon="sparkle"
-            label={t('player.preExplain')}
-            selected={autoPreExplain}
-            data-testid="pre-explain-toggle"
-            onClick={onTogglePreExplain}
-          />
           <IconButton
             icon={blind ? 'visibilityOff' : 'visibility'}
             label={t('player.blind')}

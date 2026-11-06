@@ -306,6 +306,23 @@ describe('SettingsStore', () => {
     expect(s.ai.explainModel).toBe('gemini-3.5-flash-lite');
   });
 
+  it('ignores legacy 预解读 autoPreExplain keys persisted by ≤ v0.1.37 (no crash, dropped on load and on next save)', () => {
+    const db = memDb();
+    db.prepare("INSERT INTO settings (key, json) VALUES ('app', ?)").run(
+      JSON.stringify({ anime: { autoPreExplain: true, repeatCount: 5 }, manga: { autoPreExplain: true, preloadPages: 4 } }),
+    );
+    const store = new SettingsStore(db, DATA_DIR);
+    const s = store.get();
+    expect(s.anime.repeatCount).toBe(5);
+    expect(s.manga.preloadPages).toBe(4);
+    expect('autoPreExplain' in s.anime).toBe(false);
+    expect('autoPreExplain' in s.manga).toBe(false);
+    const next = store.update({ ui: { theme: 'dark' } });
+    expect(JSON.stringify(next)).not.toContain('autoPreExplain');
+    const row = db.prepare("SELECT json FROM settings WHERE key = 'app'").get() as { json: string };
+    expect(row.json).not.toContain('autoPreExplain');
+  });
+
   it('falls back to defaults (and warns) on a corrupt row, then overwrites it on update', () => {
     const db = memDb();
     db.prepare("INSERT INTO settings (key, json) VALUES ('app', '{not json')").run();

@@ -126,7 +126,7 @@ describe('time helpers', () => {
   });
 });
 
-describe('shared subtitle explain context (single click ≡ batch pre-explain)', () => {
+describe('shared subtitle explain context (single click ≡ 缓存AI解读 batch)', () => {
   const markup = (actor?: string): NonNullable<SubtitleCue['markup']> => ({
     layer: 0, hasMove: false, hasKaraoke: false, isDrawing: false, isComment: false, playResX: 1280, playResY: 720, ...(actor !== undefined ? { actor } : {}),
   });

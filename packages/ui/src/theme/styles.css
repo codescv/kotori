@@ -572,6 +572,9 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-list-item__overline { font: var(--md-sys-typescale-label-small); color: var(--md-sys-color-on-surface-variant); }
 .k-list-item__headline { font: var(--md-sys-typescale-body-large); overflow-wrap: anywhere; }
 .k-list-item__supporting { font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+.k-list-li--with-action { display: flex; align-items: center; gap: 4px; }
+.k-list-li--with-action > .k-list-item { flex: 1; min-width: 0; }
+.k-list-item__action { flex: none; display: flex; align-items: center; padding-right: 12px; }
 
 /* ---- menu ------------------------------------------------------------------------ */
 .k-menu-anchor { position: relative; display: inline-flex; }

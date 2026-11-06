@@ -142,6 +142,7 @@ export const createRestPlatformHost: CreateRestPlatformHost = (options = {}) => 
       explain: (request, opts) => aiCall('ai.explain', opts?.signal, request),
       explainBatch: (requests, opts) => aiCall('ai.explainBatch', opts?.signal, requests),
       getCachedExplanation: (request) => call('ai.getCachedExplanation', request),
+      getCachedStatus: (requests) => call('ai.getCachedStatus', requests),
       followUp: (request, opts) => aiCall('ai.followUp', opts?.signal, request),
       followUpStream: (request, onDelta, opts) => followUpStream(http, request, onDelta, opts?.signal),
       ocrBubble: (request, opts) => aiCall('ai.ocrBubble', opts?.signal, request),

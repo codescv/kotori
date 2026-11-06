@@ -1,7 +1,10 @@
 /** `explanations` repository — the persistent explanation cache (keyed by `SentenceExplanation.id`). */
 import type { Id, SentenceExplanation } from '@kotori/core';
 import type { Database } from '../sqlite';
-import { num, one, run } from './util';
+import { all, num, one, run } from './util';
+
+/** Max bound parameters per `IN (...)` query (well under SQLite's 999 / 32766 limits). */
+export const HAS_MANY_CHUNK = 200;
 
 export class ExplanationRepository {
   /** Small in-memory front cache so repeated hits resolve well under 5 ms. */
@@ -40,6 +43,28 @@ export class ExplanationRepository {
       stored.createdAt,
     );
     this.remember(stored);
+  }
+
+  /**
+   * Subset of `ids` that are cached — one parameterised `IN (?, …)` query per
+   * {@link HAS_MANY_CHUNK} ids (hot entries answered from memory first).
+   */
+  hasMany(ids: readonly Id[]): Set<Id> {
+    const found = new Set<Id>();
+    const pending: Id[] = [];
+    for (const id of new Set(ids)) {
+      if (typeof id !== 'string') continue;
+      if (this.hot.has(id)) found.add(id);
+      else pending.push(id);
+    }
+    for (let i = 0; i < pending.length; i += HAS_MANY_CHUNK) {
+      const chunk = pending.slice(i, i + HAS_MANY_CHUNK);
+      const placeholders = chunk.map(() => '?').join(', ');
+      for (const row of all(this.db, `SELECT id FROM explanations WHERE id IN (${placeholders})`, ...chunk)) {
+        found.add(String(row['id']));
+      }
+    }
+    return found;
   }
 
   count(): number {

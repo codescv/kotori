@@ -11,6 +11,8 @@ import { useT } from '../../i18n';
 import { formatAnimeEpisodeTitle, formatAnimeSeriesTitle, formatClock } from '../../lib/cues';
 import { showSnackbar } from '../../stores/snackbar';
 import { fetchAniListByIds, fetchAniListBySearch, type AniListMediaInfo } from '../downloads/anilist';
+import { CacheExplainButton } from '../ai-cache/CacheExplainButton';
+import { useAiCacheStore, type AiCacheTarget } from '../ai-cache/useAiCacheStore';
 import { EditSeriesDialog } from './EditSeriesDialog';
 import { useAnimeStore } from './useAnimeStore';
 import './player/player.css';
@@ -98,6 +100,20 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
     } catch (e) {
       showSnackbar(errMsg(e), { tone: 'error' });
     }
+  };
+
+  const episodeCacheTarget = (ep: NonNullable<typeof episodes>[number]): AiCacheTarget => ({
+    kind: 'anime',
+    episodeId: ep.id,
+    title: ep.parsedName.episode !== undefined ? `${displaySeriesTitle || ep.parsedName.title} #${ep.parsedName.episode}` : formatAnimeEpisodeTitle(ep, displaySeriesTitle),
+  });
+
+  /** 「缓存全季解读」: queue every episode (run one after another; cached lines are skipped at 0 tokens). */
+  const cacheWholeSeason = (): void => {
+    if (!episodes || episodes.length === 0) return;
+    const store = useAiCacheStore.getState();
+    for (const ep of episodes) store.start(host, episodeCacheTarget(ep));
+    showSnackbar(t('aiCache.seasonQueued', { count: episodes.length }));
   };
 
   const handleRemoveSeries = async (): Promise<void> => {
@@ -214,6 +230,9 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
               >
                 {t('anime.series.autoJimaku')}
               </Button>
+              <Button variant="tonal" icon="cacheAi" onClick={cacheWholeSeason} disabled={!episodes || episodes.length === 0} title={t('aiCache.tooltip')} data-testid="series-cache-explain-all">
+                {t('aiCache.actionSeason')}
+              </Button>
               <Button variant="text" icon="delete" onClick={() => void handleRemoveSeries()} data-testid="remove-series-btn">
                 {t('anime.series.remove')}
               </Button>
@@ -258,6 +277,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
                 </>
               }
               trailing={<Icon name="play" />}
+              action={<CacheExplainButton target={episodeCacheTarget(ep)} variant="compact" data-testid={`episode-cache-explain-${ep.id}`} />}
             />
           );
         })}

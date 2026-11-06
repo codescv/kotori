@@ -8,13 +8,15 @@ export interface ListItemProps {
   readonly overline?: ReactNode;
   readonly leading?: ReactNode;
   readonly trailing?: ReactNode;
+  /** Secondary action rendered next to (not inside) an interactive item, so it may be its own button. */
+  readonly action?: ReactNode;
   readonly onClick?: () => void;
   readonly selected?: boolean;
   readonly className?: string | undefined;
   readonly disabled?: boolean;
 }
 
-export function ListItem({ headline, supporting, overline, leading, trailing, onClick, selected, className, disabled }: ListItemProps) {
+export function ListItem({ headline, supporting, overline, leading, trailing, action, onClick, selected, className, disabled }: ListItemProps) {
   const content = (
     <>
       {leading && <span className="k-list-item__leading">{leading}</span>}
@@ -28,13 +30,17 @@ export function ListItem({ headline, supporting, overline, leading, trailing, on
   );
   const cls = cx('k-list-item', onClick && 'k-list-item--interactive', selected && 'is-selected', className);
   return onClick ? (
-    <li className="k-list-li">
+    <li className={cx('k-list-li', action !== undefined && 'k-list-li--with-action')}>
       <button type="button" className={cls} onClick={onClick} disabled={disabled} aria-current={selected || undefined}>
         {content}
       </button>
+      {action !== undefined && <span className="k-list-item__action">{action}</span>}
     </li>
   ) : (
-    <li className={cx('k-list-li', cls)}>{content}</li>
+    <li className={cx('k-list-li', cls)}>
+      {content}
+      {action !== undefined && <span className="k-list-item__action">{action}</span>}
+    </li>
   );
 }
 

@@ -34,7 +34,6 @@ export function defaultSettings(downloadDir: string): AppSettings {
       preferredSubtitleLanguages: ['ja'],
       secondarySubtitle: 'auto',
       preferredSecondarySubtitleLanguages: ['zh-CN', 'zh', 'zh-TW', 'en'],
-      autoPreExplain: false,
       furiganaMode: 'all',
       showRomaji: false,
       collapseTranslation: false,
@@ -46,7 +45,6 @@ export function defaultSettings(downloadDir: string): AppSettings {
       fit: 'contain',
       background: 'black',
       preloadPages: 2,
-      autoPreExplain: false,
     },
     downloads: {
       downloadDir,
@@ -99,10 +97,30 @@ export interface SettingsStore {
   update(patch: SettingsPatch): Promise<AppSettings>;
 }
 
+/** Settings keys removed in later versions (v0.1.38: 预解读 `autoPreExplain`); dropped on load. */
+const LEGACY_SECTION_KEYS: Readonly<Record<string, readonly string[]>> = {
+  anime: ['autoPreExplain'],
+  manga: ['autoPreExplain'],
+};
+
+/** Drop obsolete persisted keys so upgrading users load cleanly. */
+export function stripLegacySettingsKeys<T>(raw: T): T {
+  if (!isPlainObject(raw)) return raw;
+  const out: Record<string, unknown> = { ...raw };
+  for (const [section, keys] of Object.entries(LEGACY_SECTION_KEYS)) {
+    const value = out[section];
+    if (!isPlainObject(value)) continue;
+    const next: Record<string, unknown> = { ...value };
+    for (const key of keys) delete next[key];
+    out[section] = next;
+  }
+  return out as T;
+}
+
 /** Load persisted settings (merged over defaults so new fields get defaults). */
 export async function createSettingsStore(db: KotoriDb, defaults: AppSettings, emit: (event: HostEvent) => void): Promise<SettingsStore> {
   const stored = await db.get('settings', SETTINGS_KEY);
-  let current = stored === undefined ? defaults : mergeSettings(defaults, stored);
+  let current = stored === undefined ? defaults : mergeSettings(defaults, stripLegacySettingsKeys(stored));
   return {
     current: () => current,
     get: () => Promise.resolve(current),

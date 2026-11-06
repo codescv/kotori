@@ -523,6 +523,19 @@ describe('AI', () => {
     expect(await h.host.ai.getThread(expl.id)).toEqual([]);
   });
 
+  it('getCachedStatus probes hundreds of sentences in one REST round-trip (no model call)', async () => {
+    await h.host.ai.explain(request());
+    expect(h.geminiCalls()).toBe(1);
+    const probe = [{ sentence: geminiFixture.sentence, targetLanguage: 'zh-CN' as const }, ...Array.from({ length: 299 }, (_, i) => ({ sentence: `未キャッシュ${i}` }))];
+    const status = await h.host.ai.getCachedStatus!(probe);
+    expect(status).toHaveLength(300);
+    expect(status[0]).toBe(true);
+    expect(status.slice(1).every((x) => x === false)).toBe(true);
+    expect(h.geminiCalls()).toBe(1);
+    const bad = await h.app.request('/api/ai/explain/cached-status', { method: 'POST', body: JSON.stringify({ requests: [{ sentence: 1 }] }), headers: { 'content-type': 'application/json' } });
+    expect(bad.status).toBe(400);
+  });
+
   it('surfaces provider errors with KotoriError codes', async () => {
     await h.host.settings.update({ ai: { provider: { provider: 'vertex-ai', location: 'us-central1', project: 'p', auth: { kind: 'access-token', accessToken: '' } } } });
     await expect(h.host.ai.explain(request())).rejects.toMatchObject({ code: 'ai-auth' });

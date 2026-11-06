@@ -10,6 +10,7 @@ import { createMockPlatformHost } from '../../../host/mock-host';
 import { useBreakdownStore } from '../../../stores/breakdown';
 import { useSettingsStore } from '../../../stores/settings';
 import { useSnackbarStore } from '../../../stores/snackbar';
+import { useAiCacheStore } from '../../ai-cache/useAiCacheStore';
 import { glyphAt, renderWithHost, resetStores } from '../../../test/utils';
 import { formatRate, Player } from './Player';
 import { SubtitleOverlay } from './SubtitleOverlay';
@@ -362,23 +363,67 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
     });
   });
 
-  it('pre-explain toggle syncs globally and batch-prefetches up to 5 upcoming subtitle lines', async () => {
-    const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+  it('never pre-explains while playing: 0 background ai.explainBatch / ai.explain calls, one bulk cache probe for ✦ badges', async () => {
+    const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />, { precachedSentences: ['手を伸ばして'] });
     await screen.findByTestId('overlay-cue');
-    const toggle = screen.getByTestId('pre-explain-toggle');
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(toggle);
-    await waitFor(async () => {
-      expect(useSettingsStore.getState().settings.anime.autoPreExplain).toBe(true);
-      expect((await host.settings.get()).anime.autoPreExplain).toBe(true);
+    expect(screen.queryByTestId('pre-explain-toggle')).toBeNull();
+    // ✦ comes from ONE bulk getCachedStatus call over the whole transcript.
+    const lyric = await rowByText('手を伸ばして');
+    await waitFor(() => expect(within(lyric).getByTestId('cue-cached')).toBeInTheDocument());
+    expect(host.calls.get('ai.getCachedStatus')).toBe(1);
+    expect(host.calls.get('ai.getCachedExplanation') ?? 0).toBe(0);
+    await act(async () => {
+      await sleep(400);
     });
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(host.calls.get('ai.explainBatch') ?? 0).toBe(0);
+    expect(host.calls.get('ai.explain') ?? 0).toBe(0);
+    expect(screen.getAllByTestId('cue-cached')).toHaveLength(1);
+  });
 
-    await waitFor(() => {
-      expect(host.calls.get('ai.explainBatch')).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByTestId('cue-cached').length).toBeGreaterThanOrEqual(1);
-    });
+  it('a finished manual breakdown lights up ✦ on its row instantly', async () => {
+    renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+    const row = await rowByText('ちょっと待ってくれよ、');
+    expect(within(row).queryByTestId('cue-cached')).toBeNull();
+    fireEvent.click(glyphAt(row, 0));
+    await waitFor(() => expect(useBreakdownStore.getState().status).toBe('ready'));
+    await waitFor(() => expect(within(row).getByTestId('cue-cached')).toBeInTheDocument());
+  });
+
+  it('「缓存AI解读」 caches every explainable line of the episode in 8-line batches, with live progress and ✦ badges', async () => {
+    const { host } = renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />, { latencyMs: 5 });
+    await screen.findByTestId('overlay-cue');
+    const btn = screen.getByTestId('player-cache-explain-btn');
+    expect(btn).toHaveTextContent('缓存AI解读');
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByTestId('player-cache-explain-btn')).toHaveTextContent(/缓存中 \d+\/\d+ \(取消\)/));
+    await waitFor(() => expect(useAiCacheStore.getState().jobs['anime:series-kotori-ep1']?.phase).toBe('done'), { timeout: 4000 });
+    const job = useAiCacheStore.getState().jobs['anime:series-kotori-ep1']!;
+    expect(job.trackId).toBe('series-kotori-ep1-ja');
+    expect(job.totalItems).toBeGreaterThan(8);
+    expect(job.completedItems).toBe(job.totalItems);
+    expect(host.calls.get('ai.explainBatch')).toBe(Math.ceil(job.totalItems / 8));
+    expect(host.calls.get('ai.explain') ?? 0).toBe(0);
+    await waitFor(() => expect(screen.getByTestId('player-cache-explain-btn')).toHaveTextContent(`已缓存 ${job.totalItems}/${job.totalItems}`));
+    // Every explainable row now carries ✦, and a click is a 0-call cache hit.
+    const rows = await screen.findAllByTestId('transcript-row');
+    const explainable = rows.filter((r) => /[\u3040-\u30ff\u4e00-\u9fff]{2,}/.test(r.querySelector('.k-transcript__text')?.textContent ?? ''));
+    for (const r of explainable) expect(within(r).getByTestId('cue-cached')).toBeInTheDocument();
+    const row = await rowByText('ちょっと待ってくれよ、');
+    fireEvent.click(glyphAt(row, 0));
+    await waitFor(() => expect(useBreakdownStore.getState().status).toBe('ready'));
+    expect(useBreakdownStore.getState().explanation?.fromCache).toBe(true);
+    expect(host.calls.get('ai.explain') ?? 0).toBe(0);
+  });
+
+  it('「缓存AI解读」 click while running cancels cleanly and keeps the cached lines', async () => {
+    renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />, { latencyMs: 30 });
+    await screen.findByTestId('overlay-cue');
+    fireEvent.click(screen.getByTestId('player-cache-explain-btn'));
+    await waitFor(() => expect(useAiCacheStore.getState().jobs['anime:series-kotori-ep1']?.phase).toBe('explaining'));
+    fireEvent.click(screen.getByTestId('player-cache-explain-btn'));
+    await waitFor(() => expect(useAiCacheStore.getState().jobs['anime:series-kotori-ep1']?.phase).toBe('cancelled'));
+    expect(screen.getByTestId('player-cache-explain-btn')).toHaveTextContent(/已暂停|缓存AI解读/);
+    expect(screen.queryAllByTestId('cue-caching')).toHaveLength(0);
   });
 
   it('keeps player-time non-wrapping and non-shrinking in compact mobile controls', async () => {

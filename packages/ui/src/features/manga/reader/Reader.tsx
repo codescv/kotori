@@ -36,7 +36,8 @@ import { GuideMarkers, PageGuideSheet } from './PageGuideSheet';
 import { ZoomPan } from './PageCanvas';
 import { computeSpreadLayout, SpreadLayout } from './SpreadLayout';
 import { useElementSize } from './useElementSize';
-import { useMangaPreExplain } from './useMangaPreExplain';
+import { CacheExplainButton } from '../../ai-cache/CacheExplainButton';
+import { AiCacheProgressPill } from '../../ai-cache/AiCacheGlobalBar';
 import { Webtoon } from './Webtoon';
 import '../manga.css';
 
@@ -327,17 +328,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   const onPageUpdated = useCallback((p: MangaPage) => setPages((ps) => ps?.map((x) => (x.index === p.index ? p : x))), []);
 
   const sceneHint = volume ? (volume.seriesTitle ?? volume.title) : undefined;
-  useMangaPreExplain({
-    enabled: Boolean(mangaSettings.autoPreExplain),
-    volumeId,
-    spreadPages,
-    sceneHint,
-  });
-  const togglePreExplain = useCallback(() => {
-    const next = !mangaSettings.autoPreExplain;
-    void updateSettings(host, { manga: { autoPreExplain: next } });
-    showSnackbar(next ? '已开启本页气泡后台静默预解析' : '已关闭本页气泡静默预解析');
-  }, [mangaSettings.autoPreExplain, updateSettings, host]);
+  const cacheTarget = useMemo(() => ({ kind: 'manga' as const, volumeId, title: volume ? formatMangaVolumeTitle(volume) : undefined }), [volumeId, volume]);
 
   const jumpToPage = useCallback(
     (targetPage: number) => {
@@ -452,14 +443,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
 
   const renderLearningTools = () => (
     <>
-      <IconButton
-        icon="bolt"
-        className="k-reader__pre-explain"
-        label={t('manga.reader.preExplain')}
-        selected={Boolean(mangaSettings.autoPreExplain)}
-        onClick={togglePreExplain}
-        data-testid="manga-pre-explain-toggle"
-      />
+      <CacheExplainButton target={cacheTarget} variant="icon" data-testid="manga-cache-explain-btn" />
       <IconButton
         icon={outlines ? 'visibility' : 'visibilityOff'}
         label={t('manga.reader.outlines')}
@@ -660,6 +644,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
               {!isMobilePortrait && renderScrubber()}
             </>
           )}
+          <AiCacheProgressPill jobKey={`manga:${volumeId}`} data-testid="manga-cache-progress" />
           {immersive && total > 0 && (
             <div className="k-reader__hud" data-testid="immersive-page-hud" aria-hidden="true">
               {`${pageLabel} / ${total}`}

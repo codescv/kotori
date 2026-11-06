@@ -166,4 +166,38 @@ describe('createIdbExplanationCache', () => {
     expect(await cache.getThread('ex_1')).toEqual([]);
     db.close();
   });
+
+  it('hasMany answers a bulk probe from the hot LRU + one readonly IndexedDB transaction', async () => {
+    const t = await createTestHost();
+    open.push(t);
+    const db = await openKotoriDb(t.idbFactory, 'cache-has-many');
+    const writer = createIdbExplanationCache(db);
+    for (let i = 0; i < 50; i++) await writer.put({ id: `ex_${i}`, sentence: `s${i}`, fromCache: false } as unknown as SentenceExplanation);
+    // A fresh cache instance has an empty hot LRU ⇒ exercises the IDB path.
+    const cold = createIdbExplanationCache(db);
+    const txSpy = vi.spyOn(db, 'transaction');
+    const ids = [...Array.from({ length: 60 }, (_, i) => `ex_${i}`), 'ex_3'];
+    const hits = await cold.hasMany!(ids);
+    expect(hits.size).toBe(50);
+    expect(hits.has('ex_49')).toBe(true);
+    expect(hits.has('ex_50')).toBe(false);
+    expect(txSpy).toHaveBeenCalledTimes(1);
+    expect(txSpy.mock.calls[0]?.[1]).toBe('readonly');
+    txSpy.mockClear();
+    // Hot entries need no transaction at all.
+    expect([...(await writer.hasMany!(['ex_1', 'ex_2']))].sort()).toEqual(['ex_1', 'ex_2']);
+    expect(txSpy).not.toHaveBeenCalled();
+    db.close();
+  });
+});
+
+describe('ai.getCachedStatus (缓存AI解读 bulk probe)', () => {
+  it('reports cached sentences in one call without any model request', async () => {
+    const t = await aiHost(() => geminiResponse(JSON.stringify(SLANG.raw)));
+    await t.host.ai.explain(request(SLANG.sentence));
+    expect(t.calls).toHaveLength(1);
+    const status = await t.host.ai.getCachedStatus!([{ sentence: SLANG.sentence, targetLanguage: 'zh-CN' }, { sentence: '未解析の文' }, { sentence: SLANG.sentence, targetLanguage: 'en' }]);
+    expect(status).toEqual([true, false, false]);
+    expect(t.calls).toHaveLength(1);
+  });
 });

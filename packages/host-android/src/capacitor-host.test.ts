@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiApi, AnimeApi, DictionaryHost, DownloadsApi, HostEvent, MangaApi, ScreenApi, SettingsApi } from '@kotori/core';
-import { defaultSettings, deepMerge, mergeSettings } from './settings';
+import { defaultSettings, deepMerge, mergeSettings, stripLegacySettingsKeys } from './settings';
 import { DATA_ROOT, createTestHost, type TestHost } from './testing/harness';
 
 const open: TestHost[] = [];
@@ -50,6 +50,7 @@ const AI_METHODS: Record<keyof AiApi, true> = {
   explain: true,
   explainBatch: true,
   getCachedExplanation: true,
+  getCachedStatus: true,
   followUp: true,
   followUpStream: true,
   ocrBubble: true,
@@ -225,6 +226,16 @@ describe('settings', () => {
     expect(token.ai.provider).toEqual({ provider: 'vertex-ai', project: 'p', location: 'global', auth: { kind: 'access-token', accessToken: 't' } });
     const back = await host.settings.update({ ai: { provider: { provider: 'gemini-api', apiKey: 'g' } } });
     expect(back.ai.provider).toEqual({ provider: 'gemini-api', apiKey: 'g' });
+  });
+
+  it('ignores legacy 预解读 autoPreExplain keys persisted by ≤ v0.1.37 (stripLegacySettingsKeys)', () => {
+    const legacy = { ...defaultSettings('/d'), anime: { ...defaultSettings('/d').anime, autoPreExplain: true }, manga: { ...defaultSettings('/d').manga, autoPreExplain: true } };
+    const cleaned = stripLegacySettingsKeys(legacy);
+    expect('autoPreExplain' in cleaned.anime).toBe(false);
+    expect('autoPreExplain' in cleaned.manga).toBe(false);
+    expect(cleaned.anime.repeatCount).toBe(3);
+    expect(JSON.stringify(mergeSettings(defaultSettings('/d'), cleaned))).not.toContain('autoPreExplain');
+    expect(stripLegacySettingsKeys(null)).toBeNull();
   });
 
   it('mergeSettings never changes schemaVersion and ignores undefined', () => {

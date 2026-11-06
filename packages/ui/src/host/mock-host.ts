@@ -603,6 +603,11 @@ export function createMockPlatformHost(options: MockHostOptions = {}): MockPlatf
         if (req.force || !settings.ai.cacheEnabled) return undefined;
         return explanationCache.get(cacheKey(req.sentence, req.targetLanguage));
       },
+      async getCachedStatus(reqs) {
+        track('ai.getCachedStatus');
+        if (!settings.ai.cacheEnabled) return reqs.map(() => false);
+        return reqs.map((r) => explanationCache.has(cacheKey(r.sentence, r.targetLanguage ?? settings.ai.targetLanguage)));
+      },
       async followUp(req, opts) {
         track('ai.followUp');
         await wait(latency * 3, opts?.signal);

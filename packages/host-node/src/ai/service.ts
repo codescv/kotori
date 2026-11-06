@@ -34,6 +34,9 @@ export function createSqliteExplanationCache(repos: Pick<Repositories, 'explanat
     async get(id: string): Promise<SentenceExplanation | undefined> {
       return repos.explanations.get(id);
     },
+    async hasMany(ids: readonly string[]): Promise<ReadonlySet<string>> {
+      return repos.explanations.hasMany(ids);
+    },
     async put(expl: SentenceExplanation): Promise<void> {
       if (settings().cacheEnabled) repos.explanations.put(expl);
     },
@@ -90,6 +93,7 @@ export function createAiService(deps: AiServiceDeps): HostAiService {
     explain: (request, options) => api.explain(request, options),
     explainBatch: (requests, options) => service.explainBatch!(requests, options),
     getCachedExplanation: (request) => api.getCachedExplanation(request),
+    getCachedStatus: (requests) => service.getCachedStatus(requests),
     followUp: (request, options) => api.followUp(request, options),
     followUpStream: (request, onDelta, options) => service.followUpStream(request, onDelta, options),
     ocrBubble: (request, options) => api.ocrBubble(request, options),

@@ -1,4 +1,4 @@
-/** Merged learning & manga reading defaults: furigana, romaji, pre-explain, reading mode, fit and background. */
+/** Merged learning & manga reading defaults: furigana, romaji, reading mode, fit and background. */
 import type { MangaReadingMode, MangaSettings } from '@kotori/core';
 import { Chip } from '../../components/m3/Chip';
 import { SegmentedButton } from '../../components/m3/SegmentedButton';
@@ -35,16 +35,6 @@ export function LearningSection() {
         />
       </div>
       <Switch label={t('settings.anime.showRomaji')} checked={Boolean(anime.showRomaji)} onChange={(showRomaji) => void patch({ anime: { showRomaji } })} />
-      <Switch
-        label={t('settings.learning.animePreExplain')}
-        checked={Boolean(anime.autoPreExplain)}
-        onChange={(autoPreExplain) => void patch({ anime: { autoPreExplain } })}
-      />
-      <Switch
-        label={t('settings.learning.mangaPreExplain')}
-        checked={Boolean(manga.autoPreExplain)}
-        onChange={(autoPreExplain) => void patch({ manga: { autoPreExplain } })}
-      />
       <div className="k-settings-field">
         <span className="k-label-large">{t('settings.manga.defaultMode')}</span>
         <div className="k-row" role="radiogroup" aria-label={t('settings.manga.defaultMode')}>

@@ -3,7 +3,7 @@ import { cx } from './cx';
 
 export interface ProgressProps {
   /** 0..1; omit for indeterminate. */
-  readonly value?: number;
+  readonly value?: number | undefined;
   readonly className?: string | undefined;
   readonly label?: string;
 }

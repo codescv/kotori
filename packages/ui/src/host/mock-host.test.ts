@@ -45,6 +45,13 @@ describe('createMockPlatformHost', () => {
     expect((await host.ai.getCachedExplanation(req))?.fromCache).toBe(true);
   });
 
+  it('answers bulk cache probes (getCachedStatus) without explaining', async () => {
+    const host = createMockPlatformHost({ latencyMs: 0, precachedSentences: ['行かなきゃ'] });
+    expect(await host.ai.getCachedStatus!([{ sentence: '行かなきゃ', targetLanguage: 'zh-CN' }, { sentence: '未知の文' }, { sentence: '行かなきゃ', targetLanguage: 'en' }])).toEqual([true, false, false]);
+    expect(host.calls.get('ai.getCachedStatus')).toBe(1);
+    expect(host.calls.get('ai.explain') ?? 0).toBe(0);
+  });
+
   it('rejects an aborted explain with code cancelled', async () => {
     const host = createMockPlatformHost({ latencyMs: 50 });
     const ac = new AbortController();

@@ -65,6 +65,7 @@ export const SAMPLE_ARGS: { readonly [K in RoutedMethodKey]: WireArgs<K> } = {
   'ai.explain': [sampleExplain],
   'ai.explainBatch': [[sampleExplain]],
   'ai.getCachedExplanation': [sampleExplain],
+  'ai.getCachedStatus': [[{ sentence: sampleExplain.sentence, targetLanguage: 'zh-CN' }, { sentence: 'まだ' }]],
   'ai.followUp': [sampleFollowUp],
   'ai.followUpStream': [sampleFollowUp],
   'ai.ocrBubble': [{ volumeId: 'mv_1', pageIndex: 0, rect: { left: 0, top: 0, right: 10, bottom: 10 }, image, explain: true, targetLanguage: 'en' }],

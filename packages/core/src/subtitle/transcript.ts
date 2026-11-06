@@ -140,7 +140,7 @@ function formatContextLine(row: SubtitleContextRow): string {
 
 /**
  * Shared context builder for subtitle explain requests. Single-sentence
- * explain and batch pre-explain MUST both use it so the same line always gets
+ * explain and 「缓存AI解读」 batch caching MUST both use it so the same line always gets
  * identical `contextBefore` / `contextAfter` (and therefore the same prompt).
  * Lines are formatted `[Actor] text` when the row has a non-empty actor;
  * empty rows are skipped without shrinking the window.

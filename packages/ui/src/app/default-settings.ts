@@ -29,7 +29,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     preferredSubtitleLanguages: ['ja'],
     secondarySubtitle: 'auto',
     preferredSecondarySubtitleLanguages: ['zh-CN', 'zh', 'zh-TW', 'en'],
-    autoPreExplain: false,
   },
   manga: {
     defaultReadingMode: 'spread-rtl',
@@ -37,7 +36,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     fit: 'contain',
     background: 'surface',
     preloadPages: 2,
-    autoPreExplain: false,
   },
   downloads: {
     downloadDir: '~/.kotori/anime',

@@ -12,7 +12,7 @@ import type { ServerContext } from '../context';
 export type HostGroupName = 'settings' | 'anime' | 'manga' | 'ai' | 'downloads' | 'files' | 'dict';
 
 /** Methods whose trailing argument is `AiCallOptions` (client disconnect → abort). */
-const SIGNAL_METHODS: ReadonlySet<RoutedMethodKey> = new Set(['ai.explain', 'ai.followUp', 'ai.ocrBubble', 'ai.pageGuide']);
+const SIGNAL_METHODS: ReadonlySet<RoutedMethodKey> = new Set(['ai.explain', 'ai.explainBatch', 'ai.followUp', 'ai.ocrBubble', 'ai.pageGuide']);
 
 /** JSON error response for any thrown value. */
 export function errorResponse(c: Context, error: unknown): Response {

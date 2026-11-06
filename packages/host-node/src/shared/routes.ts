@@ -12,6 +12,7 @@ import type {
   AiCallOptions,
   AiSettings,
   AnimeImportRequest,
+  CachedStatusRequest,
   AnimeSeriesUpdatePatch,
   DictionaryImportSource,
   DownloadRequest,
@@ -151,6 +152,46 @@ function field<T>(wire: WireRequest, key: string): T {
   const b = wire.body;
   if (typeof b !== 'object' || b === null) throw new TypeError('request body must be a JSON object');
   return (b as Record<string, unknown>)[key] as T;
+}
+
+/** Max requests per `ai.getCachedStatus` call (mirrors core `MAX_CACHED_STATUS_REQUESTS`). */
+export const MAX_CACHED_STATUS_REQUESTS = 5000;
+/** Max requests per `ai.explainBatch` call (the 「缓存AI解读」 runner sends 8). */
+export const MAX_EXPLAIN_BATCH_REQUESTS = 64;
+/** Max UTF-16 length of one sentence in a cache status probe. */
+export const MAX_STATUS_SENTENCE_LENGTH = 4000;
+const TARGET_LANGUAGES: ReadonlySet<string> = new Set(['zh-CN', 'zh-TW', 'en']);
+
+/**
+ * Strict allow-list decode of `{ requests: [{ sentence, targetLanguage? }] }`:
+ * bounded array, string sentences of bounded length, known target languages;
+ * every other field is dropped.
+ */
+export function decodeCachedStatusRequests(wire: WireRequest): CachedStatusRequest[] {
+  const raw = field<unknown>(wire, 'requests');
+  if (!Array.isArray(raw)) throw new TypeError('requests must be an array');
+  if (raw.length > MAX_CACHED_STATUS_REQUESTS) throw new TypeError(`requests must contain at most ${MAX_CACHED_STATUS_REQUESTS} items`);
+  return raw.map((item: unknown, i) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new TypeError(`requests[${i}] must be an object`);
+    const { sentence, targetLanguage } = item as Record<string, unknown>;
+    if (typeof sentence !== 'string') throw new TypeError(`requests[${i}].sentence must be a string`);
+    if (sentence.length > MAX_STATUS_SENTENCE_LENGTH) throw new TypeError(`requests[${i}].sentence is too long`);
+    if (targetLanguage === undefined || targetLanguage === null) return { sentence };
+    if (typeof targetLanguage !== 'string' || !TARGET_LANGUAGES.has(targetLanguage)) throw new TypeError(`requests[${i}].targetLanguage is invalid`);
+    return { sentence, targetLanguage: targetLanguage as CachedStatusRequest['targetLanguage'] };
+  });
+}
+
+/** `ai.explainBatch` body: a bounded array of request objects. */
+function decodeExplainBatch(wire: WireRequest): ExplainRequest[] {
+  const raw = field<unknown>(wire, 'requests') ?? [];
+  if (!Array.isArray(raw)) throw new TypeError('requests must be an array');
+  if (raw.length > MAX_EXPLAIN_BATCH_REQUESTS) throw new TypeError(`requests must contain at most ${MAX_EXPLAIN_BATCH_REQUESTS} items`);
+  raw.forEach((item: unknown, i) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new TypeError(`requests[${i}] must be an object`);
+    if (typeof (item as Record<string, unknown>)['sentence'] !== 'string') throw new TypeError(`requests[${i}].sentence must be a string`);
+  });
+  return raw as ExplainRequest[];
 }
 
 const BASE64_CHUNK = 0x8000;
@@ -390,13 +431,19 @@ export const ROUTES: RouteTable = {
     method: 'POST',
     path: '/api/ai/explain-batch',
     encode: (requests: readonly ExplainRequest[]) => req({}, {}, { requests }),
-    decode: (w) => [field<readonly ExplainRequest[]>(w, 'requests') ?? []],
+    decode: (w) => [decodeExplainBatch(w)],
   },
   'ai.getCachedExplanation': {
     method: 'POST',
     path: '/api/ai/explain/cached',
     encode: (request: ExplainRequest) => req({}, {}, request),
     decode: (w) => [body<ExplainRequest>(w)],
+  },
+  'ai.getCachedStatus': {
+    method: 'POST',
+    path: '/api/ai/explain/cached-status',
+    encode: (requests: readonly CachedStatusRequest[]) => req({}, {}, { requests: requests.map((r) => (r.targetLanguage ? { sentence: r.sentence, targetLanguage: r.targetLanguage } : { sentence: r.sentence })) }),
+    decode: (w) => [decodeCachedStatusRequests(w)],
   },
   'ai.followUp': {
     method: 'POST',

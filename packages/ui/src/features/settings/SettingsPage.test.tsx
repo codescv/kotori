@@ -110,7 +110,7 @@ describe('SettingsPage', () => {
     expect(useSettingsStore.getState().settings.ui.appIcon).toBe('s3-02');
   });
 
-  it('learning & reading section commits furigana, romaji, pre-explain and manga display defaults', async () => {
+  it('learning & reading section commits furigana, romaji and manga display defaults (预解析 switches removed)', async () => {
     const host = await setup();
     const learning = within(screen.getByTestId('settings-learning'));
 
@@ -121,13 +121,12 @@ describe('SettingsPage', () => {
 
     expect(learning.getByRole('radio', { name: '全部显示' })).toHaveAttribute('aria-checked', 'true');
     expect(learning.getByRole('switch', { name: '显示罗马音' })).toHaveAttribute('aria-checked', 'false');
-    expect(learning.getByRole('switch', { name: '视频字幕后台预解析' })).toHaveAttribute('aria-checked', 'false');
-    expect(learning.getByRole('switch', { name: '漫画气泡后台预解析' })).toHaveAttribute('aria-checked', 'false');
+    expect(learning.queryByRole('switch', { name: '视频字幕后台预解析' })).toBeNull();
+    expect(learning.queryByRole('switch', { name: '漫画气泡后台预解析' })).toBeNull();
+    expect(learning.queryByText(/预解析/)).toBeNull();
 
     fireEvent.click(learning.getByRole('radio', { name: '点按揭示' }));
     fireEvent.click(learning.getByRole('switch', { name: '显示罗马音' }));
-    fireEvent.click(learning.getByRole('switch', { name: '视频字幕后台预解析' }));
-    fireEvent.click(learning.getByRole('switch', { name: '漫画气泡后台预解析' }));
     fireEvent.click(learning.getByRole('radio', { name: '单页（右→左）' }));
     fireEvent.click(learning.getByRole('radio', { name: '适应宽度' }));
     fireEvent.click(learning.getByRole('radio', { name: '黑色' }));
@@ -136,8 +135,8 @@ describe('SettingsPage', () => {
       const s = await host.settings.get();
       expect(s.anime.furiganaMode).toBe('tap');
       expect(s.anime.showRomaji).toBe(true);
-      expect(s.anime.autoPreExplain).toBe(true);
-      expect(s.manga.autoPreExplain).toBe(true);
+      expect('autoPreExplain' in s.anime).toBe(false);
+      expect('autoPreExplain' in s.manga).toBe(false);
       expect(s.manga.defaultReadingMode).toBe('single-rtl');
       expect(s.manga.fit).toBe('width');
       expect(s.manga.background).toBe('black');
