@@ -5,9 +5,12 @@
  * 🎬 Anime · 📖 Manga · ⬇️ Downloads · ⚙️ Settings.
  * Horizontal swipes on the content area switch tabs (except inside the player and
  * the manga reader, whose horizontal gestures are page turns / scrubbing), chaining
- * through the Downloads sub-tabs like nested Android ViewPager2 pages.
+ * through the Downloads sub-tabs like nested Android ViewPager2 pages. The content
+ * follows the finger while dragging and slides in directionally on every tab change
+ * (swipe or nav tap); no transform is ever left on `.k-shell__content` at rest or
+ * inside the player / reader (it would trap the immersive player's `position: fixed`).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DownloadTask } from '@kotori/core';
 import { AssistantAvatar, PersonaDialog } from '../components/AssistantAvatar';
 import { cx } from '../components/m3/cx';
@@ -87,13 +90,15 @@ export function Shell() {
   // Immersive player / reader on phones: the bottom NavBar would eat ~17% of the
   // viewport height, and both views have their own back button.
   const hideCompactNav = !expanded && (inReader || inPlayer);
+  const contentRef = useRef<HTMLElement>(null);
   const swipeHandlers = useTabSwipe<Tab>(
     SHELL_TAB_ORDER,
     tab,
     (next, direction) =>
       setTab(next, next === 'downloads' ? { downloadsTab: DOWNLOADS_ENTRY[direction], gesture: true } : { gesture: true }),
-    // Horizontal gestures inside the player / reader belong to them (scrub, page turn, zoom-pan).
-    { enabled: !inPlayer && !inReader },
+    // Horizontal gestures inside the player / reader belong to them (scrub, page turn, zoom-pan);
+    // disabling also clears any drag / slide transform from the content pane at once.
+    { enabled: !inPlayer && !inReader, paneRef: contentRef },
   );
   const nav = (
     <nav className={expanded ? 'k-nav-rail' : 'k-nav-bar'} aria-label={t('app.name')}>
@@ -131,7 +136,7 @@ export function Shell() {
   return (
     <div className={cx('k-shell', expanded ? 'k-shell--expanded' : 'k-shell--compact')} data-kotori-shell>
       {expanded && nav}
-      <main className="k-shell__content" data-tab={tab} {...swipeHandlers}>
+      <main ref={contentRef} className="k-shell__content" data-tab={tab} {...swipeHandlers}>
         {!hideCompactChrome && <UpdateBanner />}
         {tab === 'anime' && <AnimePage />}
         {tab === 'manga' && <MangaPage />}

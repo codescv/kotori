@@ -3,7 +3,7 @@
  * Owns the live subscription that keeps `useDownloadsStore` in sync and
  * supports horizontal swipe gestures across the four top tabs.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouteStore, type DownloadsTab } from '../../app/routes';
 import { CompactBrandButton } from '../../components/AssistantAvatar';
 import { Tabs, useTabSwipe } from '../../components/m3/Tabs';
@@ -28,8 +28,12 @@ export function DownloadsPage() {
   const load = useDownloadsStore((s) => s.load);
   const receive = useDownloadsStore((s) => s.receive);
   const activeCount = useDownloadsStore((s) => [...s.tasks.values()].filter((x) => ACTIVE.has(x.status)).length);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // Nested inside the Shell swipe: at 'tasks' / 'manga' edges the gesture falls through to the Shell.
-  const swipeHandlers = useTabSwipe<DownloadsTab>(DOWNLOAD_TAB_ORDER, tab, (next) => setTab(next, { gesture: true }));
+  // The tab panel (not the header / tab bar) follows the finger and slides in on tab changes.
+  const swipeHandlers = useTabSwipe<DownloadsTab>(DOWNLOAD_TAB_ORDER, tab, (next) => setTab(next, { gesture: true }), {
+    paneRef: bodyRef,
+  });
 
   useEffect(() => {
     void load(host);
@@ -53,7 +57,7 @@ export function DownloadsPage() {
           { value: 'manga', label: t('downloads.tab.manga'), icon: 'book' },
         ]}
       />
-      <div className="k-downloads__body" role="tabpanel" data-testid="downloads-tabpanel" data-active-tab={tab}>
+      <div ref={bodyRef} className="k-downloads__body" role="tabpanel" data-testid="downloads-tabpanel" data-active-tab={tab}>
         {tab === 'tasks' && <DownloadList />}
         {tab === 'anime' && <NyaaSearch />}
         {tab === 'subtitles' && <JimakuSearch />}

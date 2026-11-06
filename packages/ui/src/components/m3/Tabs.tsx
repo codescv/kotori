@@ -1,7 +1,25 @@
 /** M3 primary tabs with an animated active indicator and horizontal swipe hook. */
-import { useEffect, useRef, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type MouseEvent,
+  type PointerEvent,
+  type RefObject,
+  type TouchEvent,
+} from 'react';
 import { cx } from './cx';
 import { Icon, type IconName } from './Icon';
+import {
+  clearPaneMotion,
+  rubberBand,
+  setPaneDragOffset,
+  snapBackPane,
+  startPaneSlide,
+  type TabSwipeDirection,
+} from './tabMotion';
+
+export type { TabSwipeDirection } from './tabMotion';
 
 export interface TabItem<T extends string> {
   readonly value: T;
@@ -27,14 +45,21 @@ interface SwipeStartState {
   readonly scrollableEl: HTMLElement | null;
   readonly startScrollLeft: number;
   readonly pointerId?: number | undefined;
+  /** The swipe container (`currentTarget`) that saw the gesture start. */
+  readonly container: HTMLElement;
 }
-
-/** `'next'` = swipe left (`dx < 0`, idx + 1); `'prev'` = swipe right (`dx > 0`, idx - 1). */
-export type TabSwipeDirection = 'next' | 'prev';
 
 export interface TabSwipeOptions {
   /** When `false` every handler is inert (e.g. the Shell swipe inside Player / Reader). Default `true`. */
   readonly enabled?: boolean;
+  /**
+   * The pane that visually belongs to the active tab: it follows the finger during a
+   * horizontal drag (rubber-banding past the outermost tab, gliding back when the
+   * drag does not commit) and plays the directional slide-in whenever `value`
+   * changes while enabled (swipe commit, tab bar tap, back navigation). Without it
+   * drags move the swipe container itself and tab changes are not animated.
+   */
+  readonly paneRef?: RefObject<HTMLElement | null> | undefined;
 }
 
 export interface TabSwipeHandlers {
@@ -72,6 +97,24 @@ const INTERACTIVE_SELECTOR =
  * inner strip already at its edge leaves it unclaimed and the outer strip moves.
  */
 const claimedSwipeEvents = new WeakSet<Event>();
+
+/**
+ * Native move events whose drag offset was already claimed by an inner strip. Mirrors
+ * `claimedSwipeEvents` for the live finger-following drag, so exactly one pane — the
+ * innermost one that can move in `dx`'s direction — translates on every frame.
+ */
+const claimedDragEvents = new WeakSet<Event>();
+
+/** Gestures currently tracked by any `useTabSwipe` (to find the outermost strip). */
+const activeSwipes = new Set<SwipeStartState>();
+
+/** Whether an enclosing strip is tracking the same gesture (then it owns the rubber band). */
+function hasActiveOuterSwipe(s: SwipeStartState): boolean {
+  for (const o of activeSwipes) {
+    if (o !== s && o.container !== s.container && o.container.contains(s.container)) return true;
+  }
+  return false;
+}
 
 /**
  * One-shot guard against the synthetic `click` that follows a horizontal drag which
@@ -147,6 +190,10 @@ function isIgnoredSwipeStart(target: EventTarget | null, container: HTMLElement,
  *   can still scroll in the swipe direction.
  * - Swallows the trailing `click` of a committed horizontal swipe so dragging across
  *   a cover card switches tabs without also opening the card.
+ * - With `options.paneRef`: the pane follows the finger (DOM-only `translate3d`, no
+ *   re-render per frame) on the single innermost strip that can move — the outermost
+ *   strip rubber-bands at its ends — glides back when the drag does not commit, and
+ *   slides in from the right (`next`) / left (`prev`) on every tab change.
  */
 export function useTabSwipe<T extends string>(
   order: readonly T[],
@@ -155,42 +202,136 @@ export function useTabSwipe<T extends string>(
   options: TabSwipeOptions = {},
 ): TabSwipeHandlers {
   const enabled = options.enabled ?? true;
+  const paneRef = options.paneRef;
   const stateRef = useRef<SwipeStartState | null>(null);
   const lastTouchTimeRef = useRef(0);
-  const cleanupWindowTouchMoveRef = useRef<(() => void) | null>(null);
+  const cleanupWindowListenersRef = useRef<(() => void) | null>(null);
+  /** The pane this hook displaced during the current drag (to glide back / clear). */
+  const draggedPaneRef = useRef<HTMLElement | null>(null);
+  /** The last pane this hook animated (cleared on unmount). */
+  const animatedPaneRef = useRef<HTMLElement | null>(null);
+  const prevValueRef = useRef(value);
+  const prevEnabledRef = useRef(enabled);
 
-  const detachWindowTouchMove = (): void => {
-    if (cleanupWindowTouchMoveRef.current) {
-      cleanupWindowTouchMoveRef.current();
-      cleanupWindowTouchMoveRef.current = null;
+  const paneOf = (s: SwipeStartState | null): HTMLElement | null =>
+    paneRef ? paneRef.current : (s?.container ?? null);
+
+  const detachWindowListeners = (): void => {
+    if (cleanupWindowListenersRef.current) {
+      cleanupWindowListenersRef.current();
+      cleanupWindowListenersRef.current = null;
     }
   };
 
-  useEffect(() => () => detachWindowTouchMove(), []);
+  /** Stops tracking the current gesture (if any) and returns it. */
+  const endState = (): SwipeStartState | null => {
+    const s = stateRef.current;
+    stateRef.current = null;
+    if (s) activeSwipes.delete(s);
+    detachWindowListeners();
+    return s;
+  };
+
+  /** Settles the displaced pane: cleared at once on commit (the slide-in takes over), else glides back. */
+  const releasePane = (committed: boolean): void => {
+    const pane = draggedPaneRef.current;
+    draggedPaneRef.current = null;
+    if (!pane) return;
+    if (committed) clearPaneMotion(pane);
+    else snapBackPane(pane);
+  };
+
+  /** Ends the gesture without switching tabs (pinch, cancel, lost release). */
+  const abandonGesture = (): void => {
+    endState();
+    releasePane(false);
+  };
+
+  useEffect(
+    () => () => {
+      const s = stateRef.current;
+      stateRef.current = null;
+      if (s) activeSwipes.delete(s);
+      detachWindowListeners();
+      clearPaneMotion(draggedPaneRef.current);
+      clearPaneMotion(animatedPaneRef.current);
+      draggedPaneRef.current = null;
+      animatedPaneRef.current = null;
+    },
+    [],
+  );
   useEffect(() => {
     if (enabled) return;
-    stateRef.current = null;
-    detachWindowTouchMove();
+    endState();
+    clearPaneMotion(draggedPaneRef.current);
+    draggedPaneRef.current = null;
   }, [enabled]);
 
-  const commitSwipe = (s: SwipeStartState, endX: number, endY: number, container: HTMLElement, nativeEvent: Event): void => {
+  // Directional slide-in on every tab change while enabled (in both renders: entering
+  // the strip — e.g. opening Nyaa Stage 2 or leaving the player — is not a tab change).
+  // Disabled strips never keep motion on their pane (the Shell's pane is the ancestor
+  // of the immersive player, whose `position: fixed` a transform would trap).
+  useLayoutEffect(() => {
+    const prev = prevValueRef.current;
+    const wasEnabled = prevEnabledRef.current;
+    prevValueRef.current = value;
+    prevEnabledRef.current = enabled;
+    const pane = paneRef?.current ?? null;
+    if (!enabled) {
+      clearPaneMotion(pane);
+      clearPaneMotion(animatedPaneRef.current);
+      animatedPaneRef.current = null;
+      return;
+    }
+    if (prev === value || !wasEnabled || !pane) return;
+    const from = order.indexOf(prev);
+    const to = order.indexOf(value);
+    if (from < 0 || to < 0) return;
+    animatedPaneRef.current = pane;
+    startPaneSlide(pane, to > from ? 'next' : 'prev');
+  }, [value, enabled]);
+
+  /** Whether this strip can switch tabs in `dx`'s direction. */
+  const canMove = (dx: number): boolean => {
+    const idx = order.indexOf(value);
+    if (idx < 0) return false;
+    return (dx < 0 && idx < order.length - 1) || (dx > 0 && idx > 0);
+  };
+
+  /**
+   * Returns `true` when this hook switched tabs. The pane stays where the finger left
+   * it until the caller settles it via `releasePane`.
+   */
+  const commitSwipe = (s: SwipeStartState, endX: number, endY: number, container: HTMLElement, nativeEvent: Event): boolean => {
     const dx = endX - s.startX;
     const dy = endY - s.startY;
-    if (s.locked === 'y') return;
-    if (canScrollHorizontallyInDirection(s.scrollableEl, dx, s.startScrollLeft)) return;
-    if (Math.abs(dx) < SWIPE_MIN_DX || Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_RATIO) return;
+    if (s.locked === 'y') return false;
+    if (canScrollHorizontallyInDirection(s.scrollableEl, dx, s.startScrollLeft)) return false;
+    if (Math.abs(dx) < SWIPE_MIN_DX || Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_RATIO) return false;
     // A deliberate horizontal swipe is never a tap, even at the outermost edge.
     armClickGuard(container);
-    if (claimedSwipeEvents.has(nativeEvent)) return;
+    if (claimedSwipeEvents.has(nativeEvent)) return false;
     const idx = order.indexOf(value);
-    if (idx < 0) return;
+    if (idx < 0) return false;
     if (dx < 0 && idx < order.length - 1) {
       claimedSwipeEvents.add(nativeEvent);
       onChange(order[idx + 1]!, 'next');
-    } else if (dx > 0 && idx > 0) {
+      return true;
+    }
+    if (dx > 0 && idx > 0) {
       claimedSwipeEvents.add(nativeEvent);
       onChange(order[idx - 1]!, 'prev');
+      return true;
     }
+    return false;
+  };
+
+  /** Ends the gesture at (`endX`, `endY`): switches tabs if warranted, then settles the pane. */
+  const finishGesture = (endX: number, endY: number, container: HTMLElement, nativeEvent: Event): void => {
+    const s = endState();
+    if (!s) return;
+    const committed = commitSwipe(s, endX, endY, container, nativeEvent);
+    releasePane(committed);
   };
 
   const updateMoveLock = (s: SwipeStartState, clientX: number, clientY: number): void => {
@@ -212,9 +353,45 @@ export function useTabSwipe<T extends string>(
     }
   };
 
-  const beginSwipe = (target: EventTarget | null, container: HTMLElement, clientX: number, clientY: number, pointerId?: number): void => {
+  /**
+   * Finger-following drag for one move event. React dispatches it innermost-first, so
+   * the innermost strip that can move in `dx`'s direction claims the frame and
+   * translates its pane; strips at their edge stay at rest and let it fall through;
+   * the outermost strip with nowhere to go rubber-bands.
+   */
+  const trackDrag = (s: SwipeStartState, nativeEvent: Event): void => {
+    if (s.locked !== 'x') return;
+    const dx = s.lastX - s.startX;
+    let offset = 0;
+    if (!claimedDragEvents.has(nativeEvent) && !canScrollHorizontallyInDirection(s.scrollableEl, dx, s.startScrollLeft)) {
+      if (canMove(dx)) offset = dx;
+      else if (!hasActiveOuterSwipe(s)) offset = rubberBand(dx);
+      if (offset !== 0) claimedDragEvents.add(nativeEvent);
+    }
+    const previous = draggedPaneRef.current;
+    if (offset === 0) {
+      if (previous) {
+        clearPaneMotion(previous);
+        draggedPaneRef.current = null;
+      }
+      return;
+    }
+    const pane = paneOf(s);
+    if (!pane) return;
+    if (previous && previous !== pane) clearPaneMotion(previous);
+    draggedPaneRef.current = pane;
+    setPaneDragOffset(pane, offset);
+  };
+
+  const beginSwipe = (target: EventTarget | null, container: HTMLElement, clientX: number, clientY: number, pointerId?: number): SwipeStartState => {
+    endState();
+    // A new gesture takes over a pane still gliding back from the previous one.
+    if (draggedPaneRef.current) {
+      clearPaneMotion(draggedPaneRef.current);
+      draggedPaneRef.current = null;
+    }
     const scrollableEl = findHorizontalScrollAncestor(target, container);
-    stateRef.current = {
+    const s: SwipeStartState = {
       startX: clientX,
       startY: clientY,
       lastX: clientX,
@@ -223,76 +400,92 @@ export function useTabSwipe<T extends string>(
       scrollableEl,
       startScrollLeft: scrollableEl ? scrollableEl.scrollLeft : 0,
       pointerId,
+      container,
     };
+    stateRef.current = s;
+    activeSwipes.add(s);
+    return s;
   };
 
   const onTouchStart = (e: TouchEvent<HTMLElement>): void => {
     if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
     clickGuard = null;
-    detachWindowTouchMove();
     if (e.touches.length !== 1) {
-      stateRef.current = null;
+      abandonGesture();
       return;
     }
     const t = e.touches[0]!;
     if (isIgnoredSwipeStart(e.target, e.currentTarget, t.clientX)) {
-      stateRef.current = null;
+      abandonGesture();
       return;
     }
-    beginSwipe(e.target, e.currentTarget, t.clientX, t.clientY);
+    const s = beginSwipe(e.target, e.currentTarget, t.clientX, t.clientY);
 
     if (typeof window !== 'undefined') {
       const onNativeTouchMove = (ev: globalThis.TouchEvent): void => {
-        const s = stateRef.current;
-        if (!s || ev.touches.length !== 1) return;
+        if (stateRef.current !== s || ev.touches.length !== 1) return;
         const touch = ev.touches[0]!;
         updateMoveLock(s, touch.clientX, touch.clientY);
         if (s.locked === 'x' && ev.cancelable) {
           ev.preventDefault();
         }
       };
+      // Safety net: React normally sees the release first; if the touched node was
+      // removed mid-gesture the release never reaches React, so never leave the pane
+      // displaced.
+      const onNativeTouchEnd = (): void => {
+        if (stateRef.current === s) abandonGesture();
+      };
       window.addEventListener('touchmove', onNativeTouchMove, { passive: false });
-      cleanupWindowTouchMoveRef.current = () => window.removeEventListener('touchmove', onNativeTouchMove);
+      window.addEventListener('touchend', onNativeTouchEnd);
+      window.addEventListener('touchcancel', onNativeTouchEnd);
+      cleanupWindowListenersRef.current = () => {
+        window.removeEventListener('touchmove', onNativeTouchMove);
+        window.removeEventListener('touchend', onNativeTouchEnd);
+        window.removeEventListener('touchcancel', onNativeTouchEnd);
+      };
     }
   };
 
   const onTouchMove = (e: TouchEvent<HTMLElement>): void => {
     if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
-    if (!stateRef.current) return;
+    const s = stateRef.current;
+    if (!s) return;
     if (e.touches.length !== 1) {
-      // A second finger joined (pinch): abandon the swipe.
-      stateRef.current = null;
-      detachWindowTouchMove();
+      // A second finger joined (pinch): abandon the swipe and glide back.
+      abandonGesture();
       return;
     }
     const t = e.touches[0]!;
-    updateMoveLock(stateRef.current, t.clientX, t.clientY);
+    updateMoveLock(s, t.clientX, t.clientY);
+    trackDrag(s, e.nativeEvent);
   };
 
   const onTouchEnd = (e: TouchEvent<HTMLElement>): void => {
     if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
-    detachWindowTouchMove();
     const s = stateRef.current;
-    stateRef.current = null;
-    if (!s) return;
+    if (!s) {
+      detachWindowListeners();
+      return;
+    }
     const changed = e.changedTouches?.[0];
     const endX = changed ? changed.clientX : s.lastX;
     const endY = changed ? changed.clientY : s.lastY;
-    commitSwipe(s, endX, endY, e.currentTarget, e.nativeEvent);
+    finishGesture(endX, endY, e.currentTarget, e.nativeEvent);
   };
 
   const onTouchCancel = (e: TouchEvent<HTMLElement>): void => {
     if (!enabled) return;
     lastTouchTimeRef.current = Date.now();
-    detachWindowTouchMove();
     const s = stateRef.current;
-    stateRef.current = null;
     // Android WebView may cancel a horizontal pan it decided not to scroll: still honour it.
     if (s && s.locked === 'x') {
-      commitSwipe(s, s.lastX, s.lastY, e.currentTarget, e.nativeEvent);
+      finishGesture(s.lastX, s.lastY, e.currentTarget, e.nativeEvent);
+    } else {
+      abandonGesture();
     }
   };
 
@@ -301,29 +494,41 @@ export function useTabSwipe<T extends string>(
     if (e.pointerType === 'touch' || Date.now() - lastTouchTimeRef.current < 500) return;
     clickGuard = null;
     if (e.button !== 0 || isIgnoredSwipeStart(e.target, e.currentTarget, e.clientX)) {
-      stateRef.current = null;
+      abandonGesture();
       return;
     }
-    beginSwipe(e.target, e.currentTarget, e.clientX, e.clientY, e.pointerId);
+    const s = beginSwipe(e.target, e.currentTarget, e.clientX, e.clientY, e.pointerId);
+    if (typeof window !== 'undefined') {
+      // Safety net for a mouse released outside the container (no React pointerup).
+      const onNativePointerEnd = (ev: globalThis.PointerEvent): void => {
+        if (stateRef.current === s && ev.pointerId === s.pointerId) abandonGesture();
+      };
+      window.addEventListener('pointerup', onNativePointerEnd);
+      window.addEventListener('pointercancel', onNativePointerEnd);
+      cleanupWindowListenersRef.current = () => {
+        window.removeEventListener('pointerup', onNativePointerEnd);
+        window.removeEventListener('pointercancel', onNativePointerEnd);
+      };
+    }
   };
 
   const onPointerMove = (e: PointerEvent<HTMLElement>): void => {
     if (!enabled) return;
-    if (e.pointerType === 'touch' || !stateRef.current || stateRef.current.pointerId !== e.pointerId) return;
-    updateMoveLock(stateRef.current, e.clientX, e.clientY);
+    const s = stateRef.current;
+    if (e.pointerType === 'touch' || !s || s.pointerId !== e.pointerId) return;
+    updateMoveLock(s, e.clientX, e.clientY);
+    trackDrag(s, e.nativeEvent);
   };
 
   const onPointerUp = (e: PointerEvent<HTMLElement>): void => {
     if (!enabled) return;
     if (e.pointerType === 'touch' || !stateRef.current || stateRef.current.pointerId !== e.pointerId) return;
-    const s = stateRef.current;
-    stateRef.current = null;
-    commitSwipe(s, e.clientX, e.clientY, e.currentTarget, e.nativeEvent);
+    finishGesture(e.clientX, e.clientY, e.currentTarget, e.nativeEvent);
   };
 
   const onPointerCancel = (e: PointerEvent<HTMLElement>): void => {
     if (e.pointerType === 'touch') return;
-    stateRef.current = null;
+    abandonGesture();
   };
 
   const onClickCapture = (e: MouseEvent<HTMLElement>): void => {
@@ -352,12 +557,59 @@ export function useTabSwipe<T extends string>(
   };
 }
 
+/** Horizontal inset (px) of `.k-tabs__indicator` inside its tab (`left` / `right` in styles.css). */
+const INDICATOR_INSET_PX = 16;
+
+/**
+ * Scrolls only the tab list (never its ancestors — `scrollIntoView` would also scroll
+ * the page vertically and, mid slide-in, the transformed shell sideways) so the
+ * selected tab is fully visible.
+ */
+function revealTab(list: HTMLElement, tab: HTMLElement): void {
+  if (list.scrollWidth <= list.clientWidth) return;
+  const lr = list.getBoundingClientRect();
+  const tr = tab.getBoundingClientRect();
+  if (tr.left < lr.left) list.scrollLeft += tr.left - lr.left;
+  else if (tr.right > lr.right) list.scrollLeft += tr.right - lr.right;
+}
+
+/**
+ * Slides the active indicator from the previously selected tab to the new one (FLIP:
+ * start at the old tab's position / width, transition to rest via the
+ * `.is-selected` CSS transition) so tab bar taps and swipes move it continuously.
+ */
+function slideIndicator(prevTab: HTMLElement, nextTab: HTMLElement): void {
+  const indicator = nextTab.querySelector<HTMLElement>('.k-tabs__indicator');
+  if (!indicator) return;
+  const prevW = prevTab.offsetWidth - 2 * INDICATOR_INSET_PX;
+  const nextW = nextTab.offsetWidth - 2 * INDICATOR_INSET_PX;
+  if (prevW <= 0 || nextW <= 0) return; // not laid out (jsdom / hidden)
+  const shift = prevTab.offsetLeft + prevTab.offsetWidth / 2 - (nextTab.offsetLeft + nextTab.offsetWidth / 2);
+  indicator.style.transition = 'none';
+  indicator.style.transform = `translateX(${shift}px) scaleX(${prevW / nextW})`;
+  void indicator.offsetWidth;
+  indicator.style.removeProperty('transition');
+  indicator.style.removeProperty('transform');
+}
+
 export function Tabs<T extends string>({ tabs, value, onChange, className, label }: TabsProps<T>) {
   const listRef = useRef<HTMLDivElement>(null);
+  const prevValueRef = useRef(value);
 
-  useEffect(() => {
-    const active = listRef.current?.querySelector<HTMLElement>('.k-tabs__tab.is-selected');
-    active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const prev = prevValueRef.current;
+    prevValueRef.current = value;
+    if (!list) return;
+    const els = list.querySelectorAll<HTMLElement>('.k-tabs__tab');
+    const nextTab = els[tabs.findIndex((t) => t.value === value)];
+    if (!nextTab) return;
+    if (prev !== value) {
+      const prevTab = els[tabs.findIndex((t) => t.value === prev)];
+      if (prevTab) slideIndicator(prevTab, nextTab);
+    }
+    revealTab(list, nextTab);
+    // `tabs` is a fresh array every render; only selection changes matter.
   }, [value]);
 
   return (

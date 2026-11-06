@@ -1,5 +1,5 @@
 /* Downloads page: task list, search bars, rich media cards, cover thumbnails, catalog breadcrumbs. */
-.k-downloads { flex: 1 0 auto; display: flex; flex-direction: column; touch-action: pan-y; }
+.k-downloads { flex: 1 0 auto; display: flex; flex-direction: column; touch-action: pan-y; overflow-x: clip; }
 .k-downloads__body { flex: 1 0 auto; padding-top: 16px; display: flex; flex-direction: column; gap: 12px; }
 .k-downloads .k-empty { flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 220px; }
 
@@ -40,6 +40,9 @@
 .k-dl-status--paused, .k-dl-status--cancelled { background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
 
 .k-dl-search { flex: 1 0 auto; display: flex; flex-direction: column; gap: 12px; }
+/* Stage-2 tab pane (follows swipes / slides in); layout-transparent in Stage 1 / direct mode. */
+.k-dl-search__pane { display: contents; }
+.k-dl-search__pane--detail { flex: 1 0 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .k-dl-search__bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .k-dl-search__bar .k-field { flex: 1; min-width: 0; }
 

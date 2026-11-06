@@ -251,6 +251,29 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       await waitFor(() => expect(useBreakdownStore.getState().request?.sentence).toBe(MERGED));
     });
 
+    it('SideSheet 字幕列表 ⇄ AI 解析 slide in directionally and follow the finger, rubber-banding at either end', async () => {
+      renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
+      const cue = await screen.findByTestId('overlay-cue');
+      fireEvent.click(glyphAt(cue, 2));
+      await waitFor(() => expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true'));
+      const pane = screen.getByTestId('player-panel-pane');
+      expect(pane.closest('.k-player__panel-swipe')).not.toBeNull();
+
+      fireEvent.click(screen.getByRole('tab', { name: /字幕列表/ }));
+      expect(pane).toHaveAttribute('data-tab-slide', 'prev');
+
+      fireEvent.touchStart(pane, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchMove(pane, { touches: [{ clientX: 400, clientY: 300 }] }); // past the first tab
+      expect(pane).not.toHaveAttribute('data-tab-slide');
+      expect(pane.style.transform).toBe('translate3d(20px, 0, 0)');
+      fireEvent.touchMove(pane, { touches: [{ clientX: 180, clientY: 300 }] });
+      expect(pane.style.transform).toBe('translate3d(-120px, 0, 0)');
+      fireEvent.touchEnd(pane, { touches: [], changedTouches: [{ clientX: 180, clientY: 300 }] });
+      expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true');
+      expect(pane).toHaveAttribute('data-tab-slide', 'next');
+      expect(pane.style.transform).toBe('');
+    });
+
     it('switching from AI解析 back to 字幕列表 scrolls to the current or explained subtitle row', async () => {
       const scrolled: Array<{ text: string | undefined; opts: unknown }> = [];
       const originalScroll = Element.prototype.scrollIntoView;

@@ -206,7 +206,10 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     prevBreakdownRequestRef.current = breakdownRequest;
     explainedAtMsRef.current = breakdownRequest ? clock.currentMs : undefined;
   }
-  const sideSheetSwipe = useTabSwipe<PanelTab>(['transcript', 'breakdown'], panelTab, setPanelTab);
+  const sidePaneRef = useRef<HTMLDivElement>(null);
+  const sideSheetSwipe = useTabSwipe<PanelTab>(['transcript', 'breakdown'], panelTab, setPanelTab, {
+    paneRef: sidePaneRef,
+  });
 
   const bumpHudTimer = useCallback(() => {
     setHudNonce((n) => n + 1);
@@ -924,8 +927,10 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
             />
           }
         >
-          <div {...sideSheetSwipe} style={{ minHeight: '100%' }}>
-            {panelTab === 'transcript' ? transcript : <BreakdownPanel />}
+          <div {...sideSheetSwipe} className="k-player__panel-swipe">
+            <div ref={sidePaneRef} className="k-player__panel-pane" data-testid="player-panel-pane">
+              {panelTab === 'transcript' ? transcript : <BreakdownPanel />}
+            </div>
           </div>
         </SideSheet>
       )}

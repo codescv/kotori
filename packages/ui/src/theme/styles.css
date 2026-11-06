@@ -62,6 +62,9 @@
   --md-sys-motion-duration-medium2: 300ms;
   --md-sys-motion-duration-medium4: 400ms;
   --md-sys-motion-duration-long2: 500ms;
+  /* Horizontal tab pane slide-in (keep in sync with TAB_SLIDE_MS in tabMotion.ts). */
+  --k-tab-slide-duration: 260ms;
+  --k-tab-slide-distance: 64px;
 
   --md-sys-elevation-1: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
   --md-sys-elevation-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
@@ -109,7 +112,7 @@ button:disabled { cursor: default; }
 }
 
 /* ---- shell ---------------------------------------------------------------- */
-.k-shell { display: flex; height: 100%; width: 100%; overflow: hidden; }
+.k-shell { display: flex; height: 100%; width: 100%; overflow: hidden; overflow: clip; }
 .k-shell--compact { flex-direction: column; }
 .k-shell__content { flex: 1; min-width: 0; min-height: 0; overflow: auto; position: relative; display: flex; flex-direction: column; }
 
@@ -196,14 +199,28 @@ button:disabled { cursor: default; }
   color: var(--md-sys-color-on-surface-variant);
 }
 .k-nav-item__indicator {
-  position: relative;
+  position: relative; isolation: isolate;
   display: grid; place-items: center;
   width: 56px; height: 32px; border-radius: var(--md-sys-shape-corner-full);
   transition: background-color var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
 }
+/* M3 active indicator pill: expands from the centre when a destination becomes active
+   (tap or swipe), so nav switches stay in step with the content slide-in. */
+.k-nav-item__indicator::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit;
+  background: var(--md-sys-color-secondary-container);
+  transform: scaleX(0.4); opacity: 0;
+  transition: transform var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard),
+    opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
 .k-nav-item:hover .k-nav-item__indicator { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
 .k-nav-item.is-active { color: var(--md-sys-color-on-surface); }
-.k-nav-item.is-active .k-nav-item__indicator { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.k-nav-item.is-active .k-nav-item__indicator { color: var(--md-sys-color-on-secondary-container); }
+.k-nav-item.is-active .k-nav-item__indicator::before {
+  transform: scaleX(1); opacity: 1;
+  transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate),
+    opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
 .k-nav-item__label { font: var(--md-sys-typescale-label-medium); }
 .k-nav-item.is-active .k-nav-item__label { font-weight: 700; }
 
@@ -344,8 +361,24 @@ button:disabled { cursor: default; }
 }
 .k-tabs__tab:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
 .k-tabs__tab.is-selected { color: var(--md-sys-color-primary); }
-.k-tabs__indicator { position: absolute; left: 16px; right: 16px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--md-sys-color-primary); transform: scaleX(0); transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized); }
-.k-tabs__tab.is-selected .k-tabs__indicator { transform: scaleX(1); }
+.k-tabs__indicator { position: absolute; left: 16px; right: 16px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--md-sys-color-primary); transform: scaleX(0); }
+/* Only the incoming indicator animates: Tabs slides it over from the previous tab (FLIP). */
+.k-tabs__tab.is-selected .k-tabs__indicator { transform: scaleX(1); transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized); }
+
+/* ---- horizontal tab panes (useTabSwipe paneRef) ---------------------------------------
+   Drag offsets are inline styles written by tabMotion.ts. On a tab change the pane slides
+   in from the side of the destination tab (next = from the right, prev = from the left)
+   with a quick fade, M3 shared-axis style. No fill-mode: nothing (no transform /
+   will-change) remains on the pane at rest, so position: fixed descendants are unaffected. */
+[data-tab-slide] {
+  animation-duration: var(--k-tab-slide-duration);
+  animation-timing-function: var(--md-sys-motion-easing-emphasized-decelerate);
+  will-change: transform, opacity;
+}
+[data-tab-slide='next'] { animation-name: k-tab-slide-next; }
+[data-tab-slide='prev'] { animation-name: k-tab-slide-prev; }
+@keyframes k-tab-slide-next { from { transform: translate3d(var(--k-tab-slide-distance), 0, 0); opacity: 0; } }
+@keyframes k-tab-slide-prev { from { transform: translate3d(calc(-1 * var(--k-tab-slide-distance)), 0, 0); opacity: 0; } }
 
 /* ---- progress ---------------------------------------------------------------- */
 .k-linear-progress { position: relative; height: 4px; border-radius: 2px; overflow: hidden; background: var(--md-sys-color-surface-container-highest); }

@@ -623,3 +623,8 @@
 }
 .k-edit-series__search-row { display: flex; align-items: center; gap: 8px; }
 .k-edit-series__search-field { flex: 1; }
+
+/* SideSheet transcript / breakdown tabs: the pane follows swipes and slides in on tab
+   changes; the wrapper clips it (out to the sheet body's 24px gutters) so the slide never
+   adds a transient horizontal scrollbar to the sheet body. */
+.k-player__panel-swipe { min-height: 100%; overflow-x: clip; overflow-clip-margin: 24px; }
