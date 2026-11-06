@@ -62,10 +62,6 @@
   --md-sys-motion-duration-medium2: 300ms;
   --md-sys-motion-duration-medium4: 400ms;
   --md-sys-motion-duration-long2: 500ms;
-  /* Horizontal tab pane slide-in (keep in sync with TAB_SLIDE_MS in tabMotion.ts). */
-  --k-tab-slide-duration: 260ms;
-  --k-tab-slide-distance: 64px;
-
   --md-sys-elevation-1: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
   --md-sys-elevation-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
   --md-sys-elevation-3: 0 4px 8px 3px rgb(0 0 0 / 0.15), 0 1px 3px rgb(0 0 0 / 0.3);
@@ -114,7 +110,10 @@ button:disabled { cursor: default; }
 /* ---- shell ---------------------------------------------------------------- */
 .k-shell { display: flex; height: 100%; width: 100%; overflow: hidden; overflow: clip; }
 .k-shell--compact { flex-direction: column; }
-.k-shell__content { flex: 1; min-width: 0; min-height: 0; overflow: auto; position: relative; display: flex; flex-direction: column; }
+.k-shell__content { flex: 1; min-width: 0; min-height: 0; overflow: hidden; overflow: clip; position: relative; display: flex; flex-direction: column; }
+/* The Shell pager fills the content column below the (single) UpdateBanner; each
+   destination slide is its own vertical scroll container (see .k-pager--fill). */
+.k-shell__pager { width: 100%; }
 
 .k-nav-rail {
   width: calc(80px + var(--k-safe-left));
@@ -365,20 +364,26 @@ button:disabled { cursor: default; }
 /* Only the incoming indicator animates: Tabs slides it over from the previous tab (FLIP). */
 .k-tabs__tab.is-selected .k-tabs__indicator { transform: scaleX(1); transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized); }
 
-/* ---- horizontal tab panes (useTabSwipe paneRef) ---------------------------------------
-   Drag offsets are inline styles written by tabMotion.ts. On a tab change the pane slides
-   in from the side of the destination tab (next = from the right, prev = from the left)
-   with a quick fade, M3 shared-axis style. No fill-mode: nothing (no transform /
-   will-change) remains on the pane at rest, so position: fixed descendants are unaffected. */
-[data-tab-slide] {
-  animation-duration: var(--k-tab-slide-duration);
-  animation-timing-function: var(--md-sys-motion-easing-emphasized-decelerate);
-  will-change: transform, opacity;
+/* ---- TabPager (ViewPager2-style swipeable pages) ------------------------------------
+   At rest only the active slide is mounted and carries no inline transform. While a
+   drag / slide is in progress the adjacent (or outgoing) slide sits right next to it
+   (inline translate3d written by TabPager.tsx) and the viewport clips both; slides are
+   opaque so the two pages never show through each other. Non-active slides are inert. */
+.k-pager { position: relative; min-width: 0; overflow: hidden; overflow: clip; }
+/* fill: the viewport takes the remaining height of its flex column; every slide covers
+   it completely and scrolls on its own (each page keeps its own scroll position). */
+.k-pager--fill { flex: 1 1 0; min-height: 0; }
+.k-pager--fill > .k-pager__slide {
+  position: absolute; inset: 0; overflow: auto; overscroll-behavior-x: none;
+  display: flex; flex-direction: column;
 }
-[data-tab-slide='next'] { animation-name: k-tab-slide-next; }
-[data-tab-slide='prev'] { animation-name: k-tab-slide-prev; }
-@keyframes k-tab-slide-next { from { transform: translate3d(var(--k-tab-slide-distance), 0, 0); opacity: 0; } }
-@keyframes k-tab-slide-prev { from { transform: translate3d(calc(-1 * var(--k-tab-slide-distance)), 0, 0); opacity: 0; } }
+/* flow: the active slide stays in normal flow (the enclosing container scrolls); the
+   other slide overlays it from the top. Only the horizontal overflow is clipped. */
+.k-pager--flow { overflow: visible; overflow-x: clip; }
+.k-pager--flow > .k-pager__slide { min-width: 0; display: flex; flex-direction: column; }
+.k-pager--flow > .k-pager__slide[data-pager-peer] { position: absolute; top: 0; left: 0; width: 100%; }
+.k-pager[data-pager-moving] > .k-pager__slide { background: var(--k-pager-bg, var(--md-sys-color-background)); }
+.k-pager__slide[data-pager-peer] { pointer-events: none; }
 
 /* ---- progress ---------------------------------------------------------------- */
 .k-linear-progress { position: relative; height: 4px; border-radius: 2px; overflow: hidden; background: var(--md-sys-color-surface-container-highest); }

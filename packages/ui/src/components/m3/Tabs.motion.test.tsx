@@ -1,51 +1,97 @@
 /**
- * Finger-following drag, nested drag coordination, outermost rubber band, snap-back
- * and directional slide-in of `useTabSwipe({ paneRef })` and the `<Tabs>` indicator.
+ * ViewPager2-style `<TabPager>` driven by `useTabSwipe({ pager })`: dual-page
+ * finger-following drag, mid-drag reversal, commit / snap-back glides, tab bar slides,
+ * interruption, nested strips, rubber band, rest-state cleanup, inactive-slide
+ * isolation — and the `<Tabs>` indicator.
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { dispatchBackNavigation, useBackInterceptor } from '../../app/routes';
 import { installPointerEventPolyfill } from '../../test/pointer';
 import { resetStores } from '../../test/utils';
+import { TabPager, useTabPager, type TabPagerSlide } from './TabPager';
 import { Tabs, useTabSwipe } from './Tabs';
-import { SNAP_BACK_MS, TAB_SLIDE_MS } from './tabMotion';
+import { SNAP_BACK_MS, TAB_SLIDE_MS, slideDurationMs } from './tabMotion';
+import { useIsInactiveTabSlide } from './tabSlideContext';
 
 const OUTER = ['a', 'b', 'c'] as const;
 const INNER = ['x', 'y', 'z'] as const;
+const SETTLE_MS = TAB_SLIDE_MS + 100;
+
+/** Mount / render counters per `<strip>:<tab>` page. */
+const mounts = new Map<string, number>();
+const renders = new Map<string, number>();
+const backLog: string[] = [];
+const inactiveSeen = new Map<string, boolean>();
+
+function Page({ id, tab, slide, children }: { id: string; tab: string; slide: TabPagerSlide; children?: ReactNode }) {
+  const key = `${id}:${tab}`;
+  renders.set(key, (renders.get(key) ?? 0) + 1);
+  inactiveSeen.set(key, useIsInactiveTabSlide());
+  useEffect(() => {
+    mounts.set(key, (mounts.get(key) ?? 0) + 1);
+  }, [key]);
+  useBackInterceptor(() => {
+    backLog.push(key);
+    return true;
+  });
+  return (
+    <div className="k-page" data-testid={`page-${key}`} data-role={slide.role}>
+      <span>{key}</span>
+      {children}
+    </div>
+  );
+}
 
 function Strip<T extends string>({
   id,
   order,
   initial,
   enabled = true,
-  onRender,
-  children,
+  inner,
 }: {
   id: string;
   order: readonly T[];
   initial: T;
   enabled?: boolean;
-  onRender?: () => void;
-  children?: ReactNode;
+  inner?: (tab: T) => ReactNode;
 }) {
   const [tab, setTab] = useState<T>(initial);
-  const paneRef = useRef<HTMLDivElement>(null);
-  const swipe = useTabSwipe<T>(order, tab, (next) => setTab(next), { paneRef, enabled });
-  onRender?.();
+  const pager = useTabPager();
+  // Like DownloadsPage: a strip inside a peeked / exiting slide is a still picture.
+  const on = enabled && !useIsInactiveTabSlide();
+  const swipe = useTabSwipe<T>(order, tab, (next) => setTab(next), { pager, enabled: on });
   return (
     <div data-testid={id} data-tab={tab} {...swipe}>
       <Tabs<T> label={id} value={tab} onChange={setTab} tabs={order.map((v) => ({ value: v, label: `${id}-${v}` }))} />
-      <div ref={paneRef} data-testid={`${id}-pane`}>
-        <span>{`${id}:${tab}`}</span>
-        {children}
-      </div>
+      <TabPager<T>
+        pager={pager}
+        order={order}
+        value={tab}
+        enabled={on}
+        data-testid={`${id}-pager`}
+        renderPage={(t, slide) => (
+          <Page id={id} tab={t} slide={slide}>
+            {inner?.(t)}
+          </Page>
+        )}
+      />
     </div>
   );
 }
 
-const pane = (id: string): HTMLElement => screen.getByTestId(`${id}-pane`);
+const pagerEl = (id: string): HTMLElement => screen.getByTestId(`${id}-pager`);
+/** Mounted slides of strip `id`, in DOM order, as their tab values. */
+const slideEls = (id: string): HTMLElement[] =>
+  [...pagerEl(id).children].filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('k-pager__slide'));
+const slideTabs = (id: string): string[] => slideEls(id).map((el) => el.dataset['pagerTab']!);
+const slide = (id: string, tab: string): HTMLElement => slideEls(id).find((el) => el.dataset['pagerTab'] === tab)!;
+const tx = (id: string, tab: string): string => slide(id, tab).style.transform;
 const tabOf = (id: string): string | undefined => screen.getByTestId(id).dataset['tab'];
-const tx = (id: string): string => pane(id).style.transform;
+/** The page element of the active slide (gesture target). */
+const activePage = (id: string): HTMLElement =>
+  slideEls(id).find((el) => !el.hasAttribute('inert'))!.querySelector<HTMLElement>('.k-page')!;
 
 function touchDown(el: Element, x: number, y = 300): void {
   fireEvent.touchStart(el, { touches: [{ clientX: x, clientY: y }] });
@@ -62,6 +108,21 @@ function swipe(el: Element, fromX: number, toX: number): void {
   touchTo(el, toX);
   touchUp(el, toX);
 }
+function advance(ms: number): void {
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+}
+/** Asserts strip `id` is at rest: one slide, no inline motion, no motion attributes. */
+function expectAtRest(id: string, tab: string): void {
+  expect(slideTabs(id)).toEqual([tab]);
+  const el = slide(id, tab);
+  expect(el.getAttribute('style') ?? '').toBe('');
+  expect(el).not.toHaveAttribute('data-pager-peer');
+  expect(el).not.toHaveAttribute('aria-hidden');
+  expect(el).not.toHaveAttribute('inert');
+  expect(pagerEl(id)).not.toHaveAttribute('data-pager-moving');
+}
 
 function stubReducedMotion(reduce: boolean): void {
   vi.stubGlobal('matchMedia', (query: string) => ({
@@ -76,7 +137,7 @@ function stubReducedMotion(reduce: boolean): void {
   }));
 }
 
-describe('useTabSwipe pane motion', () => {
+describe('<TabPager> + useTabSwipe', () => {
   let uninstallPointerEvent: () => void = () => {};
   beforeAll(() => {
     uninstallPointerEvent = installPointerEventPolyfill();
@@ -84,6 +145,10 @@ describe('useTabSwipe pane motion', () => {
   afterAll(() => uninstallPointerEvent());
   beforeEach(() => {
     resetStores();
+    mounts.clear();
+    renders.clear();
+    inactiveSeen.clear();
+    backLog.length = 0;
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   });
   afterEach(() => {
@@ -92,300 +157,473 @@ describe('useTabSwipe pane motion', () => {
     vi.unstubAllGlobals();
   });
 
-  describe('finger-following drag', () => {
-    it('translates the pane with the touch delta via the DOM only (no re-render per move)', () => {
-      const renders = vi.fn();
-      render(<Strip id="outer" order={OUTER} initial="b" onRender={renders} />);
-      const before = renders.mock.calls.length;
-      const p = pane('outer');
+  describe('dual-page drag', () => {
+    it('reveals the next page right of the active one while dragging left; both follow the finger without re-rendering', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      expectAtRest('outer', 'b');
+      const p = activePage('outer');
       touchDown(p, 400);
       touchTo(p, 395); // within the touch slop: not locked yet
-      expect(tx('outer')).toBe('');
+      expect(slideTabs('outer')).toEqual(['b']);
       touchTo(p, 340);
-      expect(tx('outer')).toBe('translate3d(-60px, 0, 0)');
-      expect(p.style.willChange).toBe('transform');
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      expect(tx('outer', 'b')).toBe('translate3d(-60px, 0, 0)');
+      expect(tx('outer', 'c')).toBe('translate3d(calc(100% - 60px), 0, 0)');
+      expect(slide('outer', 'b').style.willChange).toBe('transform');
+      expect(slide('outer', 'c')).toHaveAttribute('data-pager-peer', 'next');
+      expect(pagerEl('outer')).toHaveAttribute('data-pager-moving');
+
+      const before = { b: renders.get('outer:b'), c: renders.get('outer:c') };
       touchTo(p, 250);
-      expect(tx('outer')).toBe('translate3d(-150px, 0, 0)');
-      touchTo(p, 520);
-      expect(tx('outer')).toBe('translate3d(120px, 0, 0)');
-      expect(renders.mock.calls.length).toBe(before);
+      touchTo(p, 210);
+      expect(tx('outer', 'b')).toBe('translate3d(-190px, 0, 0)');
+      expect(tx('outer', 'c')).toBe('translate3d(calc(100% - 190px), 0, 0)');
+      expect({ b: renders.get('outer:b'), c: renders.get('outer:c') }).toEqual(before); // DOM-only frames
       expect(tabOf('outer')).toBe('b');
     });
 
-    it('follows a mouse pointer drag too', () => {
+    it('reveals the previous page left of the active one while dragging right', () => {
       render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
-      fireEvent.pointerDown(p, { pointerType: 'mouse', pointerId: 3, button: 0, clientX: 400, clientY: 300 });
-      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 3, clientX: 330, clientY: 302 });
-      expect(tx('outer')).toBe('translate3d(-70px, 0, 0)');
-      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 4, clientX: 100, clientY: 302 }); // other pointer
-      expect(tx('outer')).toBe('translate3d(-70px, 0, 0)');
-      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 3, clientX: 280, clientY: 304 });
-      expect(tx('outer')).toBe('translate3d(-120px, 0, 0)');
+      const p = activePage('outer');
+      touchDown(p, 300);
+      touchTo(p, 380);
+      expect(slideTabs('outer')).toEqual(['a', 'b']);
+      expect(tx('outer', 'b')).toBe('translate3d(80px, 0, 0)');
+      expect(tx('outer', 'a')).toBe('translate3d(calc(-100% + 80px), 0, 0)');
+      expect(slide('outer', 'a')).toHaveAttribute('data-pager-peer', 'prev');
     });
 
-    it('never translates on vertical scrolls', () => {
+    it('swaps the revealed neighbour when the finger crosses its start point', () => {
       render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
+      const p = activePage('outer');
+      touchDown(p, 400);
+      touchTo(p, 340);
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      touchTo(p, 470);
+      expect(slideTabs('outer')).toEqual(['a', 'b']);
+      expect(tx('outer', 'b')).toBe('translate3d(70px, 0, 0)');
+      expect(tx('outer', 'a')).toBe('translate3d(calc(-100% + 70px), 0, 0)');
+      touchTo(p, 300);
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      expect(tx('outer', 'c')).toBe('translate3d(calc(100% - 100px), 0, 0)');
+    });
+
+    it('follows a mouse pointer drag too (ignoring other pointers)', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      fireEvent.pointerDown(p, { pointerType: 'mouse', pointerId: 3, button: 0, clientX: 400, clientY: 300 });
+      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 3, clientX: 330, clientY: 302 });
+      expect(tx('outer', 'b')).toBe('translate3d(-70px, 0, 0)');
+      expect(tx('outer', 'c')).toBe('translate3d(calc(100% - 70px), 0, 0)');
+      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 4, clientX: 100, clientY: 302 });
+      expect(tx('outer', 'b')).toBe('translate3d(-70px, 0, 0)');
+    });
+
+    it('never moves on vertical scrolls and is inert while disabled', () => {
+      const { unmount } = render(<Strip id="outer" order={OUTER} initial="b" />);
+      let p = activePage('outer');
       touchDown(p, 400, 300);
       touchTo(p, 395, 200);
       touchTo(p, 300, 100);
-      expect(tx('outer')).toBe('');
       touchUp(p, 300, 100);
-      expect(tabOf('outer')).toBe('b');
-    });
+      expectAtRest('outer', 'b');
+      unmount();
 
-    it('is inert while disabled', () => {
       render(<Strip id="outer" order={OUTER} initial="b" enabled={false} />);
-      const p = pane('outer');
+      p = activePage('outer');
       touchDown(p, 400);
       touchTo(p, 250);
-      expect(tx('outer')).toBe('');
+      expectAtRest('outer', 'b');
+    });
+  });
+
+  describe('release', () => {
+    it('commits from the release position: the old page glides out, the peeked page glides in and stays the same instance', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      touchDown(p, 400);
+      touchTo(p, 300);
+      const peeked = slide('outer', 'c');
+      const peekedPage = screen.getByTestId('page-outer:c');
+      expect(mounts.get('outer:c')).toBe(1);
+      touchTo(p, 250);
+      touchUp(p, 250);
+      expect(tabOf('outer')).toBe('c');
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      // c is now active (interactive); b is the outgoing page.
+      expect(slide('outer', 'c')).not.toHaveAttribute('inert');
+      expect(slide('outer', 'b')).toHaveAttribute('inert');
+      expect(slide('outer', 'b')).toHaveAttribute('data-pager-peer', 'prev');
+      expect(tx('outer', 'b')).toBe('translate3d(-100%, 0, 0)');
+      expect(tx('outer', 'c')).toBe('translate3d(0px, 0, 0)');
+      expect(slide('outer', 'c').style.transition).toContain('ms');
+      advance(SETTLE_MS);
+      expectAtRest('outer', 'c');
+      expect(slide('outer', 'c')).toBe(peeked); // same DOM node…
+      expect(screen.getByTestId('page-outer:c')).toBe(peekedPage);
+      expect(mounts.get('outer:c')).toBe(1); // …and the same fiber: no remount
+    });
+
+    it('commits to the previous page symmetrically', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      touchDown(p, 200);
+      touchTo(p, 300);
+      touchTo(p, 350);
+      touchUp(p, 350);
+      expect(tabOf('outer')).toBe('a');
+      expect(tx('outer', 'b')).toBe('translate3d(100%, 0, 0)');
+      expect(tx('outer', 'a')).toBe('translate3d(0px, 0, 0)');
+      fireEvent.transitionEnd(slide('outer', 'a'));
+      expectAtRest('outer', 'a');
+      expect(mounts.get('outer:a')).toBe(1);
+    });
+
+    it('starts the commit glide exactly where the finger left both pages', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      touchDown(p, 400);
+      touchTo(p, 280);
+      const seen: string[] = [];
+      const observer = new MutationObserver((records) => {
+        for (const r of records) seen.push(`${(r.target as HTMLElement).dataset['pagerTab']}:${r.oldValue ?? ''}`);
+      });
+      observer.observe(pagerEl('outer'), { subtree: true, attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+      touchUp(p, 280);
+      for (const r of observer.takeRecords()) seen.push(`${(r.target as HTMLElement).dataset['pagerTab']}:${r.oldValue ?? ''}`);
+      observer.disconnect();
+      // Before the transition targets were written, both slides were still at the release offset.
+      expect(seen.some((v) => v.startsWith('b:') && v.includes('translate3d(-120px, 0, 0)'))).toBe(true);
+      expect(seen.some((v) => v.startsWith('c:') && v.includes('translate3d(calc(100% - 120px), 0, 0)'))).toBe(true);
+      expect(seen.some((v) => v.includes('translate3d(0px, 0, 0)') && v.startsWith('b:'))).toBe(false); // never reset to 0 / flashed
+    });
+
+    it('scales the commit glide with the remaining travel', () => {
+      expect(slideDurationMs(0, 400)).toBe(TAB_SLIDE_MS);
+      expect(slideDurationMs(-200, 400)).toBe(TAB_SLIDE_MS / 2);
+      expect(slideDurationMs(390, 400)).toBeGreaterThanOrEqual(120);
+      expect(slideDurationMs(-120, 0)).toBe(TAB_SLIDE_MS); // no layout (jsdom)
+    });
+
+    it('glides both pages back below the threshold, then unmounts the neighbour and clears every inline style', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      touchDown(p, 400);
+      touchTo(p, 370);
+      expect(tx('outer', 'b')).toBe('translate3d(-30px, 0, 0)');
+      touchUp(p, 370);
+      expect(tabOf('outer')).toBe('b');
+      expect(tx('outer', 'b')).toBe('translate3d(0px, 0, 0)');
+      expect(tx('outer', 'c')).toBe('translate3d(100%, 0, 0)');
+      expect(slide('outer', 'b').style.transition).toContain(`${SNAP_BACK_MS}ms`);
+      expect(slide('outer', 'c').style.transition).toContain(`${SNAP_BACK_MS}ms`);
+      advance(SNAP_BACK_MS + 100);
+      expectAtRest('outer', 'b');
+    });
+
+    it('settles early on the active slide’s own transitionend only', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      touchDown(p, 300);
+      touchTo(p, 330);
+      touchUp(p, 330);
+      fireEvent.transitionEnd(activePage('outer')); // a descendant's transition is ignored
+      expect(slideTabs('outer')).toEqual(['a', 'b']);
+      fireEvent.transitionEnd(slide('outer', 'b'));
+      expectAtRest('outer', 'b');
+    });
+
+    it('glides back when a second finger joins (pinch) without switching tabs', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      touchDown(p, 400);
+      touchTo(p, 300);
+      fireEvent.touchMove(p, { touches: [{ clientX: 250, clientY: 300 }, { clientX: 500, clientY: 300 }] });
+      expect(tx('outer', 'b')).toBe('translate3d(0px, 0, 0)');
+      expect(tx('outer', 'c')).toBe('translate3d(100%, 0, 0)');
+      touchUp(p, 200);
+      expect(tabOf('outer')).toBe('b');
+      advance(SNAP_BACK_MS + 100);
+      expectAtRest('outer', 'b');
+    });
+
+    it('glides back on pointercancel, a mouse released outside and a lost touch release', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      fireEvent.pointerDown(p, { pointerType: 'mouse', pointerId: 9, button: 0, clientX: 400, clientY: 300 });
+      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 9, clientX: 300, clientY: 300 });
+      fireEvent.pointerCancel(p, { pointerType: 'mouse', pointerId: 9 });
+      expect(tx('outer', 'b')).toBe('translate3d(0px, 0, 0)');
+      advance(SNAP_BACK_MS + 100);
+      expectAtRest('outer', 'b');
+
+      fireEvent.pointerDown(p, { pointerType: 'mouse', pointerId: 10, button: 0, clientX: 400, clientY: 300 });
+      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 10, clientX: 280, clientY: 300 });
+      fireEvent.pointerUp(document.body, { pointerType: 'mouse', pointerId: 10, button: 0, clientX: 100, clientY: 300 });
+      expect(tabOf('outer')).toBe('b');
+      expect(tx('outer', 'b')).toBe('translate3d(0px, 0, 0)');
+      advance(SNAP_BACK_MS + 100);
+
+      touchDown(p, 400);
+      touchTo(p, 300);
+      fireEvent.touchEnd(window, { touches: [], changedTouches: [{ clientX: 300, clientY: 300 }] });
+      expect(tx('outer', 'b')).toBe('translate3d(0px, 0, 0)');
+      advance(SNAP_BACK_MS + 100);
+      expectAtRest('outer', 'b');
+    });
+  });
+
+  describe('outermost rubber band', () => {
+    it('damps the single active page past the first / last tab without mounting a neighbour', () => {
+      render(<Strip id="outer" order={OUTER} initial="a" />);
+      const p = activePage('outer');
+      touchDown(p, 300);
+      touchTo(p, 350);
+      expect(slideTabs('outer')).toEqual(['a']);
+      expect(tx('outer', 'a')).toBe('translate3d(10px, 0, 0)');
+      touchTo(p, 800);
+      expect(tx('outer', 'a')).toBe('translate3d(36px, 0, 0)');
+      expect(slideTabs('outer')).toEqual(['a']);
+      touchTo(p, 200); // back the other way: a → b is possible, full dual-page tracking
+      expect(slideTabs('outer')).toEqual(['a', 'b']);
+      expect(tx('outer', 'a')).toBe('translate3d(-100px, 0, 0)');
+      touchTo(p, 700);
+      expect(slideTabs('outer')).toEqual(['a']);
+      touchUp(p, 700);
+      expect(tabOf('outer')).toBe('a');
+      expect(tx('outer', 'a')).toBe('translate3d(0px, 0, 0)');
+      expect(slide('outer', 'a').style.transition).toContain(`${SNAP_BACK_MS}ms`);
+      advance(SNAP_BACK_MS + 100);
+      expectAtRest('outer', 'a');
+    });
+  });
+
+  describe('programmatic changes (tab bar taps)', () => {
+    it('slides old and new page side by side, jumping several tabs without mounting the ones in between', () => {
+      render(<Strip id="outer" order={OUTER} initial="a" />);
+      const observer = new MutationObserver(() => {});
+      observer.observe(pagerEl('outer'), { subtree: true, attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-c' }));
+      // Each slide's successive inline styles (old values of every style mutation).
+      const seen = observer
+        .takeRecords()
+        .map((r) => `${(r.target as HTMLElement).dataset['pagerTab']}:${(r.oldValue ?? '').match(/transform: ([^;]+)/)?.[1] ?? ''}`);
+      observer.disconnect();
+      expect(tabOf('outer')).toBe('c');
+      expect(slideTabs('outer')).toEqual(['a', 'c']); // never b
+      expect(mounts.get('outer:b')).toBeUndefined();
+      expect(seen).toContain('a:translate3d(0px, 0, 0)');
+      expect(seen).toContain('c:translate3d(100%, 0, 0)');
+      expect(tx('outer', 'a')).toBe('translate3d(-100%, 0, 0)');
+      expect(tx('outer', 'c')).toBe('translate3d(0px, 0, 0)');
+      expect(slide('outer', 'a')).toHaveAttribute('aria-hidden', 'true');
+      advance(SETTLE_MS);
+      expectAtRest('outer', 'c');
+
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-a' }));
+      expect(slideTabs('outer')).toEqual(['a', 'c']);
+      expect(tx('outer', 'c')).toBe('translate3d(100%, 0, 0)');
+      expect(tx('outer', 'a')).toBe('translate3d(0px, 0, 0)');
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-a' })); // no change: keeps the running slide
+      expect(slideTabs('outer')).toEqual(['a', 'c']);
+      advance(SETTLE_MS);
+      expectAtRest('outer', 'a');
+    });
+
+    it('retargets a tap mid-flight without orphan slides', () => {
+      render(<Strip id="outer" order={OUTER} initial="a" />);
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-c' }));
+      advance(TAB_SLIDE_MS / 2);
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-b' }));
+      expect(tabOf('outer')).toBe('b');
+      expect(slideTabs('outer')).toEqual(['b', 'c']); // a is gone
+      expect(tx('outer', 'c')).toBe('translate3d(100%, 0, 0)');
+      expect(tx('outer', 'b')).toBe('translate3d(0px, 0, 0)');
+      advance(TAB_SLIDE_MS / 2 + 20); // the first slide's timer was cancelled
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      advance(SETTLE_MS);
+      expectAtRest('outer', 'b');
+    });
+
+    it('a new drag catches a running slide and reuses the outgoing page as the neighbour', () => {
+      render(<Strip id="outer" order={OUTER} initial="b" />);
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-c' }));
+      const outgoing = slide('outer', 'b');
+      const p = activePage('outer');
+      touchDown(p, 300);
+      touchTo(p, 350);
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      expect(slide('outer', 'b')).toBe(outgoing);
+      expect(slide('outer', 'b')).toHaveAttribute('data-pager-peer', 'prev');
+      expect(tx('outer', 'c')).toBe('translate3d(50px, 0, 0)');
+      expect(tx('outer', 'b')).toBe('translate3d(calc(-100% + 50px), 0, 0)');
+      expect(slide('outer', 'c').style.transition).toBe('none');
+      advance(SETTLE_MS); // the cancelled slide's fallback never fires
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      touchTo(p, 330);
+      touchUp(p, 330); // below the threshold: glide back
+      advance(SNAP_BACK_MS + 100);
+      expectAtRest('outer', 'c');
+      expect(mounts.get('outer:b')).toBe(1);
     });
   });
 
   describe('nested strips', () => {
     function renderNested(outer: (typeof OUTER)[number] = 'b', inner: (typeof INNER)[number] = 'x') {
       return render(
-        <Strip id="outer" order={OUTER} initial={outer}>
-          <Strip id="inner" order={INNER} initial={inner} />
-        </Strip>,
+        <Strip
+          id="outer"
+          order={OUTER}
+          initial={outer}
+          inner={(t) => (t === outer ? <Strip id="inner" order={INNER} initial={inner} /> : null)}
+        />,
       );
     }
 
-    it('translates only the innermost pane that can move, falling through to the outer one at the inner edge', () => {
+    it('drags the inner pages side by side and falls through to the outer pager at the inner edge', () => {
       renderNested('b', 'x');
-      const p = pane('inner');
+      const p = activePage('inner');
       touchDown(p, 400);
       touchTo(p, 300); // left: inner x → y is possible
-      expect(tx('inner')).toBe('translate3d(-100px, 0, 0)');
-      expect(tx('outer')).toBe('');
+      expect(slideTabs('inner')).toEqual(['x', 'y']);
+      expect(tx('inner', 'y')).toBe('translate3d(calc(100% - 100px), 0, 0)');
+      expect(slideTabs('outer')).toEqual(['b']);
+      expect(tx('outer', 'b')).toBe('');
       touchTo(p, 520); // reversed past the start: inner is at its first tab → outer moves
-      expect(tx('inner')).toBe('');
-      expect(tx('outer')).toBe('translate3d(120px, 0, 0)');
+      expect(slideTabs('inner')).toEqual(['x']);
+      expect(tx('inner', 'x')).toBe('');
+      expect(slideTabs('outer')).toEqual(['a', 'b']);
+      expect(tx('outer', 'b')).toBe('translate3d(120px, 0, 0)');
+      expect(tx('outer', 'a')).toBe('translate3d(calc(-100% + 120px), 0, 0)');
       touchUp(p, 520);
-      expect([tabOf('outer'), tabOf('inner')]).toEqual(['a', 'x']);
+      expect(tabOf('outer')).toBe('a');
+      expect(tabOf('inner')).toBe('x'); // inner strip still mounted in the outgoing slide
+      advance(SETTLE_MS);
+      expectAtRest('outer', 'a');
     });
 
-    it('chains the same way for mouse drags', () => {
-      renderNested('b', 'z');
-      const p = pane('inner');
-      fireEvent.pointerDown(p, { pointerType: 'mouse', pointerId: 5, button: 0, clientX: 500, clientY: 300 });
-      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 5, clientX: 380, clientY: 300 });
-      // z is the inner's last tab: dragging left moves the outer pane.
-      expect(tx('inner')).toBe('');
-      expect(tx('outer')).toBe('translate3d(-120px, 0, 0)');
-      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 5, clientX: 600, clientY: 300 });
-      expect(tx('inner')).toBe('translate3d(100px, 0, 0)');
-      expect(tx('outer')).toBe('');
+    it('commits only the inner strip while it can move', () => {
+      renderNested('b', 'x');
+      swipe(activePage('inner'), 400, 200);
+      expect([tabOf('outer'), tabOf('inner')]).toEqual(['b', 'y']);
+      expect(slideTabs('inner')).toEqual(['x', 'y']);
+      expect(slideTabs('outer')).toEqual(['b']);
+      advance(SETTLE_MS);
+      expectAtRest('inner', 'y');
     });
 
     it('rubber-bands only the outermost strip when nobody can move', () => {
       renderNested('a', 'x');
-      const p = pane('inner');
+      const p = activePage('inner');
       touchDown(p, 300);
-      touchTo(p, 400); // +100 → 100 * 0.2
-      expect(tx('inner')).toBe('');
-      expect(tx('outer')).toBe('translate3d(20px, 0, 0)');
-      touchTo(p, 900); // clamped
-      expect(tx('outer')).toBe('translate3d(36px, 0, 0)');
+      touchTo(p, 400);
+      expect(slideTabs('inner')).toEqual(['x']);
+      expect(tx('inner', 'x')).toBe('');
+      expect(slideTabs('outer')).toEqual(['a']);
+      expect(tx('outer', 'a')).toBe('translate3d(20px, 0, 0)');
+      touchTo(p, 900);
+      expect(tx('outer', 'a')).toBe('translate3d(36px, 0, 0)');
       touchUp(p, 900);
       expect([tabOf('outer'), tabOf('inner')]).toEqual(['a', 'x']);
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)'); // gliding back
+      expect(tx('outer', 'a')).toBe('translate3d(0px, 0, 0)');
     });
   });
 
-  describe('rubber band and snap-back', () => {
-    it('damps drags past the first / last tab (dx * 0.2, max 36px)', () => {
-      render(<Strip id="outer" order={OUTER} initial="a" />);
-      const p = pane('outer');
-      touchDown(p, 300);
-      touchTo(p, 350);
-      expect(tx('outer')).toBe('translate3d(10px, 0, 0)');
-      touchTo(p, 800);
-      expect(tx('outer')).toBe('translate3d(36px, 0, 0)');
-      touchTo(p, 200); // back the other way: a → b is possible, full finger tracking
-      expect(tx('outer')).toBe('translate3d(-100px, 0, 0)');
-    });
-
-    it('glides back to rest when released below the threshold, then clears every inline style', () => {
+  describe('rest state, reduced motion and disabling', () => {
+    it('under prefers-reduced-motion drags still follow, but releases and taps settle at once', () => {
+      stubReducedMotion(true);
       render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
+      const p = activePage('outer');
       touchDown(p, 400);
       touchTo(p, 370);
-      expect(tx('outer')).toBe('translate3d(-30px, 0, 0)');
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
       touchUp(p, 370);
-      expect(tabOf('outer')).toBe('b');
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)');
-      expect(p.style.transition).toContain(`${SNAP_BACK_MS}ms`);
-      act(() => {
-        vi.advanceTimersByTime(SNAP_BACK_MS + 100);
-      });
-      expect(p.getAttribute('style') ?? '').toBe('');
-    });
+      expectAtRest('outer', 'b');
 
-    it('settles early on transitionend', () => {
-      render(<Strip id="outer" order={OUTER} initial="a" />);
-      const p = pane('outer');
-      touchDown(p, 300);
-      touchTo(p, 450);
-      touchUp(p, 450);
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)');
-      fireEvent.transitionEnd(p.firstElementChild!); // a descendant's transition is ignored
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)');
-      fireEvent.transitionEnd(p);
-      expect(p.getAttribute('style') ?? '').toBe('');
-    });
-
-    it('glides back when a second finger joins (pinch) without switching tabs', () => {
-      render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
+      mounts.clear();
       touchDown(p, 400);
       touchTo(p, 300);
-      expect(tx('outer')).toBe('translate3d(-100px, 0, 0)');
-      fireEvent.touchMove(p, { touches: [{ clientX: 250, clientY: 300 }, { clientX: 500, clientY: 300 }] });
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)');
+      touchUp(p, 250);
+      expect(tabOf('outer')).toBe('c');
+      expectAtRest('outer', 'c');
+      expect(mounts.get('outer:c')).toBe(1);
+
+      // A real tap starts with a touchstart, which lifts the post-swipe click guard.
+      const tabA = screen.getByRole('tab', { name: 'outer-a' });
+      touchDown(tabA, 100, 20);
+      touchUp(tabA, 100, 20);
+      fireEvent.click(tabA);
+      expectAtRest('outer', 'a');
+    });
+
+    it('disabling mid-drag or mid-slide drops the second page and every inline style at once', () => {
+      const { rerender } = render(<Strip id="outer" order={OUTER} initial="b" />);
+      const p = activePage('outer');
+      touchDown(p, 400);
+      touchTo(p, 300);
+      expect(slideTabs('outer')).toEqual(['b', 'c']);
+      rerender(<Strip id="outer" order={OUTER} initial="b" enabled={false} />);
+      expectAtRest('outer', 'b');
+      touchTo(p, 250);
       touchUp(p, 200);
-      expect(tabOf('outer')).toBe('b');
-      act(() => {
-        vi.advanceTimersByTime(SNAP_BACK_MS + 100);
-      });
-      expect(tx('outer')).toBe('');
-    });
+      expectAtRest('outer', 'b');
 
-    it('glides back on pointercancel and on a mouse released outside the container', () => {
-      render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
-      fireEvent.pointerDown(p, { pointerType: 'mouse', pointerId: 9, button: 0, clientX: 400, clientY: 300 });
-      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 9, clientX: 300, clientY: 300 });
-      fireEvent.pointerCancel(p, { pointerType: 'mouse', pointerId: 9 });
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)');
-      act(() => {
-        vi.advanceTimersByTime(SNAP_BACK_MS + 100);
-      });
-      expect(tx('outer')).toBe('');
-
-      fireEvent.pointerDown(p, { pointerType: 'mouse', pointerId: 10, button: 0, clientX: 400, clientY: 300 });
-      fireEvent.pointerMove(p, { pointerType: 'mouse', pointerId: 10, clientX: 280, clientY: 300 });
-      expect(tx('outer')).toBe('translate3d(-120px, 0, 0)');
-      fireEvent.pointerUp(document.body, { pointerType: 'mouse', pointerId: 10, button: 0, clientX: 100, clientY: 300 });
-      expect(tabOf('outer')).toBe('b');
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)');
-    });
-
-    it('never gets stuck when the release never reaches React (touched node removed)', () => {
-      render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
-      touchDown(p, 400);
-      touchTo(p, 300);
-      fireEvent.touchEnd(window, { touches: [], changedTouches: [{ clientX: 300, clientY: 300 }] });
-      expect(tx('outer')).toBe('translate3d(0px, 0, 0)');
-    });
-
-    it('clears instantly under prefers-reduced-motion', () => {
-      stubReducedMotion(true);
-      render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
-      touchDown(p, 400);
-      touchTo(p, 370);
-      expect(tx('outer')).toBe('translate3d(-30px, 0, 0)');
-      touchUp(p, 370);
-      expect(p.getAttribute('style') ?? '').toBe('');
+      rerender(<Strip id="outer" order={OUTER} initial="b" />);
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-a' }));
+      expect(slideTabs('outer')).toEqual(['a', 'b']);
+      rerender(<Strip id="outer" order={OUTER} initial="b" enabled={false} />);
+      expectAtRest('outer', 'a');
+      fireEvent.click(screen.getByRole('tab', { name: 'outer-c' })); // disabled: instant swap
+      expectAtRest('outer', 'c');
+      advance(SETTLE_MS);
+      expectAtRest('outer', 'c');
     });
   });
 
-  describe('directional slide-in', () => {
-    it('slides in from the right on next / from the left on prev, switching tabs synchronously', () => {
+  describe('inactive slide isolation', () => {
+    it('marks peeked / outgoing slides inert + aria-hidden and keeps their back interceptors unregistered', () => {
       render(<Strip id="outer" order={OUTER} initial="b" />);
-      const p = pane('outer');
-      swipe(p, 400, 200);
-      expect(tabOf('outer')).toBe('c');
-      expect(p).toHaveAttribute('data-tab-slide', 'next');
-      expect(tx('outer')).toBe(''); // the drag offset hands over to the keyframes
-      expect(p.style.willChange).toBe('');
-      swipe(p, 200, 400);
-      expect(tabOf('outer')).toBe('b');
-      expect(p).toHaveAttribute('data-tab-slide', 'prev');
-      act(() => {
-        vi.advanceTimersByTime(TAB_SLIDE_MS + 100);
-      });
-      expect(p).not.toHaveAttribute('data-tab-slide');
-      expect(p.getAttribute('style') ?? '').toBe('');
-    });
-
-    it('restarts on consecutive changes in the same direction', () => {
-      render(<Strip id="outer" order={['a', 'b', 'c', 'd']} initial="a" />);
-      const p = pane('outer');
-      const reflows = vi.spyOn(p, 'offsetWidth', 'get');
-      swipe(p, 400, 200);
-      act(() => {
-        vi.advanceTimersByTime(TAB_SLIDE_MS - 60);
-      });
-      swipe(p, 400, 200);
-      expect(tabOf('outer')).toBe('c');
-      expect(p).toHaveAttribute('data-tab-slide', 'next');
-      expect(reflows).toHaveBeenCalledTimes(2); // forced restart each time
-      act(() => {
-        vi.advanceTimersByTime(TAB_SLIDE_MS - 60);
-      });
-      expect(p).toHaveAttribute('data-tab-slide', 'next'); // timer restarted with the animation
-      fireEvent.animationEnd(p);
-      expect(p).not.toHaveAttribute('data-tab-slide');
-    });
-
-    it('slides on tab bar taps in the direction of the destination', () => {
-      render(<Strip id="outer" order={OUTER} initial="a" />);
-      const p = pane('outer');
-      fireEvent.click(screen.getByRole('tab', { name: 'outer-c' }));
-      expect(tabOf('outer')).toBe('c');
-      expect(p).toHaveAttribute('data-tab-slide', 'next');
-      fireEvent.click(screen.getByRole('tab', { name: 'outer-b' }));
-      expect(p).toHaveAttribute('data-tab-slide', 'prev');
-      fireEvent.click(screen.getByRole('tab', { name: 'outer-b' })); // no change: keeps the running slide
-      expect(p).toHaveAttribute('data-tab-slide', 'prev');
-    });
-
-    it('a drag interrupts a running slide-in', () => {
-      render(<Strip id="outer" order={OUTER} initial="a" />);
-      const p = pane('outer');
-      fireEvent.click(screen.getByRole('tab', { name: 'outer-b' }));
-      expect(p).toHaveAttribute('data-tab-slide', 'next');
+      const p = activePage('outer');
       touchDown(p, 400);
-      touchTo(p, 330);
-      expect(p).not.toHaveAttribute('data-tab-slide');
-      expect(tx('outer')).toBe('translate3d(-70px, 0, 0)');
+      touchTo(p, 300);
+      const peek = slide('outer', 'c');
+      expect(peek).toHaveAttribute('aria-hidden', 'true');
+      expect(peek).toHaveAttribute('inert');
+      expect(inactiveSeen.get('outer:c')).toBe(true);
+      expect(inactiveSeen.get('outer:b')).toBe(false);
+      // ARIA queries only see the active page.
+      expect(screen.getAllByText(/^outer:/).length).toBe(2);
+      expect(within(pagerEl('outer')).queryByRole('button')).toBeNull();
+      act(() => {
+        expect(dispatchBackNavigation()).toBe(true);
+      });
+      expect(backLog).toEqual(['outer:b']); // never the peeked page
+
+      touchTo(p, 250);
+      touchUp(p, 250);
+      expect(inactiveSeen.get('outer:c')).toBe(false);
+      expect(inactiveSeen.get('outer:b')).toBe(true);
+      backLog.length = 0;
+      act(() => {
+        dispatchBackNavigation();
+      });
+      expect(backLog).toEqual(['outer:c']); // the new page took over; the outgoing one is silent
     });
 
-    it('only the strip whose tab changed slides (nested)', () => {
+    it('a strip nested in a peeked slide is a still picture', () => {
       render(
-        <Strip id="outer" order={OUTER} initial="b">
-          <Strip id="inner" order={INNER} initial="x" />
-        </Strip>,
+        <Strip
+          id="outer"
+          order={OUTER}
+          initial="a"
+          inner={(t) => (t === 'b' ? <Strip id="inner" order={INNER} initial="y" /> : null)}
+        />,
       );
-      swipe(pane('inner'), 400, 200);
-      expect(pane('inner')).toHaveAttribute('data-tab-slide', 'next');
-      expect(pane('outer')).not.toHaveAttribute('data-tab-slide');
-      swipe(pane('inner'), 200, 400);
-      swipe(pane('inner'), 200, 400); // inner at x → outer b → a
-      expect(tabOf('outer')).toBe('a');
-      expect(pane('outer')).toHaveAttribute('data-tab-slide', 'prev');
-      expect(tx('inner')).toBe('');
-    });
-
-    it('does not slide under prefers-reduced-motion or while disabled, and disabling clears motion', () => {
-      stubReducedMotion(true);
-      const { rerender } = render(<Strip id="outer" order={OUTER} initial="a" />);
-      fireEvent.click(screen.getByRole('tab', { name: 'outer-b' }));
-      expect(pane('outer')).not.toHaveAttribute('data-tab-slide');
-      vi.unstubAllGlobals();
-
-      fireEvent.click(screen.getByRole('tab', { name: 'outer-c' }));
-      expect(pane('outer')).toHaveAttribute('data-tab-slide', 'next');
-      rerender(<Strip id="outer" order={OUTER} initial="a" enabled={false} />);
-      expect(pane('outer')).not.toHaveAttribute('data-tab-slide');
-      fireEvent.click(screen.getByRole('tab', { name: 'outer-a' }));
-      expect(pane('outer')).not.toHaveAttribute('data-tab-slide');
-      expect(pane('outer').getAttribute('style') ?? '').toBe('');
+      const p = activePage('outer');
+      touchDown(p, 400);
+      touchTo(p, 300);
+      expect(slideTabs('inner')).toEqual(['y']);
+      expect(inactiveSeen.get('inner:y')).toBe(true); // inherits the outer slide's inactivity
     });
   });
 });

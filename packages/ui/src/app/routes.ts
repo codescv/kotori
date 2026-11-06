@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import type { Id } from '@kotori/core';
 import { useBreakdownStore } from '../stores/breakdown';
+import { useIsInactiveTabSlide } from '../components/m3/tabSlideContext';
 
 export type Tab = 'anime' | 'manga' | 'downloads' | 'settings';
 
@@ -130,14 +131,20 @@ export function registerBackInterceptor(fn: BackInterceptor): () => void {
   };
 }
 
-/** React hook that registers a component-level back interceptor while mounted and `enabled`. */
+/**
+ * React hook that registers a component-level back interceptor while mounted and `enabled`.
+ * Never registers inside a peeked / exiting `<TabPager>` slide: only the visible page
+ * may consume Android back.
+ */
 export function useBackInterceptor(fn: BackInterceptor, enabled = true): void {
   const fnRef = useRef<BackInterceptor>(fn);
   fnRef.current = fn;
+  const inactiveSlide = useIsInactiveTabSlide();
+  const active = enabled && !inactiveSlide;
   useEffect(() => {
-    if (!enabled) return;
+    if (!active) return;
     return registerBackInterceptor(() => fnRef.current());
-  }, [enabled]);
+  }, [active]);
 }
 
 /**

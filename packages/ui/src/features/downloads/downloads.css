@@ -1,6 +1,10 @@
 /* Downloads page: task list, search bars, rich media cards, cover thumbnails, catalog breadcrumbs. */
-.k-downloads { flex: 1 0 auto; display: flex; flex-direction: column; touch-action: pan-y; overflow-x: clip; }
-.k-downloads__body { flex: 1 0 auto; padding-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+/* The page fills its Shell slide (never shrinking below its header + a usable body);
+   below the header / tab bar the sub-tab pages live in a fill-layout <TabPager>, each
+   sub-tab scrolling on its own. */
+.k-page.k-downloads { flex: 1 1 auto; display: flex; flex-direction: column; touch-action: pan-y; overflow-x: clip; }
+.k-pager.k-downloads__body { min-height: 240px; }
+.k-downloads__slide { padding-top: 16px; gap: 12px; }
 .k-downloads .k-empty { flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 220px; }
 
 .k-dl-list, .k-dl-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -40,9 +44,10 @@
 .k-dl-status--paused, .k-dl-status--cancelled { background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
 
 .k-dl-search { flex: 1 0 auto; display: flex; flex-direction: column; gap: 12px; }
-/* Stage-2 tab pane (follows swipes / slides in); layout-transparent in Stage 1 / direct mode. */
+/* Stage-2 pages (flow-layout <TabPager>, dragged side by side); layout-transparent in Stage 1 / direct mode. */
 .k-dl-search__pane { display: contents; }
-.k-dl-search__pane--detail { flex: 1 0 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.k-dl-search__pane--detail { flex: 1 0 auto; min-width: 0; display: flex; flex-direction: column; }
+.k-dl-search__detail-slide { flex: 1 0 auto; gap: 12px; }
 .k-dl-search__bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .k-dl-search__bar .k-field { flex: 1; min-width: 0; }
 

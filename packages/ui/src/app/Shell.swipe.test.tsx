@@ -39,8 +39,11 @@ const where = (): string => {
   const s = useRouteStore.getState();
   return s.tab === 'downloads' ? `downloads/${s.downloadsTab}` : s.tab;
 };
+/** The Shell pager's active slide (an outgoing page may still be sliding out next to it). */
+const activeSlide = (): HTMLElement =>
+  content().querySelector<HTMLElement>('.k-shell__pager > .k-pager__slide:not([inert])') ?? content();
 /** Swipe target: the innermost page so nested strips see the gesture too. */
-const page = (): HTMLElement => content().querySelector<HTMLElement>('.k-page') ?? content();
+const page = (): HTMLElement => activeSlide().querySelector<HTMLElement>('.k-page') ?? activeSlide();
 
 let host: MockPlatformHost;
 

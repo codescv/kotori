@@ -21,6 +21,7 @@ import { IconButton } from '../../../components/m3/IconButton';
 import { Menu } from '../../../components/m3/Menu';
 import { CircularProgress } from '../../../components/m3/Progress';
 import { BottomSheet, SideSheet } from '../../../components/m3/Sheet';
+import { TabPager, useTabPager } from '../../../components/m3/TabPager';
 import { Tabs, useTabSwipe } from '../../../components/m3/Tabs';
 import { useHost } from '../../../host/HostContext';
 import { useAsync } from '../../../host/useAsync';
@@ -56,6 +57,7 @@ import { useSubtitlePreExplain } from './useSubtitlePreExplain';
 import './player.css';
 
 type PanelTab = 'transcript' | 'breakdown';
+const PANEL_TAB_ORDER: readonly PanelTab[] = ['transcript', 'breakdown'];
 
 /** Default track: explicit default → preferred language → first playable. */
 export function pickDefaultTrack(episode: AnimeEpisode, preferred: readonly string[]): SubtitleTrack | undefined {
@@ -206,10 +208,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     prevBreakdownRequestRef.current = breakdownRequest;
     explainedAtMsRef.current = breakdownRequest ? clock.currentMs : undefined;
   }
-  const sidePaneRef = useRef<HTMLDivElement>(null);
-  const sideSheetSwipe = useTabSwipe<PanelTab>(['transcript', 'breakdown'], panelTab, setPanelTab, {
-    paneRef: sidePaneRef,
-  });
+  const sidePager = useTabPager();
+  const sideSheetSwipe = useTabSwipe<PanelTab>(PANEL_TAB_ORDER, panelTab, setPanelTab, { pager: sidePager });
 
   const bumpHudTimer = useCallback(() => {
     setHudNonce((n) => n + 1);
@@ -928,9 +928,15 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
           }
         >
           <div {...sideSheetSwipe} className="k-player__panel-swipe">
-            <div ref={sidePaneRef} className="k-player__panel-pane" data-testid="player-panel-pane">
-              {panelTab === 'transcript' ? transcript : <BreakdownPanel />}
-            </div>
+            <TabPager<PanelTab>
+              pager={sidePager}
+              order={PANEL_TAB_ORDER}
+              value={panelTab}
+              layout="flow"
+              className="k-player__panel-pane"
+              data-testid="player-panel-pane"
+              renderPage={(page) => (page === 'transcript' ? transcript : <BreakdownPanel />)}
+            />
           </div>
         </SideSheet>
       )}

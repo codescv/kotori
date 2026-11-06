@@ -251,27 +251,45 @@ describe('Player · TranscriptPanel · SubtitleOverlay', () => {
       await waitFor(() => expect(useBreakdownStore.getState().request?.sentence).toBe(MERGED));
     });
 
-    it('SideSheet 字幕列表 ⇄ AI 解析 slide in directionally and follow the finger, rubber-banding at either end', async () => {
+    it('SideSheet 字幕列表 ⇄ AI 解析 drag side by side, slide side by side on taps and rubber-band at either end', async () => {
       renderWithHost(<Player seriesId="series-kotori" episodeId="series-kotori-ep1" />);
       const cue = await screen.findByTestId('overlay-cue');
       fireEvent.click(glyphAt(cue, 2));
       await waitFor(() => expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true'));
       const pane = screen.getByTestId('player-panel-pane');
       expect(pane.closest('.k-player__panel-swipe')).not.toBeNull();
+      const slides = (): HTMLElement[] =>
+        [...pane.children].filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('k-pager__slide'));
+      const slideOf = (tab: string): HTMLElement | undefined => slides().find((el) => el.dataset['pagerTab'] === tab);
+      const tabsOf = (): string[] => slides().map((el) => el.dataset['pagerTab']!);
+      await waitFor(() => expect(tabsOf()).toEqual(['breakdown']));
 
+      // Tab tap: both panels slide side by side (breakdown out to the right, transcript in from the left).
       fireEvent.click(screen.getByRole('tab', { name: /字幕列表/ }));
-      expect(pane).toHaveAttribute('data-tab-slide', 'prev');
+      expect(tabsOf()).toEqual(['transcript', 'breakdown']);
+      expect(slideOf('breakdown')!.style.transform).toBe('translate3d(100%, 0, 0)');
+      expect(slideOf('breakdown')).toHaveAttribute('inert');
+      expect(slideOf('transcript')!.style.transform).toBe('translate3d(0px, 0, 0)');
+      await waitFor(() => expect(tabsOf()).toEqual(['transcript']));
+      expect(slideOf('transcript')!.getAttribute('style') ?? '').toBe('');
 
-      fireEvent.touchStart(pane, { touches: [{ clientX: 300, clientY: 300 }] });
-      fireEvent.touchMove(pane, { touches: [{ clientX: 400, clientY: 300 }] }); // past the first tab
-      expect(pane).not.toHaveAttribute('data-tab-slide');
-      expect(pane.style.transform).toBe('translate3d(20px, 0, 0)');
-      fireEvent.touchMove(pane, { touches: [{ clientX: 180, clientY: 300 }] });
-      expect(pane.style.transform).toBe('translate3d(-120px, 0, 0)');
-      fireEvent.touchEnd(pane, { touches: [], changedTouches: [{ clientX: 180, clientY: 300 }] });
+      const active = slideOf('transcript')!;
+      fireEvent.touchStart(active, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchMove(active, { touches: [{ clientX: 400, clientY: 300 }] }); // past the first tab
+      expect(tabsOf()).toEqual(['transcript']);
+      expect(active.style.transform).toBe('translate3d(20px, 0, 0)');
+      fireEvent.touchMove(active, { touches: [{ clientX: 180, clientY: 300 }] });
+      expect(tabsOf()).toEqual(['transcript', 'breakdown']);
+      expect(active.style.transform).toBe('translate3d(-120px, 0, 0)');
+      expect(slideOf('breakdown')!.style.transform).toBe('translate3d(calc(100% - 120px), 0, 0)');
+      const peeked = slideOf('breakdown');
+      fireEvent.touchEnd(active, { touches: [], changedTouches: [{ clientX: 180, clientY: 300 }] });
       expect(screen.getByRole('tab', { name: /AI 解析/ })).toHaveAttribute('aria-selected', 'true');
-      expect(pane).toHaveAttribute('data-tab-slide', 'next');
-      expect(pane.style.transform).toBe('');
+      expect(slideOf('breakdown')).toBe(peeked); // the peeked panel became the active one in place
+      expect(active.style.transform).toBe('translate3d(-100%, 0, 0)');
+      expect(peeked!.style.transform).toBe('translate3d(0px, 0, 0)');
+      await waitFor(() => expect(tabsOf()).toEqual(['breakdown']));
+      expect(peeked!.getAttribute('style') ?? '').toBe('');
     });
 
     it('switching from AI解析 back to 字幕列表 scrolls to the current or explained subtitle row', async () => {

@@ -1,8 +1,10 @@
 /**
- * Shell-level swipe motion: finger-following drag coordinated across the nested
- * Shell → Downloads → Nyaa Stage-2 strips, outermost rubber band, directional
- * slide-in on swipes and NavBar / tab bar taps, and no transform left on
- * `.k-shell__content` at rest or inside the player.
+ * Shell-level ViewPager2 motion: the Shell `<TabPager>` (anime · manga · downloads ·
+ * settings) and the nested Downloads / Nyaa Stage-2 pagers show the current and the
+ * adjacent page side by side while dragging, commit without remounting the peeked page,
+ * preview the Downloads entry sub-tab, rubber-band at the outermost ends, slide side by
+ * side on NavBar / tab bar taps, and leave a single untransformed page at rest and
+ * inside the player.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,24 +23,44 @@ function setPhoneViewport(): void {
   });
 }
 
-function swipe(el: Element, dir: 'left' | 'right', y = 320): void {
-  const [fromX, toX] = dir === 'left' ? [420, 200] : [200, 420];
-  fireEvent.touchStart(el, { touches: [{ clientX: fromX, clientY: y }] });
-  fireEvent.touchMove(el, { touches: [{ clientX: (fromX + toX) / 2, clientY: y + 2 }] });
-  fireEvent.touchEnd(el, { touches: [], changedTouches: [{ clientX: toX, clientY: y + 4 }] });
-}
-
 const content = (): HTMLElement => document.querySelector<HTMLElement>('.k-shell__content')!;
-const page = (): HTMLElement => content().querySelector<HTMLElement>('.k-page') ?? content();
-const body = (): HTMLElement => screen.getByTestId('downloads-tabpanel');
-const nyaaPane = (): HTMLElement => screen.getByTestId('nyaa-detail-pane');
+const shellPager = (): HTMLElement => content().querySelector<HTMLElement>('.k-shell__pager')!;
+const slidesOf = (pager: HTMLElement): HTMLElement[] =>
+  [...pager.children].filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('k-pager__slide'));
+const tabsOf = (pager: HTMLElement): string[] => slidesOf(pager).map((el) => el.dataset['pagerTab']!);
+const slideOf = (pager: HTMLElement, tab: string): HTMLElement => slidesOf(pager).find((el) => el.dataset['pagerTab'] === tab)!;
+const shellTabs = (): string[] => tabsOf(shellPager());
+const shellSlide = (tab: string): HTMLElement => slideOf(shellPager(), tab);
+/** The Downloads sub-tab pager inside the Shell `downloads` slide. */
+const dlPager = (): HTMLElement => shellSlide('downloads').querySelector<HTMLElement>('[data-testid="downloads-tabpanel"]')!;
+const nyaaPager = (): HTMLElement => screen.getByTestId('nyaa-detail-pane');
+/** The page of the Shell's active slide (gesture target). */
+const page = (): HTMLElement => {
+  const active = slidesOf(shellPager()).find((el) => !el.hasAttribute('inert'))!;
+  return active.querySelector<HTMLElement>('.k-page') ?? active;
+};
 const where = (): string => {
   const s = useRouteStore.getState();
   return s.tab === 'downloads' ? `downloads/${s.downloadsTab}` : s.tab;
 };
-/** Inline style + slide attribute: everything that could leave a containing block behind. */
-const motionOf = (el: HTMLElement): string => `${el.getAttribute('style') ?? ''}|${el.getAttribute('data-tab-slide') ?? ''}`;
-const AT_REST = '|';
+
+function down(el: Element, x: number, y = 320): void {
+  fireEvent.touchStart(el, { touches: [{ clientX: x, clientY: y }] });
+}
+function move(el: Element, x: number, y = 320): void {
+  fireEvent.touchMove(el, { touches: [{ clientX: x, clientY: y }] });
+}
+function up(el: Element, x: number, y = 320): void {
+  fireEvent.touchEnd(el, { touches: [], changedTouches: [{ clientX: x, clientY: y }] });
+}
+
+/** Every element from `el` up to the document root is free of inline motion. */
+function expectNoTransformedAncestor(el: Element): void {
+  for (let n: Element | null = el; n; n = n.parentElement) {
+    const s = (n as HTMLElement).style;
+    expect(`${n.className}:${s?.transform ?? ''}|${s?.willChange ?? ''}|${s?.contain ?? ''}`).toBe(`${n.className}:||`);
+  }
+}
 
 let host: MockPlatformHost;
 
@@ -49,11 +71,22 @@ async function renderApp(): Promise<void> {
   await screen.findByTestId('series-series-kotori');
 }
 
-async function settle(el: HTMLElement): Promise<void> {
-  await waitFor(() => expect(motionOf(el)).toBe(AT_REST), { timeout: 2000 });
+/** Waits until the pager holds only `tab`, with no inline motion left on it. */
+async function settled(pager: () => HTMLElement, tab: string): Promise<void> {
+  await waitFor(
+    () => {
+      expect(tabsOf(pager())).toEqual([tab]);
+      expect(slideOf(pager(), tab).getAttribute('style') ?? '').toBe('');
+    },
+    { timeout: 2000 },
+  );
+  const el = slideOf(pager(), tab);
+  expect(el).not.toHaveAttribute('inert');
+  expect(el).not.toHaveAttribute('aria-hidden');
+  expect(pager()).not.toHaveAttribute('data-pager-moving');
 }
 
-describe('Shell swipe motion', () => {
+describe('Shell ViewPager2 motion', () => {
   let uninstallPointerEvent: () => void = () => {};
   beforeAll(() => {
     uninstallPointerEvent = installPointerEventPolyfill();
@@ -68,142 +101,258 @@ describe('Shell swipe motion', () => {
     vi.unstubAllGlobals();
   });
 
-  it('slides each destination in from the swipe direction, retriggering on rapid chained swipes, then rests clean', async () => {
+  it('keeps the single UpdateBanner slot outside the pager and only the active page mounted at rest', async () => {
     await renderApp();
-    swipe(page(), 'left');
-    expect(where()).toBe('manga');
-    expect(content()).toHaveAttribute('data-tab-slide', 'next');
-    swipe(page(), 'left');
-    expect(where()).toBe('downloads/tasks');
-    expect(content()).toHaveAttribute('data-tab-slide', 'next');
-    // The freshly mounted Downloads page does not slide its own panel on entry.
-    expect(body()).not.toHaveAttribute('data-tab-slide');
-    swipe(page(), 'left');
-    expect(where()).toBe('downloads/anime');
-    expect(body()).toHaveAttribute('data-tab-slide', 'next');
-    swipe(page(), 'right');
-    expect(where()).toBe('downloads/tasks');
-    expect(body()).toHaveAttribute('data-tab-slide', 'prev');
-    swipe(page(), 'right');
-    expect(where()).toBe('manga');
-    expect(content()).toHaveAttribute('data-tab-slide', 'prev');
-
-    await settle(content());
-    expect(getComputedStyle(content()).transform === '' || getComputedStyle(content()).transform === 'none').toBe(true);
+    expect(shellPager().parentElement).toBe(content());
+    expect(shellPager().querySelector('[data-testid="update-banner"]')).toBeNull();
+    expect(shellTabs()).toEqual(['anime']);
+    await settled(shellPager, 'anime');
   });
 
-  it('slides on NavBar and Downloads tab bar taps in the direction of the destination', async () => {
+  it('drags anime → manga with both pages side by side, then commits without remounting the peeked MangaPage', async () => {
+    await renderApp();
+    const p = page();
+    down(p, 300);
+    move(p, 240);
+    expect(shellTabs()).toEqual(['anime', 'manga']);
+    expect(shellSlide('anime').style.transform).toBe('translate3d(-60px, 0, 0)');
+    expect(shellSlide('manga').style.transform).toBe('translate3d(calc(100% - 60px), 0, 0)');
+    expect(shellSlide('manga')).toHaveAttribute('aria-hidden', 'true');
+    expect(shellSlide('manga')).toHaveAttribute('inert');
+    const peekedSlide = shellSlide('manga');
+    const peekedPage = peekedSlide.firstElementChild;
+    move(p, 150);
+    expect(shellSlide('manga').style.transform).toBe('translate3d(calc(100% - 150px), 0, 0)');
+    up(p, 150);
+    expect(where()).toBe('manga');
+    expect(shellSlide('anime').style.transform).toBe('translate3d(-100%, 0, 0)');
+    expect(shellSlide('manga').style.transform).toBe('translate3d(0px, 0, 0)');
+    expect(shellSlide('manga')).toBe(peekedSlide);
+    await settled(shellPager, 'manga');
+    expect(shellSlide('manga')).toBe(peekedSlide);
+    expect(shellSlide('manga').firstElementChild).toBe(peekedPage); // same DOM: no remount, no scroll reset
+  });
+
+  it('reverses the revealed neighbour when the finger crosses its start point', async () => {
+    await renderApp();
+    act(() => useRouteStore.getState().setTab('manga'));
+    await settled(shellPager, 'manga');
+    const p = page();
+    down(p, 300);
+    move(p, 220);
+    expect(shellTabs()).toEqual(['manga', 'downloads']);
+    move(p, 390);
+    expect(shellTabs()).toEqual(['anime', 'manga']);
+    expect(shellSlide('anime').style.transform).toBe('translate3d(calc(-100% + 90px), 0, 0)');
+    expect(shellSlide('manga').style.transform).toBe('translate3d(90px, 0, 0)');
+    move(p, 320);
+    up(p, 320); // below the threshold: both glide back
+    expect(where()).toBe('manga');
+    expect(shellSlide('manga').style.transform).toBe('translate3d(0px, 0, 0)');
+    expect(shellSlide('anime').style.transform).toBe('translate3d(-100%, 0, 0)');
+    await settled(shellPager, 'manga');
+  });
+
+  it('previews the Downloads entry sub-tab: tasks when peeked from Manga, manga when peeked from Settings', async () => {
+    await renderApp();
+    // The routed Downloads sub-tab is somewhere in the middle…
+    act(() => useRouteStore.getState().setTab('downloads', { downloadsTab: 'subtitles' }));
+    act(() => useRouteStore.getState().setTab('manga'));
+    await settled(shellPager, 'manga');
+
+    let p = page();
+    down(p, 300);
+    move(p, 180); // drag left from Manga
+    expect(shellTabs()).toEqual(['manga', 'downloads']);
+    expect(dlPager().dataset['activeTab']).toBe('tasks');
+    expect(tabsOf(dlPager())).toEqual(['tasks']);
+    const peeked = shellSlide('downloads');
+    up(p, 180);
+    expect(where()).toBe('downloads/tasks'); // …the commit lands on the previewed sub-tab
+    expect(shellSlide('downloads')).toBe(peeked);
+    expect(tabsOf(dlPager())).toEqual(['tasks']); // no inner slide on entry
+    await settled(shellPager, 'downloads');
+
+    act(() => useRouteStore.getState().setTab('downloads', { downloadsTab: 'subtitles' }));
+    act(() => useRouteStore.getState().setTab('settings'));
+    await settled(shellPager, 'settings');
+    p = page();
+    down(p, 200);
+    move(p, 320); // drag right from Settings
+    expect(shellTabs()).toEqual(['downloads', 'settings']);
+    expect(dlPager().dataset['activeTab']).toBe('manga');
+    expect(shellSlide('downloads').style.transform).toBe('translate3d(calc(-100% + 120px), 0, 0)');
+    // The peeked page is invisible to ARIA queries (no duplicate tab bars).
+    expect(screen.queryByRole('tablist', { name: '下载' })).toBeNull();
+    up(p, 320);
+    expect(where()).toBe('downloads/manga');
+    await settled(shellPager, 'downloads');
+    expect(within(screen.getByRole('tablist', { name: '下载' })).getByRole('tab', { selected: true })).toHaveTextContent('漫画');
+  });
+
+  it('drags Downloads sub-tabs side by side and chains to the Shell pages at the Downloads edges', async () => {
+    await renderApp();
+    act(() => useRouteStore.getState().setTab('downloads', { downloadsTab: 'tasks' }));
+    await settled(shellPager, 'downloads');
+    const p = page();
+    down(p, 300);
+    move(p, 180); // left: tasks → anime inside Downloads
+    expect(tabsOf(dlPager())).toEqual(['tasks', 'anime']);
+    expect(slideOf(dlPager(), 'tasks').style.transform).toBe('translate3d(-120px, 0, 0)');
+    expect(slideOf(dlPager(), 'anime').style.transform).toBe('translate3d(calc(100% - 120px), 0, 0)');
+    expect(shellTabs()).toEqual(['downloads']);
+    expect(shellSlide('downloads').style.transform).toBe('');
+    move(p, 420); // right: tasks is Downloads' first sub-tab → the Shell reveals Manga
+    expect(tabsOf(dlPager())).toEqual(['tasks']);
+    expect(slideOf(dlPager(), 'tasks').style.transform).toBe('');
+    expect(shellTabs()).toEqual(['manga', 'downloads']);
+    expect(shellSlide('downloads').style.transform).toBe('translate3d(120px, 0, 0)');
+    expect(shellSlide('manga').style.transform).toBe('translate3d(calc(-100% + 120px), 0, 0)');
+    move(p, 180);
+    up(p, 180);
+    expect(where()).toBe('downloads/anime');
+    expect(shellTabs()).toEqual(['downloads']);
+    expect(slideOf(dlPager(), 'anime').style.transform).toBe('translate3d(0px, 0, 0)');
+    expect(slideOf(dlPager(), 'tasks').style.transform).toBe('translate3d(-100%, 0, 0)');
+    await settled(dlPager, 'anime');
+
+    // At the last sub-tab a left drag reveals Settings next to Downloads.
+    act(() => useRouteStore.getState().setDownloadsTab('manga'));
+    await settled(dlPager, 'manga');
+    const q = page();
+    down(q, 300);
+    move(q, 200);
+    expect(tabsOf(dlPager())).toEqual(['manga']);
+    expect(shellTabs()).toEqual(['downloads', 'settings']);
+    expect(shellSlide('settings').style.transform).toBe('translate3d(calc(100% - 100px), 0, 0)');
+    up(q, 200);
+    expect(where()).toBe('settings');
+    await settled(shellPager, 'settings');
+  });
+
+  it('drags the Nyaa Stage-2 pages side by side first, falling through to the Downloads sub-tabs at their edge', async () => {
+    await renderApp();
+    act(() => useRouteStore.getState().setTab('downloads', { downloadsTab: 'anime' }));
+    await settled(shellPager, 'downloads');
+    fireEvent.click((await screen.findAllByTestId('anime-series-card'))[0]!);
+    await screen.findByTestId('series-detail-banner');
+    const section = document.querySelector<HTMLElement>('.k-dl-search')!;
+    down(section, 400);
+    move(section, 300); // torrents → subtitles
+    expect(tabsOf(nyaaPager())).toEqual(['torrents', 'subtitles']);
+    expect(slideOf(nyaaPager(), 'torrents').style.transform).toBe('translate3d(-100px, 0, 0)');
+    expect(slideOf(nyaaPager(), 'subtitles').style.transform).toBe('translate3d(calc(100% - 100px), 0, 0)');
+    expect(tabsOf(dlPager())).toEqual(['anime']);
+    move(section, 530); // torrents edge → Downloads anime → tasks
+    expect(tabsOf(nyaaPager())).toEqual(['torrents']);
+    expect(tabsOf(dlPager())).toEqual(['tasks', 'anime']);
+    expect(slideOf(dlPager(), 'anime').style.transform).toBe('translate3d(130px, 0, 0)');
+    expect(shellTabs()).toEqual(['downloads']);
+    move(section, 250);
+    up(section, 250);
+    expect(section.dataset['detailTab']).toBe('subtitles');
+    expect(where()).toBe('downloads/anime');
+    expect(slideOf(nyaaPager(), 'subtitles').style.transform).toBe('translate3d(0px, 0, 0)');
+    await settled(nyaaPager, 'subtitles');
+    await settled(dlPager, 'anime');
+
+    // Tapping the 视频种子 chip slides torrents back in from the left (a real tap starts
+    // with a touchstart, which also lifts the post-swipe click guard).
+    const chip = screen.getByRole('button', { name: /视频种子/ });
+    down(chip, 300, 200);
+    up(chip, 300, 200);
+    fireEvent.click(chip);
+    expect(section.dataset['detailTab']).toBe('torrents');
+    expect(tabsOf(nyaaPager())).toEqual(['torrents', 'subtitles']);
+    expect(slideOf(nyaaPager(), 'subtitles').style.transform).toBe('translate3d(100%, 0, 0)');
+    await settled(nyaaPager, 'torrents');
+  });
+
+  it('rubber-bands the single Shell page at the outermost destinations and glides back', async () => {
+    await renderApp();
+    const p = page();
+    down(p, 200);
+    move(p, 300);
+    expect(shellTabs()).toEqual(['anime']);
+    expect(shellSlide('anime').style.transform).toBe('translate3d(20px, 0, 0)');
+    move(p, 700);
+    expect(shellSlide('anime').style.transform).toBe('translate3d(36px, 0, 0)');
+    up(p, 700);
+    expect(where()).toBe('anime');
+    expect(shellSlide('anime').style.transform).toBe('translate3d(0px, 0, 0)');
+    await settled(shellPager, 'anime');
+
+    act(() => useRouteStore.getState().setTab('settings'));
+    await settled(shellPager, 'settings');
+    const s = page();
+    down(s, 600);
+    move(s, 450);
+    expect(shellTabs()).toEqual(['settings']);
+    expect(shellSlide('settings').style.transform).toBe('translate3d(-30px, 0, 0)');
+    fireEvent.touchCancel(s);
+    expect(where()).toBe('settings');
+    await settled(shellPager, 'settings');
+  });
+
+  it('slides old and new destination side by side on NavBar taps, skipping the pages in between', async () => {
     await renderApp();
     fireEvent.click(screen.getByRole('button', { name: '设置' }));
     expect(where()).toBe('settings');
-    expect(content()).toHaveAttribute('data-tab-slide', 'next');
+    expect(shellTabs()).toEqual(['anime', 'settings']); // never manga / downloads
+    expect(shellSlide('anime').style.transform).toBe('translate3d(-100%, 0, 0)');
+    expect(shellSlide('settings').style.transform).toBe('translate3d(0px, 0, 0)');
+    expect(shellSlide('anime')).toHaveAttribute('inert');
+    // Retarget mid-flight: Downloads replaces Settings' entry, the old Anime slide is gone.
     fireEvent.click(screen.getByRole('button', { name: '下载' }));
-    expect(content()).toHaveAttribute('data-tab-slide', 'prev');
+    expect(shellTabs()).toEqual(['downloads', 'settings']);
+    expect(shellSlide('settings').style.transform).toBe('translate3d(100%, 0, 0)');
+    expect(shellSlide('downloads').style.transform).toBe('translate3d(0px, 0, 0)');
+    await settled(shellPager, 'downloads');
 
     const tabs = within(screen.getByRole('tablist', { name: '下载' })).getAllByRole('tab');
     fireEvent.click(tabs[2]!); // tasks → subtitles
     expect(where()).toBe('downloads/subtitles');
-    expect(body()).toHaveAttribute('data-tab-slide', 'next');
+    expect(tabsOf(dlPager())).toEqual(['tasks', 'subtitles']);
+    expect(slideOf(dlPager(), 'tasks').style.transform).toBe('translate3d(-100%, 0, 0)');
+    await settled(dlPager, 'subtitles');
     fireEvent.click(tabs[0]!);
-    expect(where()).toBe('downloads/tasks');
-    expect(body()).toHaveAttribute('data-tab-slide', 'prev');
-    await settle(body());
+    expect(slideOf(dlPager(), 'subtitles').style.transform).toBe('translate3d(100%, 0, 0)');
+    await settled(dlPager, 'tasks');
   });
 
-  it('drags only the strip that can move: Downloads panel inside, the Shell page past the Downloads edge', async () => {
-    await renderApp();
-    act(() => useRouteStore.getState().setTab('downloads', { downloadsTab: 'tasks' }));
-    const p = page();
-    fireEvent.touchStart(p, { touches: [{ clientX: 300, clientY: 320 }] });
-    fireEvent.touchMove(p, { touches: [{ clientX: 420, clientY: 320 }] }); // right: tasks is Downloads' first sub-tab
-    expect(content().style.transform).toBe('translate3d(120px, 0, 0)');
-    expect(body().style.transform).toBe('');
-    fireEvent.touchMove(p, { touches: [{ clientX: 180, clientY: 320 }] }); // left: tasks → anime
-    expect(content().style.transform).toBe('');
-    expect(body().style.transform).toBe('translate3d(-120px, 0, 0)');
-    fireEvent.touchEnd(p, { touches: [], changedTouches: [{ clientX: 180, clientY: 320 }] });
-    expect(where()).toBe('downloads/anime');
-    expect(body().style.transform).toBe('');
-    expect(body()).toHaveAttribute('data-tab-slide', 'next');
-    expect(motionOf(content())).toBe(AT_REST);
-  });
-
-  it('drags the Nyaa Stage-2 pane first, falling through to the Downloads panel at its edge', async () => {
-    await renderApp();
-    act(() => useRouteStore.getState().setTab('downloads', { downloadsTab: 'anime' }));
-    fireEvent.click((await screen.findAllByTestId('anime-series-card'))[0]!);
-    await screen.findByTestId('series-detail-banner');
-    const section = document.querySelector<HTMLElement>('.k-dl-search')!;
-    fireEvent.touchStart(section, { touches: [{ clientX: 400, clientY: 320 }] });
-    fireEvent.touchMove(section, { touches: [{ clientX: 300, clientY: 320 }] }); // torrents → subtitles
-    expect(nyaaPane().style.transform).toBe('translate3d(-100px, 0, 0)');
-    expect(body().style.transform).toBe('');
-    expect(content().style.transform).toBe('');
-    fireEvent.touchMove(section, { touches: [{ clientX: 530, clientY: 320 }] }); // torrents edge → Downloads anime → tasks
-    expect(nyaaPane().style.transform).toBe('');
-    expect(body().style.transform).toBe('translate3d(130px, 0, 0)');
-    expect(content().style.transform).toBe('');
-    fireEvent.touchMove(section, { touches: [{ clientX: 250, clientY: 320 }] });
-    fireEvent.touchEnd(section, { touches: [], changedTouches: [{ clientX: 250, clientY: 320 }] });
-    expect(section.dataset['detailTab']).toBe('subtitles');
-    expect(where()).toBe('downloads/anime');
-    expect(nyaaPane()).toHaveAttribute('data-tab-slide', 'next');
-    expect(nyaaPane().style.transform).toBe('');
-    expect(motionOf(body())).toBe(AT_REST);
-
-    // Tapping the 视频种子 chip slides back from the left (a real tap starts with a
-    // touchstart, which also lifts the post-swipe click guard).
-    const chip = screen.getByRole('button', { name: /视频种子/ });
-    fireEvent.touchStart(chip, { touches: [{ clientX: 300, clientY: 200 }] });
-    fireEvent.touchEnd(chip, { touches: [], changedTouches: [{ clientX: 300, clientY: 200 }] });
-    fireEvent.click(chip);
-    expect(section.dataset['detailTab']).toBe('torrents');
-    expect(nyaaPane()).toHaveAttribute('data-tab-slide', 'prev');
-  });
-
-  it('rubber-bands the Shell page at the outermost destinations and glides back', async () => {
-    await renderApp();
-    const p = page();
-    fireEvent.touchStart(p, { touches: [{ clientX: 200, clientY: 320 }] });
-    fireEvent.touchMove(p, { touches: [{ clientX: 300, clientY: 320 }] });
-    expect(content().style.transform).toBe('translate3d(20px, 0, 0)');
-    fireEvent.touchMove(p, { touches: [{ clientX: 700, clientY: 320 }] });
-    expect(content().style.transform).toBe('translate3d(36px, 0, 0)');
-    fireEvent.touchEnd(p, { touches: [], changedTouches: [{ clientX: 700, clientY: 320 }] });
-    expect(where()).toBe('anime');
-    expect(content().style.transform).toBe('translate3d(0px, 0, 0)');
-    await settle(content());
-
-    act(() => useRouteStore.getState().setTab('settings'));
-    await settle(content());
-    const s = page();
-    fireEvent.touchStart(s, { touches: [{ clientX: 600, clientY: 320 }] });
-    fireEvent.touchMove(s, { touches: [{ clientX: 450, clientY: 320 }] });
-    expect(content().style.transform).toBe('translate3d(-30px, 0, 0)');
-    fireEvent.touchCancel(s);
-    expect(where()).toBe('settings');
-    await settle(content());
-  });
-
-  it('keeps .k-shell__content free of any transform inside the player, even when a swipe lands on it', async () => {
+  it('never peeks the player, drops all motion on entering it and leaves no transformed ancestor', async () => {
     await renderApp();
     fireEvent.click(screen.getByTestId('series-series-kotori'));
     fireEvent.click(await screen.findByText('放課後の本屋'));
-    await screen.findByTestId('player');
-    expect(motionOf(content())).toBe(AT_REST);
+    const player = await screen.findByTestId('player');
+    expect(shellTabs()).toEqual(['anime']);
+    expectNoTransformedAncestor(player);
 
     // Leave the player for Manga (it stays the Anime destination's view), then swipe back onto it.
     act(() => useRouteStore.getState().setTab('manga'));
-    expect(motionOf(content())).toBe(AT_REST); // re-entering the strip is not an animated tab change
+    expect(shellTabs()).toEqual(['manga']); // leaving the player is not animated
     const p = page();
-    fireEvent.touchStart(p, { touches: [{ clientX: 200, clientY: 320 }] });
-    fireEvent.touchMove(p, { touches: [{ clientX: 330, clientY: 320 }] });
-    expect(content().style.transform).toBe('translate3d(130px, 0, 0)');
-    fireEvent.touchEnd(p, { touches: [], changedTouches: [{ clientX: 420, clientY: 320 }] });
+    down(p, 200);
+    move(p, 330);
+    expect(shellTabs()).toEqual(['manga']); // the player is never mounted as a peek
+    expect(shellSlide('manga').style.transform).toBe('translate3d(130px, 0, 0)');
+    up(p, 420);
     expect(where()).toBe('anime');
     expect(useRouteStore.getState().anime.kind).toBe('player');
-    await screen.findByTestId('player');
-    // Swipe commit onto the player: no drag offset, no slide-in, no will-change.
-    expect(motionOf(content())).toBe(AT_REST);
+    expect(shellTabs()).toEqual(['anime']);
+    expectNoTransformedAncestor(await screen.findByTestId('player'));
+  });
+
+  it('opening the player mid-slide aborts the slide at once', async () => {
+    await renderApp();
+    act(() => useRouteStore.getState().setTab('manga'));
+    await settled(shellPager, 'manga');
+    fireEvent.click(screen.getByRole('button', { name: '动画' }));
+    expect(shellTabs()).toEqual(['anime', 'manga']);
+    act(() => useRouteStore.getState().openAnime({ kind: 'player', seriesId: 'series-kotori', episodeId: 'series-kotori-ep1' }));
+    expect(shellTabs()).toEqual(['anime']);
+    expect(shellSlide('anime').getAttribute('style') ?? '').toBe('');
+    expect(shellPager()).not.toHaveAttribute('data-pager-moving');
+    expectNoTransformedAncestor(await screen.findByTestId('player'));
   });
 });

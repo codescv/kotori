@@ -14,6 +14,7 @@ import { Button } from '../../../components/m3/Button';
 import { cx } from '../../../components/m3/cx';
 import { IconButton } from '../../../components/m3/IconButton';
 import { TextField } from '../../../components/m3/TextField';
+import { useIsInactiveTabSlide } from '../../../components/m3/tabSlideContext';
 import type { Translate } from '../../../i18n';
 import { cueActor, formatClock, splitBilingualCueText } from '../../../lib/cues';
 import type { CueHighlight } from './useSubtitleBreakdown';
@@ -237,11 +238,14 @@ export function TranscriptPanel({
     const q = query.trim();
     return q ? rows.filter((r) => r.cue.text.includes(q)) : rows;
   }, [rows, query]);
+  const inactiveSlide = useIsInactiveTabSlide();
   const activeIdx = activeRowIndex(filtered, activeRawIndexes, currentMs);
   const targetIdx = scrollTargetRowIndex(filtered, activeIdx, currentMs, highlightFor, preferExplainingOnMount && isInitialMountRef.current);
   const targetRep = filtered[targetIdx]?.rep;
 
   useEffect(() => {
+    // A transcript peeked next to AI 解析 during a SideSheet drag must not scroll the sheet.
+    if (inactiveSlide) return;
     if (!follow || targetRep === undefined || Date.now() < userScrollUntil.current) return;
     const el = listRef.current?.querySelector<HTMLElement>(`[data-rep="${targetRep}"]`);
     if (!el || typeof el.scrollIntoView !== 'function') return;
@@ -256,7 +260,7 @@ export function TranscriptPanel({
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, [targetRep, follow]);
+  }, [targetRep, follow, inactiveSlide]);
 
   const toggle = useCallback(
     (rep: number): void => {

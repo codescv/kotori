@@ -1,23 +1,9 @@
 /** M3 primary tabs with an animated active indicator and horizontal swipe hook. */
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  type MouseEvent,
-  type PointerEvent,
-  type RefObject,
-  type TouchEvent,
-} from 'react';
+import { useEffect, useLayoutEffect, useRef, type MouseEvent, type PointerEvent, type TouchEvent } from 'react';
 import { cx } from './cx';
 import { Icon, type IconName } from './Icon';
-import {
-  clearPaneMotion,
-  rubberBand,
-  setPaneDragOffset,
-  snapBackPane,
-  startPaneSlide,
-  type TabSwipeDirection,
-} from './tabMotion';
+import type { TabPagerController } from './TabPager';
+import { rubberBand, type TabSwipeDirection } from './tabMotion';
 
 export type { TabSwipeDirection } from './tabMotion';
 
@@ -53,13 +39,13 @@ export interface TabSwipeOptions {
   /** When `false` every handler is inert (e.g. the Shell swipe inside Player / Reader). Default `true`. */
   readonly enabled?: boolean;
   /**
-   * The pane that visually belongs to the active tab: it follows the finger during a
-   * horizontal drag (rubber-banding past the outermost tab, gliding back when the
-   * drag does not commit) and plays the directional slide-in whenever `value`
-   * changes while enabled (swipe commit, tab bar tap, back navigation). Without it
-   * drags move the swipe container itself and tab changes are not animated.
+   * The `<TabPager>` (see `useTabPager`) rendering this strip's pages. While a
+   * horizontal drag is locked the active page and the adjacent page follow the finger
+   * side by side (the outermost strip rubber-bands past its last tab); releasing glides
+   * them on (commit) or back. Tab changes from any source slide inside `<TabPager>`
+   * itself. Without a pager swipes still switch tabs, just without motion.
    */
-  readonly paneRef?: RefObject<HTMLElement | null> | undefined;
+  readonly pager?: TabPagerController | undefined;
 }
 
 export interface TabSwipeHandlers {
@@ -190,10 +176,10 @@ function isIgnoredSwipeStart(target: EventTarget | null, container: HTMLElement,
  *   can still scroll in the swipe direction.
  * - Swallows the trailing `click` of a committed horizontal swipe so dragging across
  *   a cover card switches tabs without also opening the card.
- * - With `options.paneRef`: the pane follows the finger (DOM-only `translate3d`, no
- *   re-render per frame) on the single innermost strip that can move — the outermost
- *   strip rubber-bands at its ends — glides back when the drag does not commit, and
- *   slides in from the right (`next`) / left (`prev`) on every tab change.
+ * - With `options.pager`: the single innermost strip that can move drives its
+ *   `<TabPager>` — active and adjacent page follow the finger side by side (DOM-only
+ *   `translate3d`, no re-render per frame); the outermost strip rubber-bands at its
+ *   ends; releasing glides the pages on (commit) or back.
  */
 export function useTabSwipe<T extends string>(
   order: readonly T[],
@@ -202,19 +188,12 @@ export function useTabSwipe<T extends string>(
   options: TabSwipeOptions = {},
 ): TabSwipeHandlers {
   const enabled = options.enabled ?? true;
-  const paneRef = options.paneRef;
+  const pager = options.pager;
   const stateRef = useRef<SwipeStartState | null>(null);
   const lastTouchTimeRef = useRef(0);
   const cleanupWindowListenersRef = useRef<(() => void) | null>(null);
-  /** The pane this hook displaced during the current drag (to glide back / clear). */
-  const draggedPaneRef = useRef<HTMLElement | null>(null);
-  /** The last pane this hook animated (cleared on unmount). */
-  const animatedPaneRef = useRef<HTMLElement | null>(null);
-  const prevValueRef = useRef(value);
-  const prevEnabledRef = useRef(enabled);
-
-  const paneOf = (s: SwipeStartState | null): HTMLElement | null =>
-    paneRef ? paneRef.current : (s?.container ?? null);
+  /** Whether this strip is driving its pager in the current gesture. */
+  const draggingRef = useRef(false);
 
   const detachWindowListeners = (): void => {
     if (cleanupWindowListenersRef.current) {
@@ -232,13 +211,11 @@ export function useTabSwipe<T extends string>(
     return s;
   };
 
-  /** Settles the displaced pane: cleared at once on commit (the slide-in takes over), else glides back. */
+  /** Settles the dragged pager: a commit glides on inside `<TabPager>`, otherwise everything glides back. */
   const releasePane = (committed: boolean): void => {
-    const pane = draggedPaneRef.current;
-    draggedPaneRef.current = null;
-    if (!pane) return;
-    if (committed) clearPaneMotion(pane);
-    else snapBackPane(pane);
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (!committed) pager?.driver?.release();
   };
 
   /** Ends the gesture without switching tabs (pinch, cancel, lost release). */
@@ -253,43 +230,18 @@ export function useTabSwipe<T extends string>(
       stateRef.current = null;
       if (s) activeSwipes.delete(s);
       detachWindowListeners();
-      clearPaneMotion(draggedPaneRef.current);
-      clearPaneMotion(animatedPaneRef.current);
-      draggedPaneRef.current = null;
-      animatedPaneRef.current = null;
+      draggingRef.current = false;
     },
     [],
   );
-  useEffect(() => {
+  // Disabled strips never keep motion (the Shell's pager is the ancestor of the
+  // immersive player, whose `position: fixed` a transform would trap).
+  useLayoutEffect(() => {
     if (enabled) return;
     endState();
-    clearPaneMotion(draggedPaneRef.current);
-    draggedPaneRef.current = null;
+    if (draggingRef.current) pager?.driver?.reset();
+    draggingRef.current = false;
   }, [enabled]);
-
-  // Directional slide-in on every tab change while enabled (in both renders: entering
-  // the strip — e.g. opening Nyaa Stage 2 or leaving the player — is not a tab change).
-  // Disabled strips never keep motion on their pane (the Shell's pane is the ancestor
-  // of the immersive player, whose `position: fixed` a transform would trap).
-  useLayoutEffect(() => {
-    const prev = prevValueRef.current;
-    const wasEnabled = prevEnabledRef.current;
-    prevValueRef.current = value;
-    prevEnabledRef.current = enabled;
-    const pane = paneRef?.current ?? null;
-    if (!enabled) {
-      clearPaneMotion(pane);
-      clearPaneMotion(animatedPaneRef.current);
-      animatedPaneRef.current = null;
-      return;
-    }
-    if (prev === value || !wasEnabled || !pane) return;
-    const from = order.indexOf(prev);
-    const to = order.indexOf(value);
-    if (from < 0 || to < 0) return;
-    animatedPaneRef.current = pane;
-    startPaneSlide(pane, to > from ? 'next' : 'prev');
-  }, [value, enabled]);
 
   /** Whether this strip can switch tabs in `dx`'s direction. */
   const canMove = (dx: number): boolean => {
@@ -315,11 +267,13 @@ export function useTabSwipe<T extends string>(
     if (idx < 0) return false;
     if (dx < 0 && idx < order.length - 1) {
       claimedSwipeEvents.add(nativeEvent);
+      if (draggingRef.current) pager?.driver?.prepareCommit();
       onChange(order[idx + 1]!, 'next');
       return true;
     }
     if (dx > 0 && idx > 0) {
       claimedSwipeEvents.add(nativeEvent);
+      if (draggingRef.current) pager?.driver?.prepareCommit();
       onChange(order[idx - 1]!, 'prev');
       return true;
     }
@@ -355,41 +309,41 @@ export function useTabSwipe<T extends string>(
 
   /**
    * Finger-following drag for one move event. React dispatches it innermost-first, so
-   * the innermost strip that can move in `dx`'s direction claims the frame and
-   * translates its pane; strips at their edge stay at rest and let it fall through;
-   * the outermost strip with nowhere to go rubber-bands.
+   * the innermost strip that can move in `dx`'s direction claims the frame and drives
+   * its pager (active + adjacent page side by side); strips at their edge stay at rest
+   * and let it fall through; the outermost strip with nowhere to go rubber-bands.
    */
   const trackDrag = (s: SwipeStartState, nativeEvent: Event): void => {
     if (s.locked !== 'x') return;
     const dx = s.lastX - s.startX;
     let offset = 0;
+    let follow = false;
     if (!claimedDragEvents.has(nativeEvent) && !canScrollHorizontallyInDirection(s.scrollableEl, dx, s.startScrollLeft)) {
-      if (canMove(dx)) offset = dx;
-      else if (!hasActiveOuterSwipe(s)) offset = rubberBand(dx);
+      if (canMove(dx)) {
+        offset = dx;
+        follow = true;
+      } else if (!hasActiveOuterSwipe(s)) {
+        offset = rubberBand(dx);
+      }
       if (offset !== 0) claimedDragEvents.add(nativeEvent);
     }
-    const previous = draggedPaneRef.current;
     if (offset === 0) {
-      if (previous) {
-        clearPaneMotion(previous);
-        draggedPaneRef.current = null;
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        pager?.driver?.reset();
       }
       return;
     }
-    const pane = paneOf(s);
-    if (!pane) return;
-    if (previous && previous !== pane) clearPaneMotion(previous);
-    draggedPaneRef.current = pane;
-    setPaneDragOffset(pane, offset);
+    if (!pager?.driver) return;
+    draggingRef.current = true;
+    pager.driver.drag(offset, follow);
   };
 
   const beginSwipe = (target: EventTarget | null, container: HTMLElement, clientX: number, clientY: number, pointerId?: number): SwipeStartState => {
     endState();
-    // A new gesture takes over a pane still gliding back from the previous one.
-    if (draggedPaneRef.current) {
-      clearPaneMotion(draggedPaneRef.current);
-      draggedPaneRef.current = null;
-    }
+    // A previous drag whose release got lost glides back; a pager still gliding from the
+    // previous gesture / a tap is cancelled on the first drag frame of this one.
+    releasePane(false);
     const scrollableEl = findHorizontalScrollAncestor(target, container);
     const s: SwipeStartState = {
       startX: clientX,

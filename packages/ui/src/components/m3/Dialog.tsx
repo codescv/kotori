@@ -3,6 +3,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { registerBackInterceptor } from '../../app/routes';
 import { cx } from './cx';
+import { useIsInactiveTabSlide } from './tabSlideContext';
 import { Icon, type IconName } from './Icon';
 
 export interface DialogProps {
@@ -43,15 +44,19 @@ export function Dialog({ open, onClose, title, icon, children, actions, classNam
   // into the dialog's first input while the user is typing elsewhere.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // A dialog owned by a peeked / exiting <TabPager> slide stays closed: it must not
+  // take focus ([data-autofocus]) or Android back away from the visible page.
+  const inactiveSlide = useIsInactiveTabSlide();
+  const shown = open && !inactiveSlide;
   useEffect(() => {
-    if (!open) return;
+    if (!shown) return;
     return registerBackInterceptor(() => {
       onCloseRef.current();
       return true;
     });
-  }, [open]);
+  }, [shown]);
   useEffect(() => {
-    if (!open) return;
+    if (!shown) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
@@ -61,8 +66,8 @@ export function Dialog({ open, onClose, title, icon, children, actions, classNam
     window.addEventListener('keydown', onKey, true);
     focusInitial(ref.current);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [open]);
-  if (!open) return null;
+  }, [shown]);
+  if (!shown) return null;
   const node = (
     <div className="k-dialog-scrim" onMouseDown={(e) => e.target === e.currentTarget && onCloseRef.current()}>
       <div
