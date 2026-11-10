@@ -93,9 +93,10 @@ interface KotoriTorrentNativePlugin {
 const FilePicker = registerPlugin<FilePickerPlugin>('FilePicker');
 const KotoriTorrent = registerPlugin<KotoriTorrentNativePlugin>('KotoriTorrent');
 
-/** Native TTS methods of `KotoriTorrentPlugin`; `undefined` off the native Android platform. */
+/** Native TTS methods of `KotoriTorrentPlugin` (Android `TextToSpeech` / iOS `AVSpeechSynthesizer`); `undefined` off native platforms. */
 export function nativeSpeechPlugin(): NativeSpeechPlugin | undefined {
-  if (Capacitor.getPlatform() !== 'android') return undefined;
+  const p = Capacitor.getPlatform();
+  if (p !== 'android' && p !== 'ios') return undefined;
   return {
     speakText: (options) => KotoriTorrent.speakText(options),
     stopSpeech: () => KotoriTorrent.stopSpeech(),
@@ -263,12 +264,13 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
     try {
       version = (await App.getInfo()).version;
     } catch {
-      version = '0.1.38';
+      version = '0.1.39';
     }
   }
   return {
     fs,
     dataRoot,
+    platform: overrides.platform ?? (Capacitor.getPlatform() === 'ios' ? 'ios' : 'android'),
     convertFileSrc: overrides.convertFileSrc ?? safeConvertFileSrc,
     fetch: overrides.fetch ?? ((input, init) => globalThis.fetch(input, init)),
     webFetch: overrides.webFetch ?? overrides.fetch ?? webViewFetch(),
@@ -340,7 +342,7 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
         } catch (error) {
           if (isCancel(error)) return undefined;
           if (isUnimplemented(error)) {
-            throw new KotoriError('unsupported', 'Directory picker requires @capawesome/capacitor-file-picker in the Android project');
+            throw new KotoriError('unsupported', 'Directory picker requires the native FilePicker plugin (Android: @capawesome/capacitor-file-picker; iOS: Kotori host)');
           }
           throw KotoriError.wrap(error, 'io');
         }

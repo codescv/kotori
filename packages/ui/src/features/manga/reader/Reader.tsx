@@ -141,7 +141,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
   );
 
   const isPortraitStage = stage.width > 0 && stage.height > 0 && stage.width < stage.height;
-  const isMobileDefault = isPortraitStage || isMobilePortrait || host.info.platform === 'android';
+  const isMobileDefault = isPortraitStage || isMobilePortrait || host.info.platform === 'android' || host.info.platform === 'ios';
   const rawMode: MangaReadingMode = volume?.readingMode ?? mangaSettings.defaultReadingMode;
   const mode: MangaReadingMode =
     volume?.readingMode === undefined && isMobileDefault

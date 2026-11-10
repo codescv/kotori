@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Capacitor } from '@capacitor/core';
+import { resolveDeps } from './default-deps';
 import type { AiApi, AnimeApi, DictionaryHost, DownloadsApi, HostEvent, MangaApi, ScreenApi, SettingsApi } from '@kotori/core';
 import { defaultSettings, deepMerge, mergeSettings, stripLegacySettingsKeys } from './settings';
 import { DATA_ROOT, createTestHost, type TestHost } from './testing/harness';
@@ -103,6 +105,31 @@ describe('createCapacitorPlatformHost', () => {
         openExternal: true,
       },
     });
+  });
+
+  it('reports ios platform/os when running in the iOS Capacitor shell', async () => {
+    const { host } = await makeHost({ platform: 'ios' });
+    expect(host.info.platform).toBe('ios');
+    expect(host.info.os).toBe('ios');
+    expect(host.info.capabilities.torrent).toBe(true);
+    expect(host.info.capabilities.directoryPicker).toBe(true);
+  });
+
+  it('resolveDeps derives platform from Capacitor.getPlatform() unless overridden', async () => {
+    const base = { fs: (await makeHost()).fs, dataRoot: DATA_ROOT, version: 'test' };
+    const spy = vi.spyOn(Capacitor, 'getPlatform');
+    try {
+      spy.mockReturnValue('ios');
+      expect((await resolveDeps(base)).platform).toBe('ios');
+      spy.mockReturnValue('android');
+      expect((await resolveDeps(base)).platform).toBe('android');
+      spy.mockReturnValue('web');
+      expect((await resolveDeps(base)).platform).toBe('android');
+      spy.mockReturnValue('android');
+      expect((await resolveDeps({ ...base, platform: 'ios' })).platform).toBe('ios');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('implements every method of every API group', async () => {

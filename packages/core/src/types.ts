@@ -1391,8 +1391,8 @@ export interface HostCapabilities {
 }
 
 export interface HostInfo {
-  readonly platform: 'node' | 'android' | 'mock';
-  readonly os: 'macos' | 'linux' | 'windows' | 'android' | 'unknown';
+  readonly platform: 'node' | 'android' | 'ios' | 'mock';
+  readonly os: 'macos' | 'linux' | 'windows' | 'android' | 'ios' | 'unknown';
   readonly version: string;
   readonly capabilities: HostCapabilities;
   /** Absolute data directory (desktop) or app sandbox (Android). */

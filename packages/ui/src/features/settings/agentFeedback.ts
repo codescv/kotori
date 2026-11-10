@@ -6,7 +6,7 @@ import type { PlatformHost } from '@kotori/core';
 
 export const AGENT_FEEDBACK_EMAIL_STORAGE_KEY = 'kotori_agent_feedback_email';
 export const AGENT_FEEDBACK_EMAIL_PLACEHOLDER = 'agent@example.com';
-export const KOTORI_UI_VERSION = '0.1.38';
+export const KOTORI_UI_VERSION = '0.1.39';
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 

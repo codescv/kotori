@@ -83,6 +83,8 @@ export interface AndroidTorrentEngine {
 }
 
 export interface CapacitorHostDeps {
+  /** Native shell the bundle runs in (`HostInfo.platform` / `os`); defaults to `'android'`. */
+  readonly platform?: 'android' | 'ios';
   readonly fs: FsOps;
   /** Absolute root of `Directory.Data` (holds `subtitles/`, `manga/`, `downloads/`). */
   readonly dataRoot: string;

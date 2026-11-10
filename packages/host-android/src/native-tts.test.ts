@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Capacitor } from '@capacitor/core';
+import { nativeSpeechPlugin } from './default-deps';
 import { createNativeSpeechSynthesis, installNativeSpeechSynthesis, NativeSpeechUtterance, type NativeSpeechPlugin } from './native-tts';
 
 function fakePlugin(result: Awaited<ReturnType<NativeSpeechPlugin['speakText']>> | Error = { ok: true, engine: 'system' }) {
@@ -66,5 +68,24 @@ describe('native speech synthesis shim', () => {
     synth.speak(u);
     await flush();
     expect(seen).toEqual([]);
+  });
+});
+
+describe('nativeSpeechPlugin platform gate', () => {
+  it('enables native TTS on android and ios, but not on web', () => {
+    const spy = vi.spyOn(Capacitor, 'getPlatform');
+    try {
+      for (const platform of ['android', 'ios'] as const) {
+        spy.mockReturnValue(platform);
+        const plugin = nativeSpeechPlugin();
+        expect(plugin, platform).toBeDefined();
+        expect(typeof plugin?.speakText).toBe('function');
+        expect(typeof plugin?.stopSpeech).toBe('function');
+      }
+      spy.mockReturnValue('web');
+      expect(nativeSpeechPlugin()).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

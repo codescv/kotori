@@ -104,10 +104,14 @@ function getNativeUpdaterPlugin(): NativeUpdaterPlugin | undefined {
   const g = globalThis as {
     Capacitor?: {
       isNativePlatform?: () => boolean;
+      getPlatform?: () => string;
       Plugins?: { KotoriTorrent?: NativeUpdaterPlugin };
     };
   };
   if (!g.Capacitor?.isNativePlatform?.()) return undefined;
+  // APK self-update is Android-only; the iOS host has no `downloadAndInstallApk`
+  // (Capacitor's plugin proxy would still expose a stub that rejects UNIMPLEMENTED).
+  if (g.Capacitor.getPlatform?.() === 'ios') return undefined;
   const plugin = g.Capacitor.Plugins?.KotoriTorrent;
   return plugin && typeof plugin.downloadAndInstallApk === 'function' ? plugin : undefined;
 }

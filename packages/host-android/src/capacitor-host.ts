@@ -187,8 +187,9 @@ export async function createCapacitorPlatformHost(overrides: Partial<CapacitorHo
   };
 
   let disposed: Promise<void> | undefined;
+  const platform = deps.platform ?? 'android';
   return {
-    info: { platform: 'android', os: 'android', version: deps.version, capabilities: ANDROID_CAPABILITIES, dataDir: deps.dataRoot },
+    info: { platform, os: platform, version: deps.version, capabilities: ANDROID_CAPABILITIES, dataDir: deps.dataRoot },
     settings,
     anime,
     manga,
