@@ -6,7 +6,9 @@
  * else `timeupdate` + a rAF loop while playing. If the media cannot be decoded
  * (e.g. HEVC in Chromium, or the mock host's `mock://` URLs) it transparently
  * switches to a virtual wall-clock so subtitles, repeat and the breakdown stay
- * usable.
+ * usable. Before giving up on a Kotori desktop-host stream (`http(s)://…/media/…`)
+ * it retries once with `?compat=1`, which asks the host to serve an ffmpeg
+ * MP4 remux (Safari / iOS cannot open MKV/AVI/TS containers).
  *
  * `usePlayerSync` derives the active cue(s) from the clock (`cueIndexAt`).
  */
@@ -32,6 +34,27 @@ type VideoWithFrameCallback = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
 };
+
+/**
+ * The `?compat=1` retry URL for a failed `<video>` source, or `undefined` when
+ * no retry applies (not an http(s) `/media/` URL, or already in compat mode).
+ */
+export function compatMediaRetryUrl(src: string | null | undefined): string | undefined {
+  if (!src) return undefined;
+  let url: URL;
+  try {
+    url = new URL(src);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+  if (!url.pathname.includes('/media/') || url.searchParams.get('compat') === '1') return undefined;
+  const hashAt = src.indexOf('#');
+  const base = hashAt >= 0 ? src.slice(0, hashAt) : src;
+  const hash = hashAt >= 0 ? src.slice(hashAt) : '';
+  const sep = !base.includes('?') ? '?' : base.endsWith('?') || base.endsWith('&') ? '' : '&';
+  return `${base}${sep}compat=1${hash}`;
+}
 
 export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts: { readonly durationHintMs?: number | undefined; readonly startMs?: number | undefined } = {}): MediaClock {
   const [currentMs, setCurrentMs] = useState(opts.startMs ?? 0);
@@ -76,6 +99,12 @@ export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts
     };
     const onError = (): void => {
       if (simulatedRef.current) return;
+      // Retry a host-node stream once as an ffmpeg-remuxed MP4 (`?compat=1`).
+      const retry = compatMediaRetryUrl(v.currentSrc || v.src);
+      if (retry) {
+        v.src = retry;
+        return;
+      }
       virt.current = { base: v.currentTime * 1000 || (opts.startMs ?? 0), since: performance.now(), playing: false, rate: 1 };
       setSimulated(true);
     };

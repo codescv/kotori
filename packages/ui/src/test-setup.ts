@@ -12,3 +12,4 @@ afterEach(() => {
 // "Not implemented" errors (the player then runs on its own clock).
 Object.defineProperty(HTMLMediaElement.prototype, 'pause', { configurable: true, value: () => {} });
 Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: () => Promise.resolve() });
+Object.defineProperty(HTMLMediaElement.prototype, 'load', { configurable: true, value: () => {} });
