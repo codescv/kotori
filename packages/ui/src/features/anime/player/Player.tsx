@@ -339,16 +339,17 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   }, []);
 
   // Pause at the end of a line after a jump (AnimeSettings.pauseAfterJump).
+  const { currentMs: clockMs, pause: clockPause, seek: clockSeek, setRate: clockSetRate, toggle: clockToggle } = clock;
   useEffect(() => {
-    if (pauseAt !== undefined && clock.currentMs >= pauseAt) {
-      clock.pause();
+    if (pauseAt !== undefined && clockMs >= pauseAt) {
+      clockPause();
       setPauseAt(undefined);
       if (restoreRateRef.current !== undefined) {
-        clock.setRate(restoreRateRef.current);
+        clockSetRate(restoreRateRef.current);
         restoreRateRef.current = undefined;
       }
     }
-  }, [clock, pauseAt]);
+  }, [clockMs, clockPause, clockSetRate, pauseAt]);
 
   // Hide-subtitles feedback (skip the initial mount).
   const blindMountedRef = useRef(false);
@@ -378,34 +379,38 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const jumpToRow = useCallback(
     (row: TranscriptRow | undefined) => {
       if (!row) return;
-      clock.seek(Math.max(0, row.cue.startMs - animeSettings.seekPaddingMs));
+      clockSeek(Math.max(0, row.cue.startMs - animeSettings.seekPaddingMs));
       if (animeSettings.pauseAfterJump) setPauseAt(row.cue.endMs);
     },
-    [clock, animeSettings.seekPaddingMs, animeSettings.pauseAfterJump],
+    // `clock.seek` is stable: `onSeek` must not change identity on every clock tick.
+    [clockSeek, animeSettings.seekPaddingMs, animeSettings.pauseAfterJump],
   );
 
   const currentRowIdx = activeRowIndex(rows, activeRaw, clock.currentMs);
   // Read-only ✦ / ◌ badges: one bulk cache probe, never a model call while playing.
   const cacheStatus = useSubtitleCacheStatus({ episodeId, trackId, rows });
 
+  // Clock reads go through `clockRef` so these handlers only change with the current row.
   const nextRow = useCallback(() => {
-    const ms = clock.currentMs + animeSettings.seekPaddingMs + 10;
+    const ms = clockRef.current.currentMs + animeSettings.seekPaddingMs + 10;
     jumpToRow(rows.find((r, i) => i !== currentRowIdx && r.cue.startMs > ms));
-  }, [rows, currentRowIdx, clock.currentMs, animeSettings.seekPaddingMs, jumpToRow]);
+  }, [rows, currentRowIdx, animeSettings.seekPaddingMs, jumpToRow]);
   const prevRow = useCallback(() => {
+    const nowMs = clockRef.current.currentMs;
     const cur = rows[currentRowIdx];
-    if (cur && clock.currentMs - cur.cue.startMs > 1500) return jumpToRow(cur);
-    const before = rows.filter((r, i) => i !== currentRowIdx && r.cue.startMs < (cur?.cue.startMs ?? clock.currentMs));
+    if (cur && nowMs - cur.cue.startMs > 1500) return jumpToRow(cur);
+    const before = rows.filter((r, i) => i !== currentRowIdx && r.cue.startMs < (cur?.cue.startMs ?? nowMs));
     jumpToRow(before[before.length - 1]);
-  }, [rows, currentRowIdx, clock.currentMs, jumpToRow]);
+  }, [rows, currentRowIdx, jumpToRow]);
 
   const toggleRepeatCue = useCallback(() => {
     if (repeat.state?.kind === 'cue') return repeat.stop();
-    const row = rows[currentRowIdx] ?? rows.filter((r) => r.cue.startMs <= clock.currentMs).pop();
+    const c = clockRef.current;
+    const row = rows[currentRowIdx] ?? rows.filter((r) => r.cue.startMs <= c.currentMs).pop();
     if (!row) return;
     repeat.startCue(row.cue.startMs, Math.max(row.cue.endMs, row.chainEndMs), animeSettings.repeatCount);
-    if (!clock.playing) clock.play();
-  }, [repeat, rows, currentRowIdx, clock, animeSettings.repeatCount]);
+    if (!c.playing) c.play();
+  }, [repeat, rows, currentRowIdx, animeSettings.repeatCount]);
 
   const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.rep)), [rows, selected]);
   const toggleAb = useCallback(() => {
@@ -414,30 +419,34 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     const start = Math.min(...selectedRows.map((r) => r.cue.startMs));
     const end = Math.max(...selectedRows.map((r) => Math.max(r.cue.endMs, r.chainEndMs)));
     repeat.startAb(start, end);
-    clock.seek(Math.max(0, start - animeSettings.seekPaddingMs));
-    if (!clock.playing) clock.play();
-  }, [repeat, selectedRows, clock, animeSettings.seekPaddingMs]);
+    const c = clockRef.current;
+    c.seek(Math.max(0, start - animeSettings.seekPaddingMs));
+    if (!c.playing) c.play();
+  }, [repeat, selectedRows, animeSettings.seekPaddingMs]);
 
+  const { openCue, openMerged } = sb;
   const onOverlayChar = useCallback(
     (cue: SubtitleCue, i: number) => {
-      clock.pause();
+      clockPause();
       if (immersiveRef.current) {
         hudVisibleRef.current = false;
         setHudVisible(false);
       }
-      sb.openCue(cue, i);
+      openCue(cue, i);
     },
-    [clock, sb],
+    [clockPause, openCue],
   );
   // Transcript char click behaves like the overlay (pause) unless disabled in settings.
   const pauseOnTranscriptClick = animeSettings.pauseOnTranscriptClick !== false;
   const onTranscriptChar = useCallback(
     (cue: SubtitleCue, i: number) => {
-      if (pauseOnTranscriptClick) clock.pause();
-      sb.openCue(cue, i);
+      if (pauseOnTranscriptClick) clockPause();
+      openCue(cue, i);
     },
-    [clock, sb, pauseOnTranscriptClick],
+    // Stable across clock ticks so memoized transcript rows do not re-render.
+    [clockPause, openCue, pauseOnTranscriptClick],
   );
+  const onExplainSelection = useCallback((rs: readonly TranscriptRow[]) => openMerged(rs.map((r) => r.cue)), [openMerged]);
 
   const onSelectSecondaryTrack = useCallback(
     (id: string | null) => {
@@ -498,12 +507,12 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       longPressTimerRef.current = undefined;
     }
     if (longPressFast) {
-      clock.setRate(savedRateRef.current);
+      clockSetRate(savedRateRef.current);
       setLongPressFast(false);
       // The release of a long-press must not also toggle play/pause or HUD.
       suppressClickRef.current = true;
     }
-  }, [clock, longPressFast]);
+  }, [clockSetRate, longPressFast]);
 
   const clearTapTimer = useCallback(() => {
     if (tapTimerRef.current !== undefined) {
@@ -569,13 +578,14 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       if (target?.closest('.k-sub-line, button, input, .k-menu, .k-menu-anchor')) return;
       if (longPressTimerRef.current !== undefined) clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = setTimeout(() => {
-        savedRateRef.current = clock.rate;
-        clock.setRate(2);
-        if (!clock.playing) clock.play();
+        const c = clockRef.current;
+        savedRateRef.current = c.rate;
+        c.setRate(2);
+        if (!c.playing) c.play();
         setLongPressFast(true);
       }, 450);
     },
-    [clock],
+    [],
   );
 
   const onStageDoubleClick = useCallback(
@@ -592,13 +602,14 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
         nextRow();
         flashGestureToast('⏭ 下一句');
       } else if (immersive) {
-        clock.toggle();
-        flashGestureToast(clock.playing ? '⏸' : '▶');
+        const c = clockRef.current;
+        c.toggle();
+        flashGestureToast(c.playing ? '⏸' : '▶');
       } else {
         toggleFullscreen();
       }
     },
-    [prevRow, nextRow, flashGestureToast, clearTapTimer, immersive, clock, toggleFullscreen],
+    [prevRow, nextRow, flashGestureToast, clearTapTimer, immersive, toggleFullscreen],
   );
 
   useEffect(
@@ -619,7 +630,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       switch (e.key) {
         case ' ':
           e.preventDefault();
-          clock.toggle();
+          clockToggle();
           if (immersiveRef.current) bumpHudTimer();
           break;
         case 'ArrowLeft':
@@ -660,7 +671,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clock, prevRow, nextRow, toggleRepeatCue, closeBreakdown, bumpHudTimer, immersive, immersiveDrawerOpen, fullscreen, exitFullscreen]);
+    // No `clock` here: the global listener must not be re-attached on every clock tick.
+  }, [clockToggle, prevRow, nextRow, toggleRepeatCue, closeBreakdown, bumpHudTimer, immersive, immersiveDrawerOpen, fullscreen, exitFullscreen]);
 
   const preferExplainingOnMount =
     (explainedAtMsRef.current !== undefined && Math.abs(clock.currentMs - explainedAtMsRef.current) < 500) ||
@@ -679,7 +691,15 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
     }),
     [episodeId, trackId, seriesTitle, episodeTitle, episode.parsedName.episode],
   );
-  const cacheKnown = rows.length > 0 ? { done: cacheStatus.cachedExplainableCount, total: cacheStatus.explainableCount } : undefined;
+  const cacheKnown = useMemo(
+    () => (rows.length > 0 ? { done: cacheStatus.cachedExplainableCount, total: cacheStatus.explainableCount } : undefined),
+    [rows.length, cacheStatus.cachedExplainableCount, cacheStatus.explainableCount],
+  );
+  // Stable element so the memoized transcript body is not re-rendered by clock ticks.
+  const transcriptToolbarExtra = useMemo(
+    () => (layout === 'portrait' ? <CacheExplainButton target={cacheTarget} variant="compact" known={cacheKnown} data-testid="player-cache-explain-btn" /> : undefined),
+    [layout, cacheTarget, cacheKnown],
+  );
 
   const transcript = (
     <TranscriptPanel
@@ -690,13 +710,13 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       onSelectedChange={setSelected}
       onSeek={jumpToRow}
       onCharClick={onTranscriptChar}
-      onExplainSelection={(rs) => sb.openMerged(rs.map((r) => r.cue))}
+      onExplainSelection={onExplainSelection}
       highlightFor={sb.highlightFor}
       cachedCueIndexes={cacheStatus.cachedCueIndexes}
       cachingCueIndexes={cacheStatus.cachingCueIndexes}
       secondaryTextByRep={secondaryTextByRep}
       preferExplainingOnMount={preferExplainingOnMount}
-      toolbarExtra={layout === 'portrait' ? <CacheExplainButton target={cacheTarget} variant="compact" known={cacheKnown} data-testid="player-cache-explain-btn" /> : undefined}
+      toolbarExtra={transcriptToolbarExtra}
       t={t}
     />
   );

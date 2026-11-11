@@ -1,9 +1,22 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SubtitleCue, TranscriptRow } from '@kotori/core';
+import type { RubyTextProps } from '../../../components/breakdown/RubyText';
 import { createTranslator } from '../../../i18n';
 import type { CueHighlight } from './useSubtitleBreakdown';
-import { activeRowIndex, scrollTargetRowIndex, TranscriptPanel } from './TranscriptPanel';
+import { activeRowIndex, rowOffsets, scrollTargetRowIndex, TranscriptPanel, visibleRowRange } from './TranscriptPanel';
+
+// Counts renders of each transcript row's text (a non-memo wrapper re-renders exactly when its `<Row>` does).
+const textRenders = vi.hoisted(() => new Map<string, number>());
+vi.mock('../../../components/breakdown/RubyText', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../components/breakdown/RubyText')>();
+  function CountedRubyText(props: RubyTextProps) {
+    textRenders.set(props.text, (textRenders.get(props.text) ?? 0) + 1);
+    return createElement(actual.RubyText, props);
+  }
+  return { ...actual, RubyText: CountedRubyText };
+});
 
 const t = createTranslator('zh-CN');
 
@@ -136,3 +149,137 @@ describe('TranscriptPanel · scrollTargetRowIndex', () => {
     expect(renderedRows[2]?.querySelector('[data-testid="transcript-secondary"]')).toBeNull();
   });
 });
+
+describe('TranscriptPanel · performance (long transcripts)', () => {
+  const originalScrollIntoView = Element.prototype.scrollIntoView;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+    textRenders.clear();
+  });
+
+  const ROW_TEXT = (i: number): string => `第${i}行のセリフ、ことりと一緒に。`;
+  const longRows = (n: number): readonly TranscriptRow[] => Array.from({ length: n }, (_, i) => makeRow(i, i * 3000 + 1000, i * 3000 + 2500, ROW_TEXT(i)));
+  const noHl = (): CueHighlight => NO_HL;
+  const noop = (): void => {};
+  const EMPTY = new Set<number>();
+
+  function renderPanel(rows: readonly TranscriptRow[], currentMs: number, active: ReadonlySet<number>, onCharClick: (cue: SubtitleCue, i: number) => void = noop) {
+    const props = {
+      rows,
+      selected: EMPTY,
+      onSelectedChange: noop,
+      onSeek: noop,
+      onCharClick,
+      onExplainSelection: noop,
+      highlightFor: noHl,
+      t,
+    };
+    const view = render(<TranscriptPanel {...props} activeRawIndexes={active} currentMs={currentMs} />);
+    return {
+      ...view,
+      tick: (ms: number, nextActive: ReadonlySet<number>) => view.rerender(<TranscriptPanel {...props} activeRawIndexes={nextActive} currentMs={ms} />),
+    };
+  }
+
+  function stubScroll(): Array<string | null> {
+    const scrolled: Array<string | null> = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute('data-rep'));
+    };
+    return scrolled;
+  }
+
+  it('clock ticks inside the same cue re-render no rows; a cue change re-renders only the old and new active rows', () => {
+    stubScroll();
+    for (const n of [4, 500]) {
+      const rows = n === 4 ? SAMPLE_ROWS : longRows(n);
+      const r0 = rows[0]!;
+      const r1 = rows[1]!;
+      const in0 = new Set([r0.rep]);
+      const in1 = new Set([r1.rep]);
+      const view = renderPanel(rows, r0.cue.startMs, in0);
+      textRenders.clear();
+      for (const dt of [50, 100, 500, 1000]) view.tick(r0.cue.startMs + dt, in0);
+      expect([...textRenders.values()].reduce((a, b) => a + b, 0)).toBe(0);
+
+      view.tick(r1.cue.startMs + 10, in1);
+      expect([...textRenders.keys()].sort()).toEqual([r0.cue.text, r1.cue.text].sort());
+      expect(textRenders.get(r0.cue.text)).toBe(1);
+      expect(textRenders.get(r1.cue.text)).toBe(1);
+      view.unmount();
+      textRenders.clear();
+    }
+  });
+
+  it('500 rows: windowed DOM, plain-text inactive rows, clickable lazy text, auto-scroll mounts a far target', () => {
+    const scrolled = stubScroll();
+    const rows = longRows(500);
+    const onCharClick = vi.fn();
+    const view = renderPanel(rows, rows[5]!.cue.startMs + 10, new Set([5]), onCharClick);
+    const { container } = view;
+
+    const mounted = (): HTMLElement[] => screen.getAllByTestId('transcript-row');
+    expect(mounted().length).toBeLessThanOrEqual(120);
+    expect(mounted().length).toBeGreaterThan(10);
+    expect(screen.getByTestId('transcript-spacer-bottom')).toBeInTheDocument();
+    // Only the active row is split into per-character glyph spans.
+    const activeRow = container.querySelector<HTMLElement>('[data-rep="5"]')!;
+    expect(activeRow).toHaveClass('is-active');
+    expect(container.querySelectorAll('[data-glyph]').length).toBe(activeRow.querySelectorAll('[data-glyph]').length);
+    expect(activeRow.querySelectorAll('[data-glyph]').length).toBe(ROW_TEXT(5).length);
+    const lazyRow = container.querySelector<HTMLElement>('[data-rep="7"]')!;
+    expect(lazyRow.querySelectorAll('[data-glyph]')).toHaveLength(0);
+    expect(lazyRow.querySelector('.k-transcript__text')?.textContent).toBe(ROW_TEXT(7));
+
+    // Clicking plain text still opens the breakdown (no caret API in jsdom → segment start).
+    fireEvent.click(lazyRow.querySelector('.k-seg')!);
+    expect(onCharClick).toHaveBeenLastCalledWith(rows[7]!.cue, 0);
+    // With a caret API the exact character inside the text node is reported.
+    const textNode = lazyRow.querySelector('.k-seg')!.firstChild!;
+    Object.defineProperty(document, 'caretRangeFromPoint', {
+      configurable: true,
+      value: () => {
+        const range = document.createRange();
+        range.setStart(textNode, 3);
+        return range;
+      },
+    });
+    try {
+      fireEvent.click(lazyRow.querySelector('.k-seg')!, { clientX: 40, clientY: 10 });
+      expect(onCharClick).toHaveBeenLastCalledWith(rows[7]!.cue, 3);
+    } finally {
+      Reflect.deleteProperty(document, 'caretRangeFromPoint');
+    }
+
+    // Playback jumps to row #350: it is mounted (window moved) and scrolled into view.
+    scrolled.length = 0;
+    act(() => view.tick(rows[350]!.cue.startMs + 10, new Set([350])));
+    expect(container.querySelector('[data-rep="350"]')).toHaveClass('is-active');
+    expect(scrolled).toContain('350');
+    expect(mounted().length).toBeLessThanOrEqual(120);
+    expect(container.querySelector('[data-rep="5"]')).toBeNull();
+    expect(screen.getByTestId('transcript-spacer-top')).toBeInTheDocument();
+  });
+
+  it('small transcripts render every row with per-character glyphs (no windowing)', () => {
+    stubScroll();
+    const rows = longRows(50);
+    const { container } = renderPanel(rows, 0, EMPTY);
+    expect(screen.getAllByTestId('transcript-row')).toHaveLength(50);
+    expect(container.querySelector('.k-transcript__spacer')).toBeNull();
+    expect(container.querySelector('[data-rep="49"] [data-glyph]')).not.toBeNull();
+  });
+
+  it('rowOffsets / visibleRowRange map the viewport to row indexes using measured heights', () => {
+    const rows = longRows(10);
+    const offs = rowOffsets(rows, new Map([[0, 100]]));
+    expect(offs[0]).toBe(0);
+    expect(offs[1]).toBe(100);
+    expect(offs[2]).toBe(154);
+    expect(visibleRowRange(offs, 0, 120)).toEqual([0, 2]);
+    expect(visibleRowRange(offs, 160, 54)).toEqual([2, 4]);
+    expect(visibleRowRange(offs, 10_000, 100)).toEqual([9, 10]);
+  });
+});
+

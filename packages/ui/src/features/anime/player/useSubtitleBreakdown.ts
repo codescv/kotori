@@ -97,12 +97,20 @@ export function useSubtitleBreakdown(params: {
     return request ? inferWordSpanAt(request.sentence, focusCharIndex, explanation?.ruby, 0) : undefined;
   }, [focusCharIndex, selection.focusWordSpan, request, explanation?.ruby]);
 
-  const highlightFor = useCallback(
-    (cue: SubtitleCue): CueHighlight => {
+  const highlightFor = useMemo(() => {
+    // One `CueHighlight` object per cue while the explanation / focus is unchanged,
+    // so memoized transcript rows and overlay lines keep bailing out of re-renders.
+    const cache = new Map<number, CueHighlight>();
+    return (cue: SubtitleCue): CueHighlight => {
       if (!source) return NONE;
+      const hit = cache.get(cue.index);
+      if (hit) return hit;
       const k = source.cueIndexes.indexOf(cue.index);
       const cs = source.cueCharSpans[k];
-      if (k < 0 || !cs) return NONE;
+      if (k < 0 || !cs) {
+        cache.set(cue.index, NONE);
+        return NONE;
+      }
       const hl = selection.highlightSpan;
       let span: CharSpan | undefined;
       if (hl) {
@@ -117,10 +125,11 @@ export function useSubtitleBreakdown(params: {
         if (fe > fs) focusSpan = [fs - cs[0], fe - cs[0]];
       }
       const focus = focusCharIndex !== undefined && focusCharIndex >= cs[0] && focusCharIndex < cs[1] ? focusCharIndex - cs[0] : undefined;
-      return { span, focus, focusSpan, explaining: true };
-    },
-    [source, selection.highlightSpan, sentenceFocusSpan, focusCharIndex],
-  );
+      const out: CueHighlight = { span, focus, focusSpan, explaining: true };
+      cache.set(cue.index, out);
+      return out;
+    };
+  }, [source, selection.highlightSpan, sentenceFocusSpan, focusCharIndex]);
 
-  return { openCue, openMerged, highlightFor, source };
+  return useMemo(() => ({ openCue, openMerged, highlightFor, source }), [openCue, openMerged, highlightFor, source]);
 }

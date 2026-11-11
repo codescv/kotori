@@ -56,8 +56,23 @@ export function compatMediaRetryUrl(src: string | null | undefined): string | un
   return `${base}${sep}compat=1${hash}`;
 }
 
+/** Minimum interval between playback-driven `currentMs` state updates (~30 fps). */
+export const CLOCK_TICK_MS = 33;
+/** A position change larger than this (or any backwards move) is a jump and is published immediately. */
+const CLOCK_JUMP_MS = 200;
+
+/**
+ * Whether a frame-driven position update should be published as React state:
+ * at most every `CLOCK_TICK_MS` of wall time, except jumps (backwards or
+ * `> CLOCK_JUMP_MS`) which are always published.
+ */
+export function shouldPublishClockTick(prevMs: number, nextMs: number, sinceLastPublishMs: number): boolean {
+  if (nextMs < prevMs || nextMs - prevMs > CLOCK_JUMP_MS) return true;
+  return sinceLastPublishMs >= CLOCK_TICK_MS;
+}
+
 export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts: { readonly durationHintMs?: number | undefined; readonly startMs?: number | undefined } = {}): MediaClock {
-  const [currentMs, setCurrentMs] = useState(opts.startMs ?? 0);
+  const [currentMs, setCurrentMsState] = useState(opts.startMs ?? 0);
   const [durationMs, setDurationMs] = useState(opts.durationHintMs ?? 0);
   const [playing, setPlaying] = useState(false);
   const [rate, setRateState] = useState(1);
@@ -66,6 +81,19 @@ export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts
   const virt = useRef({ base: opts.startMs ?? 0, since: 0, playing: false, rate: 1 });
   const simulatedRef = useRef(false);
   simulatedRef.current = simulated;
+  // Refs so the control callbacks keep one identity for the player's lifetime.
+  const durationMsRef = useRef(durationMs);
+  durationMsRef.current = durationMs;
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+  // Last published position + wall time (throttles per-frame updates).
+  const publishedRef = useRef({ ms: opts.startMs ?? 0, at: -Infinity });
+
+  /** Unthrottled publish (seek, pause, timeupdate, virtual clock). */
+  const setCurrentMs = useCallback((ms: number) => {
+    publishedRef.current = { ms, at: typeof performance !== 'undefined' ? performance.now() : Date.now() };
+    setCurrentMsState(ms);
+  }, []);
 
   // --- real element wiring ---------------------------------------------------
   useEffect(() => {
@@ -74,12 +102,18 @@ export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts
     let raf = 0;
     let vfc = 0;
     const update = (): void => setCurrentMs(v.currentTime * 1000);
+    /** Per-frame position (rAF / rVFC): throttled to ~30 fps unless it jumped. */
+    const tick = (ms: number): void => {
+      const now = performance.now();
+      const last = publishedRef.current;
+      if (shouldPublishClockTick(last.ms, ms, now - last.at)) setCurrentMs(ms);
+    };
     const loop = (): void => {
-      update();
+      tick(v.currentTime * 1000);
       if (!v.paused) raf = requestAnimationFrame(loop);
     };
     const onFrame = (_now: number, meta: { mediaTime: number }): void => {
-      setCurrentMs(meta.mediaTime * 1000);
+      tick(meta.mediaTime * 1000);
       vfc = v.requestVideoFrameCallback?.(onFrame) ?? 0;
     };
     const onPlay = (): void => {
@@ -142,7 +176,7 @@ export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts
       }
     }, 50);
     return () => clearInterval(id);
-  }, [simulated, playing, durationMs]);
+  }, [simulated, playing, durationMs, setCurrentMs]);
 
   const virtualNow = (): number => {
     const s = virt.current;
@@ -184,7 +218,8 @@ export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts
 
   const seek = useCallback(
     (ms: number) => {
-      const target = Math.max(0, durationMs > 0 ? Math.min(ms, durationMs) : ms);
+      const dur = durationMsRef.current;
+      const target = Math.max(0, dur > 0 ? Math.min(ms, dur) : ms);
       if (simulatedRef.current) {
         virt.current = { ...virt.current, base: target, since: performance.now() };
         setCurrentMs(target);
@@ -194,7 +229,7 @@ export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts
       if (v) v.currentTime = target / 1000;
       setCurrentMs(target);
     },
-    [videoRef, durationMs],
+    [videoRef, setCurrentMs],
   );
 
   const setRate = useCallback(
@@ -207,9 +242,12 @@ export function useMediaClock(videoRef: RefObject<HTMLVideoElement | null>, opts
     [videoRef],
   );
 
-  const toggle = useCallback(() => (playing ? pause() : play()), [playing, pause, play]);
+  const toggle = useCallback(() => (playingRef.current ? pause() : play()), [pause, play]);
 
-  return { currentMs, durationMs, playing, rate, simulated, play, pause, toggle, seek, setRate };
+  return useMemo(
+    () => ({ currentMs, durationMs, playing, rate, simulated, play, pause, toggle, seek, setRate }),
+    [currentMs, durationMs, playing, rate, simulated, play, pause, toggle, seek, setRate],
+  );
 }
 
 export interface PlayerSync {
@@ -234,5 +272,7 @@ export function usePlayerSync(cues: readonly SubtitleCue[], currentMs: number): 
   }
   const last = useRef(-1);
   if (currentIndex >= 0) last.current = currentIndex;
-  return { activeIndexes: activeRef.current, currentIndex, lastIndex: last.current };
+  const activeIndexes = activeRef.current;
+  const lastIndex = last.current;
+  return useMemo(() => ({ activeIndexes, currentIndex, lastIndex }), [activeIndexes, currentIndex, lastIndex]);
 }

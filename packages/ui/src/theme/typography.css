@@ -108,6 +108,9 @@
   border-bottom-right-radius: 4px;
 }
 
+/* `RubyText lazyGlyphs`: one text node per segment; keep '\n' as a line break like the glyph `<br>`. */
+.k-seg--plain { white-space: pre-line; }
+
 .k-glyph--joined {
   display: inline;
 }

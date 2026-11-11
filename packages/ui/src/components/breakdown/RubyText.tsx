@@ -12,7 +12,7 @@
  *   every `<rt>`, `'off'` hides them, `'tap'` keeps them veiled until that
  *   word is hovered or tapped (layout and hit mapping stay identical).
  */
-import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent, type PointerEvent } from 'react';
 import type { CharSpan, RubySegment } from '@kotori/core';
 import { useSettingsStore } from '../../stores/settings';
 import { cx } from '../m3/cx';
@@ -37,6 +37,14 @@ export interface RubyTextProps {
   /** '\n' glyphs at these offsets render as an empty inline marker instead of <br> (orphan re-flow). */
   readonly joinHardBreakOffsets?: ReadonlySet<number> | undefined;
   readonly className?: string | undefined;
+  /**
+   * Long-list fast path (transcript): while the text has no furigana, no
+   * highlight/focus and no break offsets, each segment renders as ONE plain
+   * text node (`<span class="k-seg">text</span>`) instead of one
+   * `<span data-glyph>` per character. Clicks still resolve the exact char via
+   * caret hit-testing; hovering / touching expands to per-glyph spans.
+   */
+  readonly lazyGlyphs?: boolean | undefined;
   readonly lang?: string;
   readonly 'data-testid'?: string;
 }
@@ -230,17 +238,73 @@ export function charIndexFromNode(node: Node | null, root: Element): number | un
 }
 
 interface CaretDoc {
-  caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node } | null;
+  caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset?: number } | null;
   caretRangeFromPoint?: (x: number, y: number) => Range | null;
 }
 
-/** Fallback hit test for clicks that land between glyphs (padding, line gaps). */
-function charIndexFromPoint(root: Element, x: number, y: number): number | undefined {
+/** `.k-seg` rendered as a single plain text node (`lazyGlyphs`), i.e. without per-char `[data-glyph]` children. */
+function plainSegOf(node: Node | null): HTMLElement | undefined {
+  if (!node || node.nodeType !== 3 /* Node.TEXT_NODE */) return undefined;
+  const parent = node.parentElement;
+  return parent && parent.classList.contains('k-seg') && parent.hasAttribute('data-char-start') && !parent.hasAttribute('data-glyph') ? parent : undefined;
+}
+
+function rectOfTextChar(text: Node, offset: number): DOMRect | undefined {
+  const doc = text.ownerDocument;
+  if (!doc || typeof doc.createRange !== 'function') return undefined;
+  try {
+    const r = doc.createRange();
+    r.setStart(text, offset);
+    r.setEnd(text, Math.min(offset + 1, text.textContent?.length ?? offset + 1));
+    return typeof r.getBoundingClientRect === 'function' ? r.getBoundingClientRect() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Char index inside a plain-text `.k-seg` from a caret hit (`offset` = UTF-16
+ * caret offset in its text node). A caret lands BETWEEN characters, so when
+ * the point lies left of the char after the caret (or at the end of the text)
+ * the clicked char is the one before it.
+ */
+export function plainSegCharIndex(segEl: Element, textNode: Node, offset: number, x: number): number | undefined {
+  const start = attrInt(segEl, 'data-char-start');
+  const end = attrInt(segEl, 'data-char-end');
+  if (start === undefined || end === undefined || end <= start) return start;
+  const len = textNode.textContent?.length ?? end - start;
+  let local = offset;
+  if (local >= len) local = len - 1;
+  else if (local > 0) {
+    const rect = rectOfTextChar(textNode, local);
+    if (rect && rect.width > 0 && x < rect.left) local -= 1;
+  }
+  return Math.max(start, Math.min(end - 1, start + local));
+}
+
+/** Caret-based hit test (`caretPositionFromPoint` / `caretRangeFromPoint`); handles plain-text segments. */
+function charIndexFromCaret(root: Element, x: number, y: number): number | undefined {
   const doc = root.ownerDocument as Document & CaretDoc;
   const pos = doc.caretPositionFromPoint?.(x, y);
-  if (pos?.offsetNode && root.contains(pos.offsetNode)) return charIndexFromNode(pos.offsetNode, root);
+  if (pos?.offsetNode && root.contains(pos.offsetNode)) {
+    const seg = plainSegOf(pos.offsetNode);
+    if (seg) return plainSegCharIndex(seg, pos.offsetNode, pos.offset ?? 0, x);
+    return charIndexFromNode(pos.offsetNode, root);
+  }
   const range = doc.caretRangeFromPoint?.(x, y);
-  if (range && root.contains(range.startContainer)) return charIndexFromNode(range.startContainer, root);
+  if (range && root.contains(range.startContainer)) {
+    const seg = plainSegOf(range.startContainer);
+    if (seg) return plainSegCharIndex(seg, range.startContainer, range.startOffset, x);
+    return charIndexFromNode(range.startContainer, root);
+  }
+  return undefined;
+}
+
+/** Fallback hit test for clicks that land between glyphs (padding, line gaps) or inside plain-text segments. */
+function charIndexFromPoint(root: Element, x: number, y: number): number | undefined {
+  const byCaret = charIndexFromCaret(root, x, y);
+  if (byCaret !== undefined) return byCaret;
+  const doc = root.ownerDocument;
   const els = typeof doc.elementsFromPoint === 'function' ? doc.elementsFromPoint(x, y) : [];
   for (const el of els) {
     if (root.contains(el) && el !== root) {
@@ -274,6 +338,7 @@ function RubyTextImpl({
   softBreakOffsets,
   joinHardBreakOffsets,
   className,
+  lazyGlyphs = false,
   lang = 'ja',
   'data-testid': testId,
 }: RubyTextProps) {
@@ -289,6 +354,21 @@ function RubyTextImpl({
   const tapMode = furiganaMode === 'tap';
   // A new sentence starts fully veiled again.
   useEffect(() => setRevealed((prev) => (prev.size === 0 ? prev : new Set())), [text]);
+  // `lazyGlyphs`: expand to per-char spans once hovered / touched (hit-test precision + hover styles).
+  const [expanded, setExpanded] = useState(false);
+  // Mouse only: on iOS a content change on (emulated) hover can swallow the tap's click.
+  const expandOnMouse = useCallback((e: PointerEvent<HTMLSpanElement>) => {
+    if (e.pointerType === 'mouse') setExpanded(true);
+  }, []);
+  const plain =
+    lazyGlyphs &&
+    !expanded &&
+    !segments?.length &&
+    highlight === undefined &&
+    focusIndex === undefined &&
+    focusSpan === undefined &&
+    !softBreakOffsets?.size &&
+    !joinHardBreakOffsets?.size;
   const inHl = (start: number): boolean => highlight !== undefined && start >= highlight[0] && start < highlight[1];
   const inFocus = (pos: number): boolean => resolvedFocusSpan !== undefined && pos >= resolvedFocusSpan[0] && pos < resolvedFocusSpan[1];
 
@@ -300,7 +380,11 @@ function RubyTextImpl({
     }
     if (!onCharClick) return;
     const root = e.currentTarget;
-    const idx = charIndexFromNode(e.target as Node, root) ?? charIndexFromPoint(root, e.clientX, e.clientY);
+    const target = e.target as Element | null;
+    const plainSeg = target?.classList?.contains('k-seg') && !target.querySelector('[data-glyph]') ? target : undefined;
+    const idx = plainSeg
+      ? (charIndexFromCaret(root, e.clientX, e.clientY) ?? estimatePlainSegIndex(plainSeg, e.clientX))
+      : (charIndexFromNode(target, root) ?? charIndexFromPoint(root, e.clientX, e.clientY));
     if (idx !== undefined) onCharClick(idx);
   };
 
@@ -316,9 +400,16 @@ function RubyTextImpl({
       data-furigana={furiganaMode}
       lang={lang}
       onClick={onClick}
+      onPointerEnter={plain ? expandOnMouse : undefined}
       data-testid={testId}
     >
-      {segs.flatMap((seg) => {
+      {plain
+        ? segs.map((seg) => (
+            <span key={seg.start} className="k-seg k-seg--plain" data-char-start={seg.start} data-char-end={seg.end}>
+              {seg.base}
+            </span>
+          ))
+        : segs.flatMap((seg) => {
         const glyphs = seg.glyphs.flatMap((g) => {
           if (g.text === '\n') {
             if (joinHardBreakOffsets?.has(g.start)) {
@@ -398,6 +489,18 @@ function RubyTextImpl({
       })}
     </span>
   );
+}
+
+/** Proportional char estimate inside a plain `.k-seg` when no caret API is available (e.g. jsdom). */
+function estimatePlainSegIndex(segEl: Element, clientX: number): number | undefined {
+  const start = attrInt(segEl, 'data-char-start');
+  const end = attrInt(segEl, 'data-char-end');
+  if (start === undefined) return undefined;
+  if (end === undefined || end <= start) return start;
+  const rect = segEl.getBoundingClientRect();
+  if (!(rect.width > 0) || !Number.isFinite(clientX) || clientX < rect.left) return start;
+  const frac = Math.min(0.9999, (clientX - rect.left) / rect.width);
+  return Math.max(start, Math.min(end - 1, start + Math.floor(frac * (end - start))));
 }
 
 export const RubyText = memo(RubyTextImpl);

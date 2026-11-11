@@ -198,9 +198,9 @@ describe('SettingsPage', () => {
     expect(dictManageBtn.parentElement).toHaveClass('k-row');
   });
 
-  it('builds kotori: [v0.1.42] mailto links and validates/persists Agent feedback email locally', () => {
+  it('builds kotori: [v0.1.43] mailto links and validates/persists Agent feedback email locally', () => {
     expect(KOTORI_UI_VERSION).toBe(uiPkg.version);
-    expect(KOTORI_UI_VERSION).toBe('0.1.42');
+    expect(KOTORI_UI_VERSION).toBe('0.1.43');
 
     expect(isValidFeedbackEmail('agent@example.com')).toBe(true);
     expect(isValidFeedbackEmail('  dev.agent+kotori@example.org  ')).toBe(true);
@@ -293,7 +293,7 @@ describe('SettingsPage', () => {
       `mailto:agent@example.com?subject=${encodeURIComponent(`kotori: [v${KOTORI_UI_VERSION}] 词典弹窗深色模式对比度`)}&body=`,
     );
     const params = new URLSearchParams(launchedUrl.slice('mailto:agent@example.com?'.length));
-    expect(params.get('subject')).toBe('kotori: [v0.1.42] 词典弹窗深色模式对比度');
+    expect(params.get('subject')).toBe('kotori: [v0.1.43] 词典弹窗深色模式对比度');
     expect(params.get('body')).not.toContain('Attachment:');
     expect(params.get('body')).toContain('夜间阅读漫画时边框可以稍微亮一点');
     await waitFor(() => expect(screen.queryByTestId('agent-feedback-dialog')).toBeNull());

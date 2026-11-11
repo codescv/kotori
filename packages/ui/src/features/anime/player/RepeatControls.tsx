@@ -2,7 +2,7 @@
  * Sentence repeat: single-cue loop (`R`, `AnimeSettings.repeatCount` times,
  * 0 = ∞) and A-B loop over the rows selected in the transcript.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cx } from '../../../components/m3/cx';
 import { IconButton } from '../../../components/m3/IconButton';
 import type { Translate } from '../../../i18n';
@@ -55,7 +55,7 @@ export function useRepeat(currentMs: number, seek: (ms: number) => void, padding
     setState({ kind: 'ab', startMs, endMs });
   }, []);
   const stop = useCallback(() => setState(undefined), []);
-  return { state, startCue, startAb, stop };
+  return useMemo(() => ({ state, startCue, startAb, stop }), [state, startCue, startAb, stop]);
 }
 
 export interface RepeatControlsProps {

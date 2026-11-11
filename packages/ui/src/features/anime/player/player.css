@@ -527,12 +527,19 @@
   background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); font: var(--md-sys-typescale-label-large);
   position: sticky; top: 56px; z-index: 2;
 }
-.k-transcript__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
+.k-transcript__list {
+  list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0;
+  /* Long transcripts: momentum scrolling, no scroll chaining, isolated layout/paint. */
+  -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; contain: content;
+}
 .k-side-sheet .k-transcript__list { overflow: visible; }
 .k-transcript__row {
   display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: var(--md-sys-shape-corner-medium); cursor: pointer;
   transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  contain: layout style;
 }
+/* Windowed list placeholders for unmounted rows. */
+.k-transcript__spacer { list-style: none; pointer-events: none; margin: 0; padding: 0; }
 .k-transcript__row:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
 .k-transcript__row.is-active { background: var(--md-sys-color-surface-container-highest); }
 .k-transcript__row.is-active .k-transcript__time { color: var(--md-sys-color-primary); }
