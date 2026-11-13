@@ -264,6 +264,18 @@ export function AiBreakdownPanel({
       if (raf !== undefined) cancelAnimationFrame(raf);
     };
   }, [explanation.id]);
+  // Re-selecting chunk 1 (card tap, char tap, swipe back) returns to the top so
+  // the sticky sentence, audio pills, translation and chunk 1 are all visible.
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    if (sel.activeChunkIndex !== 0) return;
+    const scroller = scrollParentOf(rootRef.current);
+    if (scroller && scroller.scrollTop > 0) scroller.scrollTop = 0;
+  }, [sel.activeChunkIndex]);
 
   // 🗣 Shadowing: play slice → pause (slice × 1.2, countdown) → play slice again.
   const [shadowPhase, setShadowPhase] = useState<ShadowPhase>('idle');
@@ -447,7 +459,7 @@ export function AiBreakdownPanel({
         <div className="k-chunk-list" role="list">
           {explanation.chunks.map((chunk, i) => (
             <ChunkCard
-              key={chunk.id}
+              key={`${explanation.id}:${chunk.id}`}
               chunk={chunk}
               index={i}
               active={i === sel.activeChunkIndex}

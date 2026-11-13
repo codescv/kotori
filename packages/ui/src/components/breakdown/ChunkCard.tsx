@@ -5,8 +5,10 @@
  * active card, clickable 1-line lemma chips on inactive cards).
  *
  * When `active` it is highlighted and scrolled into view (`block: 'nearest'`,
- * `behavior: 'auto'`) — except the first card on mount, so the panel opens at
- * `scrollTop = 0`.
+ * `behavior: 'auto'`) — except the first card, which never calls
+ * `scrollIntoView`: its `scroll-margin` would push the sentence meta /
+ * translation under the sticky sentence header. Re-activating card #0 instead
+ * resets its scroll container to `scrollTop = 0`.
  *
  * Redundant lines are dropped: the reading when it equals the surface (pure
  * kana chunks), and 📘 textbook form when it equals the surface with no 🔥
@@ -36,6 +38,17 @@ export interface ChunkCardProps {
 
 const normPattern = (s: string): string => s.trim().replace(/^[~〜～]+/u, '');
 
+/** Nearest scrollable ancestor (the sheet body), if any. */
+function scrollContainerOf(el: HTMLElement | null): HTMLElement | undefined {
+  let cur = el?.parentElement ?? null;
+  while (cur && cur !== document.body && cur !== document.documentElement) {
+    const oy = getComputedStyle(cur).overflowY;
+    if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return cur;
+    cur = cur.parentElement;
+  }
+  return undefined;
+}
+
 function ChunkCardImpl({
   chunk,
   index,
@@ -55,12 +68,17 @@ function ChunkCardImpl({
   useEffect(() => {
     const firstRun = !mountedRef.current;
     mountedRef.current = true;
-    // The first card is already in view at the top: scrolling it "into view"
-    // on open would push the sticky sentence / translation off-screen.
-    if (firstRun && index === 0) return;
-    if (active) {
-      ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+    if (!active) return;
+    if (index === 0) {
+      // The first card sits right under the sentence block: "scrolling it into
+      // view" would push the sticky sentence's meta / translation off-screen.
+      // On open the panel already starts at the top; later, go back to the top.
+      if (firstRun) return;
+      const scroller = scrollContainerOf(ref.current);
+      if (scroller && scroller.scrollTop > 0) scroller.scrollTop = 0;
+      return;
     }
+    ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
   }, [active, index]);
 
   const evolved = chunk.spokenEvolution;

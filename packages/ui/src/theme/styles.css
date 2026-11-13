@@ -498,7 +498,10 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-sheet__header { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px 24px; min-height: 64px; }
 .k-sheet__title { flex: 1; margin: 0; font: var(--md-sys-typescale-title-large); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .k-sheet__header-actions { display: flex; align-items: center; gap: 4px; }
-.k-sheet__body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 24px; overscroll-behavior: contain; }
+.k-sheet__body {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 24px; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; touch-action: pan-y;
+}
 .k-side-sheet .k-sheet__body { min-width: calc(var(--k-side-sheet-width, 420px) - 1px); }
 
 .k-bottom-sheet-scrim {
@@ -519,15 +522,18 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
   border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;
   background: var(--md-sys-color-surface-container-low); box-shadow: var(--md-sys-elevation-1);
   padding-bottom: var(--k-safe-bottom);
-  transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized),
-    max-height var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
+  /* Clip to the rounded sheet (like .k-side-sheet) so the body is the only scroller. */
+  overflow: hidden;
+  /* No max-height transition: animating layout during a live touch scroll wedges
+     iOS WKWebView's child scroll view and strands scrollTop (v0.1.44). */
+  transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
 }
 .k-bottom-sheet.is-entering {
   animation: k-sheet-up var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate);
 }
 /* Peek snap: the bubble / video frame above stays visible on first open. */
-.k-bottom-sheet.is-peek { max-height: 52vh; }
-.k-bottom-sheet.is-expanded { max-height: 88vh; }
+.k-bottom-sheet.is-peek { max-height: 52vh; max-height: 52dvh; }
+.k-bottom-sheet.is-expanded { max-height: 88vh; max-height: 88dvh; }
 .k-bottom-sheet.is-dragging { transition: none; animation: none; will-change: transform; }
 .k-bottom-sheet.is-closing {
   pointer-events: none;
@@ -541,7 +547,9 @@ textarea.k-field__input ~ .k-field__label { top: 18px; }
 .k-bottom-sheet .k-sheet__header { min-height: 36px; padding: 0 12px 2px 16px; touch-action: none; user-select: none; }
 .k-bottom-sheet .k-sheet__header-actions { touch-action: manipulation; }
 .k-bottom-sheet .k-sheet__title { font: var(--md-sys-typescale-title-medium); }
-.k-bottom-sheet .k-sheet__body { padding: 0 16px 16px; overscroll-behavior-y: contain; }
+/* Hug short content (no blank space under the follow-up box) and shrink + scroll
+   when the content is taller than the snap's max-height. */
+.k-bottom-sheet .k-sheet__body { flex: 1 1 auto; min-height: 0; padding: 0 16px 16px; overscroll-behavior-y: contain; }
 .k-sheet__footer { flex: none; padding: 8px 16px; border-top: 1px solid var(--md-sys-color-outline-variant); }
 /* Tab counters inside sheets are informational, not errors (tonal, not red). */
 .k-sheet__body .k-tabs .k-badge,

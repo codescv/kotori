@@ -390,6 +390,65 @@ describe('AiBreakdownPanel – compaction, notices, shadowing', () => {
     expect(set).toHaveBeenCalledWith(0);
     scroller.remove();
   });
+
+  describe('chunk #0 never scrollIntoView (v0.1.44 sticky-header clipping)', () => {
+    let scrolled: Element[] = [];
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    beforeEach(() => {
+      scrolled = [];
+      Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
+        scrolled.push(this);
+      });
+    });
+    afterEach(() => {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+      document.querySelectorAll('[data-test-scroller]').forEach((el) => el.remove());
+    });
+    const makeScroller = (): HTMLDivElement => {
+      const scroller = document.createElement('div');
+      scroller.style.overflowY = 'auto';
+      scroller.setAttribute('data-test-scroller', '');
+      document.body.appendChild(scroller);
+      return scroller;
+    };
+    const scrolledChunkIds = (): (string | null)[] => scrolled.map((el) => el.getAttribute('data-chunk-id'));
+
+    it('re-activating chunk #0 after mount resets scrollTop to 0 instead of scrollIntoView', () => {
+      const scroller = makeScroller();
+      render(<Harness explanation={EXPL} initial={3} />, { container: scroller });
+      expect(screen.getByTestId('chunk-c1')).toHaveAttribute('aria-current', 'true');
+      scroller.scrollTop = 140;
+      scrolled = [];
+      fireEvent.click(screen.getByTestId('chunk-c0'));
+      expect(screen.getByTestId('chunk-c0')).toHaveAttribute('aria-current', 'true');
+      expect(scrolledChunkIds()).not.toContain('c0');
+      expect(scroller.scrollTop).toBe(0);
+      // Later chunks still scroll themselves into view.
+      fireEvent.click(screen.getByTestId('chunk-c2'));
+      expect(scrolledChunkIds()).toContain('c2');
+    });
+
+    it('switching between two explanations that both use chunk id "c0" never scrollIntoView chunk #0', () => {
+      const other = explanationFor('行かなきゃ', 'zh-CN');
+      expect(other.id).not.toBe(EXPL.id);
+      expect(other.chunks[0]?.id).toBe('c0');
+      const scroller = makeScroller();
+      const { rerender } = render(
+        <AiBreakdownPanel explanation={EXPL} focusCharIndex={undefined} onFocusChange={() => {}} t={t} />,
+        { container: scroller },
+      );
+      const firstCard = screen.getByTestId('chunk-c0');
+      expect(firstCard).not.toHaveAttribute('aria-current');
+      scroller.scrollTop = 150;
+      rerender(<AiBreakdownPanel explanation={other} focusCharIndex={0} onFocusChange={() => {}} t={t} />);
+      const nextCard = screen.getByTestId('chunk-c0');
+      expect(nextCard).toHaveAttribute('aria-current', 'true');
+      // Keyed by explanation id → a fresh card, not the previous sentence's.
+      expect(nextCard).not.toBe(firstCard);
+      expect(scrolledChunkIds()).not.toContain('c0');
+      expect(scroller.scrollTop).toBe(0);
+    });
+  });
 });
 
 describe('FollowUpThread', () => {

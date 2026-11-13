@@ -2,7 +2,7 @@
  * M3 side sheet (docked on expanded windows) and modal bottom sheet (phones),
  * plus `AdaptiveSheet` which picks one by window size class.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useIsExpanded } from '../../hooks/useMediaQuery';
 import { cx } from './cx';
 import { IconButton } from './IconButton';
@@ -48,6 +48,27 @@ export function SideSheet({ open, onClose, title, headerActions, footer, childre
 export type BottomSheetSnap = 'peek' | 'expanded';
 
 const CLOSE_CLEANUP_MS = 240;
+
+/**
+ * Keeps the sheet body's `scrollTop` within `[0, maxScroll]`. iOS WKWebView can
+ * strand `scrollTop` above the real max (e.g. after `peek → expanded` grows the
+ * body so the content no longer overflows), which hides the top of the content
+ * under sticky headers and disables both native scroll and pull-to-dismiss.
+ * Returns the (possibly corrected) scrollTop.
+ */
+const clampBodyScroll = (bodyEl: HTMLElement | null, resetToZero = false): number => {
+  if (!bodyEl) return 0;
+  const maxScroll = Math.max(0, bodyEl.scrollHeight - bodyEl.clientHeight);
+  if (resetToZero || maxScroll <= 1) {
+    if (bodyEl.scrollTop !== 0) bodyEl.scrollTop = 0;
+    return 0;
+  }
+  if (bodyEl.scrollTop > maxScroll) {
+    bodyEl.scrollTop = maxScroll;
+    return maxScroll;
+  }
+  return bodyEl.scrollTop;
+};
 
 /**
  * Modal bottom sheet with drag handle and two snap points:
@@ -116,6 +137,7 @@ export function BottomSheet({
     active: boolean;
     expandedOnPullUp: boolean;
     fromInteractive: boolean;
+    startScrollTop: number;
   } | null>(null);
   const suppressBodyClickRef = useRef(false);
   const suppressHeaderClickRef = useRef(false);
@@ -190,17 +212,19 @@ export function BottomSheet({
     const fromInteractive =
       target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [role="slider"]'));
     suppressBodyClickRef.current = false;
+    const startScrollTop = clampBodyScroll(bodyEl);
     bodyPullRef.current = {
       startX: clientX,
       startY: clientY,
       lastY: clientY,
       anchorX: clientX,
-      anchorY: bodyEl.scrollTop <= 1 ? clientY : null,
+      anchorY: startScrollTop <= 1 ? clientY : null,
       anchorTime: performance.now(),
       pointerId,
       active: false,
       expandedOnPullUp: false,
       fromInteractive,
+      startScrollTop,
     };
   };
 
@@ -215,11 +239,23 @@ export function BottomSheet({
     if (!state.active && !state.fromInteractive && snapRef.current === 'peek' && dy < -28 && Math.abs(dy) > Math.abs(dx) * 1.15) {
       state.expandedOnPullUp = true;
       expandSnap();
+      // Dragging up from the top of the peek sheet is a "grow" gesture: the
+      // native scroll it caused before the threshold must not leave the
+      // sentence meta / translation hidden under the sticky header.
+      if (state.startScrollTop <= 12) {
+        clampBodyScroll(bodyEl, true);
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => clampBodyScroll(bodyRef.current, true));
+        }
+      }
       return;
     }
 
     if (!state.active) {
-      if (bodyEl.scrollTop > 1) {
+      // Un-strand a stale scrollTop first (content that fits has maxScroll 0),
+      // otherwise every touchmove bails out here and the sheet deadlocks.
+      const currentScrollTop = clampBodyScroll(bodyEl);
+      if (currentScrollTop > 1) {
         state.anchorY = null;
         return;
       }
@@ -290,6 +326,24 @@ export function BottomSheet({
     if (bodyPullRef.current?.active) setDragY(0);
     bodyPullRef.current = null;
   };
+
+  // Snap / content size changes can leave scrollTop above the new max.
+  useLayoutEffect(() => {
+    if (!open) return;
+    clampBodyScroll(bodyRef.current);
+  }, [open, snap]);
+
+  useEffect(() => {
+    if (!open || typeof ResizeObserver !== 'function') return;
+    const bodyEl = bodyRef.current;
+    if (!bodyEl) return;
+    const ro = new ResizeObserver(() => {
+      clampBodyScroll(bodyRef.current);
+    });
+    ro.observe(bodyEl);
+    if (bodyEl.firstElementChild) ro.observe(bodyEl.firstElementChild);
+    return () => ro.disconnect();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

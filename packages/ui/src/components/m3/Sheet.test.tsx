@@ -22,6 +22,14 @@ afterAll(() => {
   if (!hadPointerEvent) vi.unstubAllGlobals();
 });
 
+/** jsdom has no layout; pin the body's scroll geometry (mutable via the returned setter). */
+function mockBodySize(body: HTMLElement, scrollHeight: number, clientHeight: number) {
+  const size = { scrollHeight, clientHeight };
+  Object.defineProperty(body, 'scrollHeight', { configurable: true, get: () => size.scrollHeight });
+  Object.defineProperty(body, 'clientHeight', { configurable: true, get: () => size.clientHeight });
+  return (next: { scrollHeight?: number; clientHeight?: number }) => Object.assign(size, next);
+}
+
 describe('BottomSheet snap points', () => {
   it('opens in the peek snap and toggles to expanded by tapping or keyboard on the handle', () => {
     render(
@@ -111,6 +119,8 @@ describe('BottomSheet snap points', () => {
     );
     const sheet = screen.getByRole('dialog');
     const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    // jsdom has no layout: give the body real overflow (1200px content in a 400px body).
+    mockBodySize(body, 1200, 400);
 
     // 1. Scrolling while scrollTop stays > 0 never translates or dismisses the sheet.
     body.scrollTop = 160;
@@ -421,5 +431,130 @@ describe('BottomSheet close animation & drag release transition', () => {
     expect(sheet).not.toHaveClass('is-closing');
     expect(sheet).not.toHaveClass('is-entering');
     expect(sheet.style.transform).toBe('');
+  });
+});
+
+describe('BottomSheet stranded scrollTop (v0.1.44 iOS 这个页面无法滚动)', () => {
+  it('resets scrollTop to 0 when dragging up from the top of peek expands the sheet', () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      cb(0);
+      return 1;
+    });
+    try {
+      render(
+        <BottomSheet open onClose={() => {}} title="AI 解析">
+          <div style={{ height: 900 }}>breakdown</div>
+        </BottomSheet>,
+      );
+      const sheet = screen.getByRole('dialog');
+      const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+      mockBodySize(body, 900, 400);
+      body.scrollTop = 0;
+
+      fireEvent.touchStart(body, { touches: [{ clientX: 200, clientY: 500 }] });
+      // Native scroll during the first 28px of upward movement.
+      body.scrollTop = 64;
+      fireEvent.touchMove(body, { touches: [{ clientX: 200, clientY: 460 }] });
+      expect(sheet).toHaveClass('is-expanded');
+      expect(body.scrollTop).toBe(0);
+      fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 200, clientY: 460 }] });
+      expect(body.scrollTop).toBe(0);
+    } finally {
+      rafSpy.mockRestore();
+    }
+  });
+
+  it('keeps a legitimate in-range scrollTop when the drag-up started mid-content (startScrollTop > 12)', () => {
+    render(
+      <BottomSheet open onClose={() => {}} title="AI 解析">
+        <div style={{ height: 900 }}>breakdown</div>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    mockBodySize(body, 900, 400);
+    body.scrollTop = 200;
+    fireEvent.touchStart(body, { touches: [{ clientX: 200, clientY: 500 }] });
+    body.scrollTop = 240;
+    fireEvent.touchMove(body, { touches: [{ clientX: 200, clientY: 460 }] });
+    expect(sheet).toHaveClass('is-expanded');
+    expect(body.scrollTop).toBe(240);
+  });
+
+  it('clamps a stranded scrollTop when expanding makes the content fit (scrollHeight <= clientHeight)', () => {
+    render(
+      <BottomSheet open onClose={() => {}} title="AI 解析">
+        <div>(ため息)</div>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    const resize = mockBodySize(body, 520, 400);
+    body.scrollTop = 60;
+    // Expanding to 88vh: the body grows so the 1-chunk breakdown fits.
+    resize({ clientHeight: 520 });
+    fireEvent.keyDown(screen.getByTestId('bottom-sheet-handle'), { key: 'Enter' });
+    expect(sheet).toHaveClass('is-expanded');
+    expect(body.scrollTop).toBe(0);
+  });
+
+  it('clamps scrollTop above the new max to maxScroll after a snap change', () => {
+    render(
+      <BottomSheet open onClose={() => {}} title="AI 解析">
+        <div style={{ height: 900 }}>breakdown</div>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    const resize = mockBodySize(body, 900, 400);
+    body.scrollTop = 500;
+    resize({ clientHeight: 700 });
+    fireEvent.keyDown(screen.getByTestId('bottom-sheet-handle'), { key: 'Enter' });
+    expect(sheet).toHaveClass('is-expanded');
+    expect(body.scrollTop).toBe(200);
+  });
+
+  it('un-strands a non-zero scrollTop on pull-down when content fits and dismisses instead of deadlocking', () => {
+    const onClose = vi.fn();
+    render(
+      <BottomSheet open onClose={onClose} title="AI 解析" initialSnap="expanded">
+        <div>(ため息)</div>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    mockBodySize(body, 500, 500);
+    body.scrollTop = 0;
+
+    fireEvent.touchStart(body, { touches: [{ clientX: 200, clientY: 300 }] });
+    // iOS leaves scrollTop stranded at ~60px although maxScroll is 0.
+    body.scrollTop = 60;
+    fireEvent.touchMove(body, { touches: [{ clientX: 200, clientY: 304 }] });
+    expect(body.scrollTop).toBe(0);
+    fireEvent.touchMove(body, { touches: [{ clientX: 201, clientY: 394 }] });
+    // Anchored at touchstart (scrollTop was 0 then) → 94px pull.
+    expect(sheet.style.transform).toBe('translateY(94px)');
+    fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 201, clientY: 394 }] });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('un-strands scrollTop already at touchstart so the very first pull-down anchors', () => {
+    const onClose = vi.fn();
+    render(
+      <BottomSheet open onClose={onClose} title="AI 解析" initialSnap="expanded">
+        <div>(ため息)</div>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByRole('dialog');
+    const body = sheet.querySelector<HTMLElement>('.k-sheet__body')!;
+    mockBodySize(body, 480, 500);
+    body.scrollTop = 58;
+
+    fireEvent.touchStart(body, { touches: [{ clientX: 200, clientY: 300 }] });
+    expect(body.scrollTop).toBe(0);
+    fireEvent.touchMove(body, { touches: [{ clientX: 200, clientY: 380 }] });
+    expect(sheet.style.transform).toBe('translateY(80px)');
+    fireEvent.touchEnd(body, { touches: [], changedTouches: [{ clientX: 200, clientY: 380 }] });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
