@@ -195,8 +195,8 @@ export function JimakuSearch() {
                 {selectedAni?.score !== undefined && <span className="k-tag k-tag--tone">★ {selectedAni.score}%</span>}
                 {selectedAni?.format && <span className="k-tag">{selectedAni.format}</span>}
                 {selectedAni?.seasonYear && <span className="k-tag k-tag--muted">{selectedAni.seasonYear}</span>}
-                {selectedAni?.episodes && <span className="k-tag">{selectedAni.episodes} 话</span>}
-                {files && <span className="k-tag">{files.length} 个字幕文件</span>}
+                {selectedAni?.episodes && <span className="k-tag">{t('anime.episodesShort', { count: selectedAni.episodes })}</span>}
+                {files && <span className="k-tag">{t('downloads.jimaku.fileCount', { count: files.length })}</span>}
                 {entry.anilistId && <span className="k-tag k-tag--muted">AniList #{entry.anilistId}</span>}
               </div>
             </div>
@@ -204,23 +204,23 @@ export function JimakuSearch() {
           {files && files.length > 1 && (
             <div className="k-row k-dl-sort-bar">
               <Chip kind="filter" selected={fileExtFilter === 'ass'} onClick={() => setFileExtFilter((f) => (f === 'ass' ? 'all' : 'ass'))}>
-                仅 ASS
+                {t('downloads.jimaku.onlyAss')}
               </Chip>
               <Chip kind="filter" selected={fileExtFilter === 'srt'} onClick={() => setFileExtFilter((f) => (f === 'srt' ? 'all' : 'srt'))}>
-                仅 SRT
+                {t('downloads.jimaku.onlySrt')}
               </Chip>
               <span className="k-dl-sort-divider" aria-hidden="true" />
               <Chip kind="filter" selected={fileSort === 'episode'} onClick={() => setFileSort('episode')}>
-                按集数
+                {t('downloads.jimaku.sortEpisode')}
               </Chip>
               <Chip kind="filter" selected={fileSort === 'latest'} onClick={() => setFileSort('latest')}>
-                最新上传
+                {t('downloads.jimaku.sortLatestUpload')}
               </Chip>
               <Chip kind="filter" selected={fileSort === 'size'} onClick={() => setFileSort('size')}>
-                按大小
+                {t('downloads.jimaku.sortSize')}
               </Chip>
               <Chip kind="filter" selected={fileSort === 'name'} onClick={() => setFileSort('name')}>
-                按名称
+                {t('downloads.jimaku.sortName')}
               </Chip>
             </div>
           )}
@@ -254,18 +254,18 @@ export function JimakuSearch() {
           {sortedEntries && sortedEntries.length > 1 && (
             <div className="k-row k-dl-sort-bar">
               <Chip kind="filter" selected={entrySort === 'default'} onClick={() => setEntrySort('default')}>
-                默认排序
+                {t('downloads.sortDefault')}
               </Chip>
               <Chip kind="filter" selected={entrySort === 'score'} onClick={() => setEntrySort('score')}>
-                评分最高
+                {t('downloads.sortScore')}
               </Chip>
               <Chip kind="filter" selected={entrySort === 'latest'} onClick={() => setEntrySort('latest')}>
-                最近更新
+                {t('downloads.sortUpdated')}
               </Chip>
               <Chip kind="filter" selected={entrySort === 'name'} onClick={() => setEntrySort('name')}>
-                名称 A-Z
+                {t('downloads.sortNameAZ')}
               </Chip>
-              <span className="k-dl-count-badge">{sortedEntries.length} 个条目</span>
+              <span className="k-dl-count-badge">{t('downloads.jimaku.entryCount', { count: sortedEntries.length })}</span>
             </div>
           )}
           {sortedEntries && sortedEntries.length > 0 && (
@@ -289,11 +289,11 @@ export function JimakuSearch() {
                         {ani?.score !== undefined && <span className="k-tag k-tag--tone">★ {ani.score}%</span>}
                         {ani?.format && <span className="k-tag">{ani.format}</span>}
                         {ani?.seasonYear && <span className="k-tag k-tag--muted">{ani.seasonYear}</span>}
-                        {ani?.episodes && <span className="k-tag">{ani.episodes} 话</span>}
-                        {e.flags.movie && <span className="k-tag">Movie</span>}
+                        {ani?.episodes && <span className="k-tag">{t('anime.episodesShort', { count: ani.episodes })}</span>}
+                        {e.flags.movie && <span className="k-tag">{t('downloads.jimaku.movie')}</span>}
                         {e.anilistId && <span className="k-tag k-tag--muted">AniList #{e.anilistId}</span>}
-                        {e.flags.unverified && <span className="k-tag k-tag--muted">unverified</span>}
-                        {e.lastModifiedAt && <span className="k-dl-media-card__sub">更新于 {formatDate(e.lastModifiedAt)}</span>}
+                        {e.flags.unverified && <span className="k-tag k-tag--muted">{t('downloads.jimaku.unverified')}</span>}
+                        {e.lastModifiedAt && <span className="k-dl-media-card__sub">{t('downloads.updatedAt', { date: formatDate(e.lastModifiedAt) })}</span>}
                       </div>
                       {ani?.genres && ani.genres.length > 0 && (
                         <div className="k-dl-media-card__chips">

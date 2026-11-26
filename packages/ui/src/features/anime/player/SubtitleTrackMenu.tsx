@@ -11,7 +11,7 @@ import { Dialog } from '../../../components/m3/Dialog';
 import { IconButton } from '../../../components/m3/IconButton';
 import { Menu, type MenuHeading, type MenuItem } from '../../../components/m3/Menu';
 import { useHost } from '../../../host/HostContext';
-import type { Translate } from '../../../i18n';
+import { getCurrentTranslator, type MessageKey, type Translate } from '../../../i18n';
 import { showSnackbar } from '../../../stores/snackbar';
 
 export interface TrackSelectionTarget {
@@ -32,22 +32,25 @@ export interface SubtitleTrackMenuProps {
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-const LANG_NAMES: Readonly<Record<string, string>> = {
-  ja: '日本語',
-  jpn: '日本語',
-  zh: '中文',
-  'zh-cn': '简中',
-  'zh-tw': '繁中',
-  en: 'English',
-  eng: 'English',
+const LANG_KEY_MAP: Readonly<Record<string, MessageKey>> = {
+  ja: 'player.trackLang.ja',
+  jpn: 'player.trackLang.ja',
+  zh: 'player.trackLang.zh',
+  'zh-cn': 'player.trackLang.zhCN',
+  'zh-tw': 'player.trackLang.zhTW',
+  en: 'player.trackLang.en',
+  eng: 'player.trackLang.en',
 };
 
-const ORIGIN_NAMES: Readonly<Record<string, string>> = {
+const ORIGIN_KEY_MAP: Readonly<Record<string, MessageKey>> = {
+  embedded: 'player.trackOrigin.embedded',
+  external: 'player.trackOrigin.external',
+  imported: 'player.trackOrigin.imported',
+};
+
+const ORIGIN_BRANDS: Readonly<Record<string, string>> = {
   jimaku: 'Jimaku',
   ajatt: 'AJATT',
-  embedded: '内嵌',
-  external: '外挂',
-  imported: '导入',
 };
 
 /**
@@ -55,11 +58,17 @@ const ORIGIN_NAMES: Readonly<Record<string, string>> = {
  * raw release filenames (`Jimaku · [SubsPlease] ... - 01 (1080p) [CRC].ja.ass`)
  * never overflow the track menu.
  */
-export function formatSubtitleTrackLabel(track: SubtitleTrack, episode: AnimeEpisode): string {
+export function formatSubtitleTrackLabel(
+  track: SubtitleTrack,
+  episode: AnimeEpisode,
+  t: Translate = getCurrentTranslator(),
+): string {
   const langKey = (track.language ?? '').toLowerCase();
-  const langLabel = LANG_NAMES[langKey] ?? (track.language ? track.language.toUpperCase() : undefined);
+  const langMsg = LANG_KEY_MAP[langKey];
+  const langLabel = langMsg ? t(langMsg) : track.language ? track.language.toUpperCase() : undefined;
   const fmtLabel = track.format.toUpperCase();
-  const originLabel = ORIGIN_NAMES[track.origin] ?? track.origin;
+  const originMsg = ORIGIN_KEY_MAP[track.origin];
+  const originLabel = ORIGIN_BRANDS[track.origin] ?? (originMsg ? t(originMsg) : track.origin);
 
   const videoStem = episode.fileName.replace(/\.[^.]+$/, '');
   let cleaned = track.label
@@ -114,7 +123,7 @@ export function SubtitleTrackMenu({
       const extracted = await host.anime.extractEmbeddedTrack(episode.id, track.streamIndex);
       if (slot === 'secondary') {
         onTracksChanged({ secondary: extracted.id });
-        showSnackbar(t('player.secondaryOn', { label: formatSubtitleTrackLabel(extracted, episode) }));
+        showSnackbar(t('player.secondaryOn', { label: formatSubtitleTrackLabel(extracted, episode, t) }));
       } else {
         onTracksChanged({ primary: extracted.id });
       }
@@ -139,7 +148,7 @@ export function SubtitleTrackMenu({
     items.push({
       key: `p:${track.id}`,
       testId: `track-primary-${track.id}`,
-      label: formatSubtitleTrackLabel(track, episode),
+      label: formatSubtitleTrackLabel(track, episode, t),
       selected: track.id === trackId,
       disabled: needsExtract && !caps.embeddedSubtitles,
       onSelect: () => {
@@ -165,7 +174,7 @@ export function SubtitleTrackMenu({
     items.push({
       key: `s:${track.id}`,
       testId: `track-secondary-${track.id}`,
-      label: formatSubtitleTrackLabel(track, episode),
+      label: formatSubtitleTrackLabel(track, episode, t),
       selected: track.id === secondaryTrackId,
       disabled: needsExtract && !caps.embeddedSubtitles,
       onSelect: () => {

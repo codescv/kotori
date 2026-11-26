@@ -7,7 +7,7 @@ import { Dialog } from '../../components/m3/Dialog';
 import { LinearProgress } from '../../components/m3/Progress';
 import { TextField } from '../../components/m3/TextField';
 import { useHost } from '../../host/HostContext';
-import { useT } from '../../i18n';
+import { useLocale, useT } from '../../i18n';
 import { isRawMediaFileName } from '../../lib/cues';
 import { showSnackbar } from '../../stores/snackbar';
 import { FALLBACK_ANIME_CATALOG, searchAniListMediaList, type AniListMediaInfo } from '../downloads/anilist';
@@ -22,6 +22,7 @@ export interface EditSeriesDialogProps {
 export function EditSeriesDialog({ open, series, onClose }: EditSeriesDialogProps) {
   const host = useHost();
   const t = useT();
+  const locale = useLocale();
   const [editTitle, setEditTitle] = useState(series.title);
   const [editCoverUrl, setEditCoverUrl] = useState(series.coverUrl ?? '');
   const [draftAnilistId, setDraftAnilistId] = useState<number | null | undefined>(series.anilistId);
@@ -97,7 +98,7 @@ export function EditSeriesDialog({ open, series, onClose }: EditSeriesDialogProp
       };
       await host.anime.updateSeries(series.id, patch);
       await useAnimeStore.getState().invalidate(host);
-      showSnackbar('已更新作品信息');
+      showSnackbar(t('anime.edit.updated'));
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -110,7 +111,7 @@ export function EditSeriesDialog({ open, series, onClose }: EditSeriesDialogProp
     <Dialog
       open={open}
       onClose={onClose}
-      title="编辑作品信息"
+      title={t('anime.edit.title')}
       icon="edit"
       wide
       data-testid="edit-series-dialog"
@@ -126,13 +127,13 @@ export function EditSeriesDialog({ open, series, onClose }: EditSeriesDialogProp
       }
     >
       <TextField
-        label="作品名称"
+        label={t('anime.edit.nameLabel')}
         value={editTitle}
         onValueChange={setEditTitle}
         data-testid="edit-series-title-input"
       />
       <TextField
-        label="封面图片 URL（留空可清除封面）"
+        label={t('anime.edit.coverLabel')}
         value={editCoverUrl}
         onValueChange={setEditCoverUrl}
         data-testid="edit-series-cover-input"
@@ -141,17 +142,17 @@ export function EditSeriesDialog({ open, series, onClose }: EditSeriesDialogProp
       <div className="k-edit-series__link-bar">
         <span className="k-body-small k-muted">
           {typeof draftAnilistId === 'number'
-            ? `当前已关联番剧数据库：AniList #${draftAnilistId}`
-            : '当前未关联番剧数据库（仅使用本地名称与封面）'}
+            ? t('anime.edit.linkedAnilist', { id: draftAnilistId })
+            : t('anime.edit.unlinkedAnilist')}
         </span>
         <Button variant="outlined" onClick={handleUnlink} data-testid="edit-series-unlink-btn">
-          取消番剧关联
+          {t('anime.edit.unlinkBtn')}
         </Button>
       </div>
 
       <div className="k-edit-series__search-row">
         <TextField
-          label="搜索番剧 (AniList)"
+          label={t('anime.edit.searchLabel')}
           value={searchQuery}
           onValueChange={setSearchQuery}
           onKeyDown={(e) => {
@@ -164,19 +165,19 @@ export function EditSeriesDialog({ open, series, onClose }: EditSeriesDialogProp
           data-testid="edit-series-search-input"
         />
         <Button variant="tonal" icon="search" onClick={() => void runSearch()} data-testid="edit-series-search-btn">
-          搜索
+          {t('common.search')}
         </Button>
       </div>
 
       {(searching || saving) && <LinearProgress />}
 
-      <div className="k-anilist-candidates" role="listbox" aria-label="AniList 候选番剧">
+      <div className="k-anilist-candidates" role="listbox" aria-label={t('anime.edit.candidatesAria')}>
         {candidates.length === 0 && !searching && (
-          <p className="k-body-small k-muted">未找到匹配的番剧条目，可直接保存自定义名称与封面。</p>
+          <p className="k-body-small k-muted">{t('anime.edit.noMatch')}</p>
         )}
         {candidates.map((c) => {
-          const primaryTitle = c.nativeTitle ?? c.chineseTitle ?? c.romajiTitle ?? `#${c.id}`;
-          const sub = [c.chineseTitle, c.romajiTitle, c.seasonYear ? String(c.seasonYear) : undefined]
+          const primaryTitle = c.nativeTitle ?? (locale === 'zh-CN' ? c.chineseTitle : c.englishTitle) ?? c.romajiTitle ?? `#${c.id}`;
+          const sub = [locale === 'zh-CN' ? c.chineseTitle : undefined, c.romajiTitle, c.englishTitle, c.seasonYear ? String(c.seasonYear) : undefined]
             .filter((x, i, a): x is string => Boolean(x) && x !== primaryTitle && a.indexOf(x) === i)
             .join(' · ');
           const selected = draftAnilistId === c.id;
@@ -217,7 +218,7 @@ export function EditSeriesDialog({ open, series, onClose }: EditSeriesDialogProp
                     setEditTitle(primaryTitle);
                   }}
                 >
-                  填入名称
+                  {t('anime.edit.fillName')}
                 </span>
               )}
             </button>

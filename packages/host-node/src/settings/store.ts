@@ -19,7 +19,7 @@ export function defaultSettings(dataDir: string): AppSettings {
       cacheEnabled: true,
       timeoutMs: 30_000,
     },
-    ui: { theme: 'system', seedColor: '#8ab49a', locale: 'zh-CN', fontScale: 1 },
+    ui: { theme: 'system', seedColor: '#8ab49a', locale: 'system', fontScale: 1 },
     anime: {
       mergeKaraokeCues: true,
       hideSigns: true,
@@ -86,7 +86,7 @@ function stripNulls(value: Record<string, unknown>): Record<string, unknown> {
 }
 
 const THEMES = ['system', 'light', 'dark'];
-const LOCALES = ['zh-CN', 'en', 'ja'];
+const LOCALES = ['system', 'zh-CN', 'en', 'ja'];
 const APP_ICONS = ['s4-01', 's4-02', 's4-03', 's4-04', 's3-01', 's3-02', 's3-03', 's3-04'];
 const TARGET_LANGUAGES = ['zh-CN', 'zh-TW', 'en'];
 const READING_MODES = ['single-rtl', 'single-ltr', 'spread-rtl', 'spread-ltr', 'webtoon'];

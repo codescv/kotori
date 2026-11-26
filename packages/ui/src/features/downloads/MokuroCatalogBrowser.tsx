@@ -12,7 +12,7 @@ import { LinearProgress } from '../../components/m3/Progress';
 import { TextField } from '../../components/m3/TextField';
 import { useHost } from '../../host/HostContext';
 import { useHostEvents } from '../../host/useHostEvents';
-import { useT } from '../../i18n';
+import { useLocale, useT } from '../../i18n';
 import { useSettingsStore } from '../../stores/settings';
 import { showSnackbar } from '../../stores/snackbar';
 import { CoverThumb } from './CoverThumb';
@@ -46,6 +46,7 @@ function matchesSeriesQuery(d: MokuroCatalogEntry, q: string): boolean {
 export function MokuroCatalogBrowser() {
   const host = useHost();
   const t = useT();
+  const locale = useLocale();
   const upsert = useDownloadsStore((s) => s.upsert);
   const root = useSettingsStore((s) => s.settings.downloads.mokuroCatalogUrl);
   const [url, setUrl] = useState<string | undefined>(undefined);
@@ -245,21 +246,21 @@ export function MokuroCatalogBrowser() {
       {dirs.length > 1 && volumes.length === 0 && (
         <div className="k-row k-dl-sort-bar">
           <Chip kind="filter" selected={sort === 'default'} onClick={() => setSort('default')}>
-            默认排序
+            {t('downloads.sortDefault')}
           </Chip>
           <Chip kind="filter" selected={sort === 'score'} onClick={() => setSort('score')}>
-            评分最高
+            {t('downloads.sortScore')}
           </Chip>
           <Chip kind="filter" selected={sort === 'latest'} onClick={() => setSort('latest')}>
-            最近更新
+            {t('downloads.sortUpdated')}
           </Chip>
           <Chip kind="filter" selected={sort === 'volumes'} onClick={() => setSort('volumes')}>
-            卷数最多
+            {t('downloads.mokuro.sortVolumes')}
           </Chip>
           <Chip kind="filter" selected={sort === 'chars'} onClick={() => setSort('chars')}>
-            字数最多
+            {t('downloads.mokuro.sortChars')}
           </Chip>
-          <span className="k-dl-count-badge">{dirs.length} 部漫画</span>
+          <span className="k-dl-count-badge">{t('downloads.mokuro.seriesCount', { count: dirs.length })}</span>
         </div>
       )}
       {loading && <LinearProgress label={t('common.loading')} />}
@@ -272,9 +273,13 @@ export function MokuroCatalogBrowser() {
               <div className="k-dl-banner__info">
                 <h3 className="k-dl-banner__title">{seriesName}</h3>
                 <div className="k-dl-media-card__badges">
-                  <span className="k-tag">{volumes.length} 卷</span>
-                  {seriesTotalPages > 0 && <span className="k-tag k-tag--muted">共 {seriesTotalPages.toLocaleString()} 页</span>}
-                  <span className="k-tag k-tag--tone">内置 OCR (.mokuro + CBZ)</span>
+                  <span className="k-tag">{t('downloads.mokuro.volumeCount', { count: volumes.length })}</span>
+                  {seriesTotalPages > 0 && (
+                    <span className="k-tag k-tag--muted">
+                      {t('downloads.mokuro.totalPages', { count: seriesTotalPages.toLocaleString(locale) })}
+                    </span>
+                  )}
+                  <span className="k-tag k-tag--tone">{t('downloads.mokuro.builtinOcr')}</span>
                 </div>
                 {unownedVolumes.length > 1 && (
                   <div className="k-row" style={{ marginTop: 8 }}>
@@ -284,7 +289,7 @@ export function MokuroCatalogBrowser() {
                       onClick={() => void downloadAllUnowned()}
                       data-testid="mokuro-download-all"
                     >
-                      {`一键下载全部未拥有分卷（${unownedVolumes.length} 卷）`}
+                      {t('downloads.mokuro.downloadAllUnowned', { count: unownedVolumes.length })}
                     </Button>
                   </div>
                 )}
@@ -294,13 +299,13 @@ export function MokuroCatalogBrowser() {
           {volumes.length > 1 && (
             <div className="k-row k-dl-sort-bar">
               <Chip kind="filter" selected={volSort === 'asc'} onClick={() => setVolSort('asc')}>
-                正序 (1→N)
+                {t('downloads.mokuro.volSortAsc')}
               </Chip>
               <Chip kind="filter" selected={volSort === 'desc'} onClick={() => setVolSort('desc')}>
-                倒序 (N→1)
+                {t('downloads.mokuro.volSortDesc')}
               </Chip>
               <Chip kind="filter" selected={volSort === 'pages'} onClick={() => setVolSort('pages')}>
-                页数最多
+                {t('downloads.mokuro.volSortPages')}
               </Chip>
             </div>
           )}
@@ -311,7 +316,7 @@ export function MokuroCatalogBrowser() {
               const parsedVol = parseVolumeName(v.name);
               const cleanVolTitle =
                 seriesName && parsedVol.volumeNumber !== undefined
-                  ? `${seriesName} · 第 ${parsedVol.volumeNumber} 卷`
+                  ? t('manga.volumeTitle', { series: seriesName, volume: parsedVol.volumeNumber })
                   : parsedVol.seriesTitle || v.name;
               return (
                 <div key={v.mokuroUrl} className="k-dl-volume-card">
@@ -327,9 +332,9 @@ export function MokuroCatalogBrowser() {
                     )}
                     <div className="k-dl-media-card__badges">
                       <span className="k-tag k-tag--muted">.mokuro + {v.imagesKind === 'archive' ? 'cbz/zip' : 'dir'}</span>
-                      {v.pageCount !== undefined && <span className="k-tag">{v.pageCount} 页</span>}
+                      {v.pageCount !== undefined && <span className="k-tag">{t('manga.library.pages', { count: v.pageCount })}</span>}
                       {v.sizeBytes !== undefined && <span className="k-tag k-tag--muted">{formatBytes(v.sizeBytes)}</span>}
-                      {owned && <span className="k-tag k-tag--tone">已入库</span>}
+                      {owned && <span className="k-tag k-tag--tone">{t('downloads.mokuro.inLibrary')}</span>}
                     </div>
                   </div>
                   <div className="k-dl-media-card__actions">
@@ -340,7 +345,7 @@ export function MokuroCatalogBrowser() {
                         onClick={() => openInReader(owned.id)}
                         data-testid="mokuro-open-library"
                       >
-                        去阅读
+                        {t('downloads.mokuro.openReader')}
                       </Button>
                     ) : (
                       <Button
@@ -368,7 +373,7 @@ export function MokuroCatalogBrowser() {
               d.englishTitle && d.englishTitle !== d.name && d.englishTitle !== d.romajiTitle ? d.englishTitle : undefined,
             ].filter((x): x is string => Boolean(x));
             const chips = [...(d.genres ?? []).slice(0, 3), ...(d.tags ?? []).slice(0, 2)];
-            const charLabel = formatCharCount(d.totalChars);
+            const charLabel = formatCharCount(d.totalChars, locale);
             const hasRichMeta = d.score !== undefined || d.volumeCount !== undefined || d.totalPages !== undefined || Boolean(charLabel);
             const ownedCount = ownedCountForSeries(d);
 
@@ -381,14 +386,20 @@ export function MokuroCatalogBrowser() {
                   <div className="k-dl-media-card__badges">
                     {ownedCount > 0 && (
                       <span className="k-tag k-tag--tone" data-testid="mokuro-series-owned">
-                        {`已入库 ${ownedCount} 卷`}
+                        {t('downloads.mokuro.ownedCount', { count: ownedCount })}
                       </span>
                     )}
                     {d.score !== undefined && <span className="k-tag k-tag--tone">★ {d.score}%</span>}
-                    {d.volumeCount !== undefined && <span className="k-tag">{d.volumeCount} 卷</span>}
-                    {d.totalPages !== undefined && <span className="k-tag k-tag--muted">{d.totalPages.toLocaleString()} 页</span>}
+                    {d.volumeCount !== undefined && <span className="k-tag">{t('downloads.mokuro.volumeCount', { count: d.volumeCount })}</span>}
+                    {d.totalPages !== undefined && (
+                      <span className="k-tag k-tag--muted">
+                        {t('manga.library.pages', { count: d.totalPages.toLocaleString(locale) })}
+                      </span>
+                    )}
                     {charLabel && <span className="k-tag k-tag--muted">{charLabel}</span>}
-                    {d.modifiedAt !== undefined && <span className="k-dl-media-card__sub">更新于 {formatDate(d.modifiedAt)}</span>}
+                    {d.modifiedAt !== undefined && (
+                      <span className="k-dl-media-card__sub">{t('downloads.updatedAt', { date: formatDate(d.modifiedAt) })}</span>
+                    )}
                     {!hasRichMeta && d.sizeText && <span className="k-dl-media-card__sub">{d.sizeText}</span>}
                   </div>
                   {chips.length > 0 && (
@@ -409,7 +420,7 @@ export function MokuroCatalogBrowser() {
           })}
           {dirs.length > visibleDirs.length && (
             <Button variant="tonal" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
-              加载更多（已显示 {visibleDirs.length} / {dirs.length} 部）
+              {t('downloads.mokuro.loadMore', { shown: visibleDirs.length, total: dirs.length })}
             </Button>
           )}
         </div>

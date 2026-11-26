@@ -4,6 +4,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useIsExpanded } from '../../hooks/useMediaQuery';
+import { useT } from '../../i18n';
 import { cx } from './cx';
 import { IconButton } from './IconButton';
 
@@ -20,7 +21,9 @@ export interface SheetProps {
 }
 
 /** Docked (non-modal) side sheet; lives in the layout flow next to content. */
-export function SideSheet({ open, onClose, title, headerActions, footer, children, className, closeLabel = 'close', width }: SheetProps & { readonly width?: number | undefined }) {
+export function SideSheet({ open, onClose, title, headerActions, footer, children, className, closeLabel, width }: SheetProps & { readonly width?: number | undefined }) {
+  const t = useT();
+  const resolvedCloseLabel = closeLabel ?? t('common.close');
   return (
     <aside
       className={cx('k-side-sheet', open && 'is-open', className)}
@@ -34,7 +37,7 @@ export function SideSheet({ open, onClose, title, headerActions, footer, childre
             <h2 className="k-sheet__title">{title}</h2>
             <div className="k-sheet__header-actions">
               {headerActions}
-              <IconButton icon="close" label={closeLabel} onClick={onClose} data-dialog-close />
+              <IconButton icon="close" label={resolvedCloseLabel} onClick={onClose} data-dialog-close />
             </div>
           </header>
           <div className="k-sheet__body">{children}</div>
@@ -86,9 +89,11 @@ export function BottomSheet({
   modal = true,
   children,
   className,
-  closeLabel = 'close',
+  closeLabel,
   initialSnap = 'peek',
 }: SheetProps & { readonly initialSnap?: BottomSheetSnap }) {
+  const t = useT();
+  const resolvedCloseLabel = closeLabel ?? t('common.close');
   const [rendered, setRendered] = useState(open);
   const [entering, setEntering] = useState(open);
   const [prevOpen, setPrevOpen] = useState(open);
@@ -531,7 +536,7 @@ export function BottomSheet({
           role="button"
           tabIndex={0}
           aria-expanded={snap === 'expanded'}
-          aria-label={snap === 'peek' ? '展开面板' : '收起面板'}
+          aria-label={snap === 'peek' ? t('common.expandPanel') : t('common.collapsePanel')}
           data-testid="bottom-sheet-handle"
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -654,7 +659,7 @@ export function BottomSheet({
             {headerActions}
             <IconButton
               icon="close"
-              label={closeLabel}
+              label={resolvedCloseLabel}
               onClick={() => {
                 exitDragYRef.current = 0;
                 setExitDragY(0);

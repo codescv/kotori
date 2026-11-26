@@ -54,7 +54,7 @@ describe('NyaaSearch', () => {
     expect(rows[0]).toHaveTextContent('[Judas] Bocchi the Rock! (Season 1) [BD 1080p][HEVC x265 10bit][Multi-Subs] (Batch)');
 
     // Filter by Batch only
-    fireEvent.click(screen.getByRole('button', { name: '仅合集 Batch' }));
+    fireEvent.click(screen.getByRole('button', { name: '仅合集' }));
     const batchRows = screen.getAllByTestId('nyaa-result');
     expect(batchRows.length).toBe(5);
     expect(batchRows[0]).toHaveTextContent('[Judas] Bocchi the Rock!');

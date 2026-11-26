@@ -1052,6 +1052,9 @@ export interface DownloadTask {
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
+export type UiLocale = 'zh-CN' | 'en' | 'ja';
+export type UiLocaleSetting = 'system' | UiLocale;
+
 export type AppIconId =
   | 's4-01'
   | 's4-02'
@@ -1066,8 +1069,8 @@ export interface UiSettings {
   readonly theme: ThemeMode;
   /** M3 seed colour (hex) for tonal palette generation. */
   readonly seedColor: string;
-  /** App chrome locale. */
-  readonly locale: 'zh-CN' | 'en' | 'ja';
+  /** App chrome locale (`'system'` resolves from OS / browser language). */
+  readonly locale: UiLocaleSetting;
   /** 0.8..1.6 multiplier for subtitle / bubble text. */
   readonly fontScale: number;
   /** Selected launcher / favicon app icon preset (default `'s4-01'`). */

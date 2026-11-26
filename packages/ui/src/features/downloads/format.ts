@@ -35,11 +35,21 @@ export function formatDate(epochMs: number | undefined): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Compact character count (`149677` → `15.0万字` or `8,400字`). */
-export function formatCharCount(chars: number | undefined): string {
+import { getCurrentLocale, type Locale } from '../../i18n';
+
+/** Compact character count (`149677` → `15.0万字` / `149.7k chars` / `15.0万文字`). */
+export function formatCharCount(chars: number | undefined, locale: Locale = getCurrentLocale()): string {
   if (chars === undefined || !Number.isFinite(chars) || chars <= 0) return '';
+  if (locale === 'en') {
+    if (chars >= 1000) return `${(chars / 1000).toFixed(1)}k chars`;
+    return `${chars.toLocaleString('en-US')} chars`;
+  }
+  if (locale === 'ja') {
+    if (chars >= 10000) return `${(chars / 10000).toFixed(1)}万文字`;
+    return `${chars.toLocaleString('ja-JP')}文字`;
+  }
   if (chars >= 10000) return `${(chars / 10000).toFixed(1)}万字`;
-  return `${chars.toLocaleString()}字`;
+  return `${chars.toLocaleString('zh-CN')}字`;
 }
 
 /** Extract technical release badges (codec, bit depth, audio, source, subtitle type) from a torrent/file title. */

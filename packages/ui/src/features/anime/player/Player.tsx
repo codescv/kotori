@@ -358,8 +358,8 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       blindMountedRef.current = true;
       return;
     }
-    showSnackbar(blind ? '已隐藏视频字幕' : '已显示视频字幕');
-  }, [blind]);
+    showSnackbar(blind ? t('player.blindOn') : t('player.blindOff'));
+  }, [blind, t]);
 
   // Fire-and-forget progress persistence (every 5 s while playing + on leave).
   const progressRef = useRef({ positionMs: 0, durationMs: 0 });
@@ -468,7 +468,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
           },
         });
       }
-      showSnackbar(t('player.secondaryOn', { label: chosen ? formatSubtitleTrackLabel(chosen, episode) : id }));
+      showSnackbar(t('player.secondaryOn', { label: chosen ? formatSubtitleTrackLabel(chosen, episode, t) : id }));
     },
     [episode, preferredSecondary, updateSettings, host, t],
   );
@@ -597,10 +597,10 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
       const relX = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
       if (relX < 0.35) {
         prevRow();
-        flashGestureToast('⏮ 上一句');
+        flashGestureToast(t('player.gesturePrevCue'));
       } else if (relX > 0.65) {
         nextRow();
-        flashGestureToast('⏭ 下一句');
+        flashGestureToast(t('player.gestureNextCue'));
       } else if (immersive) {
         const c = clockRef.current;
         c.toggle();
@@ -609,7 +609,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
         toggleFullscreen();
       }
     },
-    [prevRow, nextRow, flashGestureToast, clearTapTimer, immersive, toggleFullscreen],
+    [prevRow, nextRow, flashGestureToast, clearTapTimer, immersive, toggleFullscreen, t],
   );
 
   useEffect(
@@ -681,7 +681,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
   const duration = clock.durationMs || episode.durationMs || 0;
   const formattedSeriesTitle = formatAnimeSeriesTitle(seriesQ.data);
   const seriesTitle = formattedSeriesTitle || episode.parsedName.title || episode.title;
-  const episodeTitle = formatAnimeEpisodeTitle(episode, formattedSeriesTitle);
+  const episodeTitle = formatAnimeEpisodeTitle(episode, formattedSeriesTitle, t);
   const cacheTarget = useMemo(
     () => ({
       kind: 'anime' as const,
@@ -820,12 +820,12 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
           )}
           {blind && (
             <div className="k-player__subs-hidden" data-testid="subs-hidden-badge" aria-live="polite">
-              <Icon name="visibilityOff" size={14} /> 已隐藏视频字幕
+              <Icon name="visibilityOff" size={14} /> {t('player.subsHiddenBadge')}
             </div>
           )}
           {longPressFast && (
             <div className="k-player__speed-pill" data-testid="longpress-speed-badge">
-              ⏩ 2.0× 倍速播放中
+              {t('player.longPressSpeed')}
             </div>
           )}
           {gestureToast && (
@@ -864,7 +864,7 @@ function PlayerView({ seriesId, episode, reloadEpisode }: { readonly seriesId: s
               max={Math.max(1, duration)}
               step={100}
               value={Math.min(clock.currentMs, Math.max(1, duration))}
-              aria-label="seek"
+              aria-label={t('player.seek')}
               onChange={(e) => clock.seek(Number(e.currentTarget.value))}
               style={{ ['--k-scrub-pct' as string]: `${duration ? (clock.currentMs / duration) * 100 : 0}%` }}
             />

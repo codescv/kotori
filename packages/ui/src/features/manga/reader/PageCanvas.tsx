@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MangaPage } from '@kotori/core';
 import { cx } from '../../../components/m3/cx';
+import { useT } from '../../../i18n';
 import type { ElementSize } from './useElementSize';
 
 export interface PageCanvasProps {
@@ -173,6 +174,7 @@ export function ZoomPan({
   leftPeekPage,
   rightPeekPage,
 }: ZoomPanProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingEdgeSnapRef = useRef<'left' | 'right' | null>(null);
 
@@ -555,8 +557,8 @@ export function ZoomPan({
   const edgeTargetLabel =
     Math.abs(pullX) >= 12
       ? edgeSide === 'left'
-        ? (leftTurnLabel ?? (onSwipeRight ? '翻页' : undefined))
-        : (rightTurnLabel ?? (onSwipeLeft ? '翻页' : undefined))
+        ? (leftTurnLabel ?? (onSwipeRight ? t('manga.reader.turnPage') : undefined))
+        : (rightTurnLabel ?? (onSwipeLeft ? t('manga.reader.turnPage') : undefined))
       : undefined;
   const edgeArmed = Math.abs(pullX) >= 42;
   const peekSide: 'left' | 'right' = pullX > 0 ? 'left' : 'right';
@@ -723,7 +725,11 @@ export function ZoomPan({
           aria-hidden="true"
         >
           <span className="k-zoompan__edge-arrow">{edgeSide === 'left' ? '‹' : '›'}</span>
-          <span className="k-zoompan__edge-text">{edgeArmed ? `松手${edgeTargetLabel}` : `继续拖动${edgeTargetLabel}`}</span>
+          <span className="k-zoompan__edge-text">
+            {edgeArmed
+              ? t('manga.reader.releaseToTurn', { target: edgeTargetLabel })
+              : t('manga.reader.dragToTurn', { target: edgeTargetLabel })}
+          </span>
         </div>
       )}
       {view.scale > 1.01 && (
@@ -731,7 +737,7 @@ export function ZoomPan({
           type="button"
           className="k-zoompan__reset-pill"
           data-testid="zoom-reset-pill"
-          aria-label="重置缩放 (1×)"
+          aria-label={t('manga.reader.resetZoom')}
           onTouchStart={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {

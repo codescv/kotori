@@ -32,13 +32,14 @@ import { TextField } from '../../components/m3/TextField';
 import { useBackInterceptor } from '../../app/routes';
 import { useHost } from '../../host/HostContext';
 import { useIsExpanded } from '../../hooks/useMediaQuery';
-import { useT } from '../../i18n';
+import { useLocale, useT, type Locale, type MessageKey, type Translate } from '../../i18n';
 import { showSnackbar } from '../../stores/snackbar';
 import {
   buildNyaaQueriesForMedia,
   FALLBACK_ANIME_CATALOG,
   fetchAniListBySearch,
   fetchAniListTrending,
+  getAniListDescription,
   searchAniListMediaList,
   type AniListMediaInfo,
 } from './anilist';
@@ -56,45 +57,60 @@ type DetailTab = 'torrents' | 'subtitles';
 /** Stage-2 detail tabs, swipeable (nested inside the Downloads + Shell swipe strips). */
 const DETAIL_TAB_ORDER: readonly DetailTab[] = ['torrents', 'subtitles'];
 
-const CATEGORY_LABELS: Readonly<Record<string, string>> = {
-  '1_2': '多语/英译',
-  '1_3': '中字/非英',
-  '1_4': '生肉 Raw',
+const CATEGORY_KEYS: Readonly<Record<string, MessageKey>> = {
+  '1_2': 'downloads.nyaa.catEnglish',
+  '1_3': 'downloads.nyaa.catNonEnglish',
+  '1_4': 'downloads.nyaa.catRaw',
 };
 
-const STATUS_LABELS: Readonly<Record<string, string>> = {
-  FINISHED: '已完结',
-  RELEASING: '连载中',
-  NOT_YET_RELEASED: '未开播',
+const STATUS_KEYS: Readonly<Record<string, MessageKey>> = {
+  FINISHED: 'anime.status.FINISHED',
+  RELEASING: 'anime.status.RELEASING',
+  NOT_YET_RELEASED: 'anime.status.NOT_YET_RELEASED',
 };
 
-function formatNyaaWorkHeadline(item: NyaaTorrentItem, series?: AniListMediaInfo): string {
+function formatNyaaWorkHeadline(
+  item: NyaaTorrentItem,
+  t: Translate,
+  locale: Locale,
+  series?: AniListMediaInfo,
+): string {
   const pn = item.parsedName;
   const workTitle =
     series?.nativeTitle ??
-    series?.chineseTitle ??
+    (locale === 'zh-CN' ? series?.chineseTitle : series?.englishTitle) ??
     series?.romajiTitle ??
     (pn.title.trim() !== '' ? pn.title.trim() : item.title);
   if (pn.episodeRange) {
-    return `${workTitle} · 合集 ${pn.episodeRange[0]}–${pn.episodeRange[1]}`;
+    return t('downloads.nyaa.headlineRange', {
+      title: workTitle,
+      start: pn.episodeRange[0],
+      end: pn.episodeRange[1],
+    });
   }
   if (pn.isBatch) {
-    return `${workTitle} · 全集 Batch`;
+    return t('downloads.nyaa.headlineBatch', { title: workTitle });
   }
   if (pn.episode !== undefined) {
-    return `${workTitle} · 第 ${pn.episode} 集`;
+    return t('downloads.nyaa.headlineEpisode', { title: workTitle, n: pn.episode });
   }
   return workTitle;
 }
 
-function formatNyaaResultTaskTitle(item: NyaaTorrentItem, series?: AniListMediaInfo): string {
-  const headline = formatNyaaWorkHeadline(item, series);
+function formatNyaaResultTaskTitle(
+  item: NyaaTorrentItem,
+  t: Translate,
+  locale: Locale,
+  series?: AniListMediaInfo,
+): string {
+  const headline = formatNyaaWorkHeadline(item, t, locale, series);
   return headline === item.title ? item.title : `${headline} (${item.title})`;
 }
 
 export function NyaaSearch() {
   const host = useHost();
   const t = useT();
+  const locale = useLocale();
   const upsert = useDownloadsStore((s) => s.upsert);
   const canTorrent = host.info.capabilities.torrent;
   const openExternal = host.files.openExternal;
@@ -348,11 +364,11 @@ export function NyaaSearch() {
       seen.add(k);
       out.push({ label: `${prefix}: ${v}`, value: v });
     };
-    add('Romaji', selectedSeries.romajiTitle);
-    add('日文', selectedSeries.nativeTitle);
-    add('English', selectedSeries.englishTitle);
+    add(t('downloads.nyaa.aliasRomaji'), selectedSeries.romajiTitle);
+    add(t('downloads.nyaa.aliasNative'), selectedSeries.nativeTitle);
+    add(t('downloads.nyaa.aliasEnglish'), selectedSeries.englishTitle);
     return out;
-  }, [selectedSeries]);
+  }, [selectedSeries, t]);
 
   const downloadTorrent = async (item: NyaaTorrentItem): Promise<void> => {
     try {
@@ -367,7 +383,7 @@ export function NyaaSearch() {
             ...(metaSource.coverUrl ? { coverUrl: metaSource.coverUrl } : {}),
           }
         : undefined;
-      const headline = formatNyaaResultTaskTitle(item, metaSource);
+      const headline = formatNyaaResultTaskTitle(item, t, locale, metaSource);
       const task = await host.downloads.start({
         source: {
           kind: 'torrent',
@@ -382,7 +398,7 @@ export function NyaaSearch() {
       });
       upsert(task);
       setStarted((s) => new Set(s).add(item.infoHash));
-      showSnackbar(t('downloads.nyaa.started', { title: formatNyaaWorkHeadline(item, metaSource) }));
+      showSnackbar(t('downloads.nyaa.started', { title: formatNyaaWorkHeadline(item, t, locale, metaSource) }));
     } catch (e) {
       showSnackbar(t('common.error', { message: e instanceof Error ? e.message : String(e) }), { tone: 'error' });
     }
@@ -425,13 +441,13 @@ export function NyaaSearch() {
   const packScopeChips = (
     <>
       <Chip kind="filter" selected={packScope === 'all'} onClick={() => setPackScope('all')}>
-        全部集数
+        {t('downloads.nyaa.scopeAll')}
       </Chip>
       <Chip kind="filter" selected={packScope === 'batch'} onClick={() => setPackScope('batch')}>
-        仅合集 Batch
+        {t('downloads.nyaa.scopeBatch')}
       </Chip>
       <Chip kind="filter" selected={packScope === 'episode'} onClick={() => setPackScope('episode')}>
-        仅单集
+        {t('downloads.nyaa.scopeEpisode')}
       </Chip>
     </>
   );
@@ -444,7 +460,7 @@ export function NyaaSearch() {
         selected={activeAlias === '__auto__'}
         onClick={() => changeAlias('__auto__')}
       >
-        智能多语聚合
+        {t('downloads.nyaa.aliasAuto')}
       </Chip>
       {seriesAliases.map((alias) => (
         <Chip
@@ -465,7 +481,7 @@ export function NyaaSearch() {
       {jimakuLoading && <LinearProgress label={t('common.loading')} />}
       {jimakuError && <p className="k-error-text">{jimakuError}</p>}
       {!jimakuLoading && jimakuFiles.length === 0 && (
-        <p className="k-empty">暂无匹配的日语字幕</p>
+        <p className="k-empty">{t('downloads.nyaa.noMatchingSubs')}</p>
       )}
       {jimakuFiles.map((file) => {
         const done = startedSubs.has(file.url);
@@ -486,7 +502,7 @@ export function NyaaSearch() {
                   <span className="k-tag">{t('downloads.jimaku.episode', { n: file.episode })}</span>
                 )}
                 <span className="k-tag k-tag--muted">{file.extension.toUpperCase()}</span>
-                {file.archiveFormat && <span className="k-tag k-tag--tone">字幕合集包</span>}
+                {file.archiveFormat && <span className="k-tag k-tag--tone">{t('downloads.jimaku.archivePack')}</span>}
                 <span className="k-dl-media-card__sub">{formatBytes(file.sizeBytes)}</span>
                 <span className="k-dl-media-card__sub">{formatDate(file.lastModifiedAt)}</span>
               </div>
@@ -520,25 +536,25 @@ export function NyaaSearch() {
             aria-expanded={filtersOpen}
             data-testid="nyaa-filters-toggle"
           >
-            {`筛选与排序${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''} ${filtersOpen ? '▴' : '▾'}`}
+            {`${t('downloads.nyaa.filtersAndSort')}${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''} ${filtersOpen ? '▴' : '▾'}`}
           </Chip>
-          {displayResults && <span className="k-dl-count-badge">{displayResults.length} 条种子</span>}
+          {displayResults && <span className="k-dl-count-badge">{t('downloads.nyaa.torrentCount', { count: displayResults.length })}</span>}
         </div>
       )}
     
       {(!collapseFilters || filtersOpen) && (
         <div className="k-row k-dl-sort-bar" data-testid="nyaa-category-row">
           <Chip kind="filter" selected={category === '1_0'} onClick={() => changeCategory('1_0')}>
-            全部动画
+            {t('downloads.nyaa.catAll')}
           </Chip>
           <Chip kind="filter" selected={category === '1_2'} onClick={() => changeCategory('1_2')}>
-            多语/英译
+            {t('downloads.nyaa.catEnglish')}
           </Chip>
           <Chip kind="filter" selected={category === '1_3'} onClick={() => changeCategory('1_3')}>
-            中字/非英
+            {t('downloads.nyaa.catNonEnglish')}
           </Chip>
           <Chip kind="filter" selected={category === '1_4'} onClick={() => changeCategory('1_4')}>
-            生肉 Raw
+            {t('downloads.nyaa.catRaw')}
           </Chip>
           {!collapseFilters && (
             <>
@@ -559,24 +575,26 @@ export function NyaaSearch() {
           </Chip>
           <span className="k-dl-sort-divider" aria-hidden="true" />
           <Chip kind="filter" selected={sort === 'seeders'} onClick={() => changeSort('seeders')}>
-            按做种
+            {t('downloads.nyaa.sortSeeders')}
           </Chip>
           <Chip kind="filter" selected={sort === 'date'} onClick={() => changeSort('date')}>
-            按时间
+            {t('downloads.nyaa.sortDate')}
           </Chip>
           <Chip kind="filter" selected={sort === 'size'} onClick={() => changeSort('size')}>
-            按体积
+            {t('downloads.nyaa.sortSize')}
           </Chip>
           <Chip kind="filter" selected={sort === 'downloads'} onClick={() => changeSort('downloads')}>
-            按完成量
+            {t('downloads.nyaa.sortDownloads')}
           </Chip>
-          {!collapseFilters && displayResults && <span className="k-dl-count-badge">{displayResults.length} 条种子</span>}
+          {!collapseFilters && displayResults && (
+            <span className="k-dl-count-badge">{t('downloads.nyaa.torrentCount', { count: displayResults.length })}</span>
+          )}
         </div>
       )}
     
       {selectedSeries && results && results.length > 0 && (!collapseFilters || filtersOpen || keywordFilter !== '') && (
         <TextField
-          label="在当前番剧种子中筛选（如：Judas / VCB / 1080p / 01）"
+          label={t('downloads.nyaa.filterInSeries')}
           value={keywordFilter}
           onValueChange={setKeywordFilter}
           leadingIcon="search"
@@ -611,8 +629,10 @@ export function NyaaSearch() {
               {directAniInfo.seasonYear && (
                 <span className="k-tag k-tag--muted">{directAniInfo.seasonYear}</span>
               )}
-              {directAniInfo.episodes && <span className="k-tag">{directAniInfo.episodes} 话</span>}
-              <span className="k-tag k-tag--muted">{displayResults.length} 条种子</span>
+              {directAniInfo.episodes && (
+                <span className="k-tag">{t('anime.episodesShort', { count: directAniInfo.episodes })}</span>
+              )}
+              <span className="k-tag k-tag--muted">{t('downloads.nyaa.torrentCount', { count: displayResults.length })}</span>
             </div>
           </div>
         </div>
@@ -627,7 +647,8 @@ export function NyaaSearch() {
           {displayResults.map((item) => {
             const pn = item.parsedName;
             const mediaTags = extractMediaTags(item.title);
-            const catLabel = CATEGORY_LABELS[item.categoryId];
+            const catKey = CATEGORY_KEYS[item.categoryId];
+            const catLabel = catKey ? t(catKey) : undefined;
             return (
               <li key={item.infoHash || item.title} className="k-dl-result" data-testid="nyaa-result">
                 {activeCoverUrl && (
@@ -635,7 +656,7 @@ export function NyaaSearch() {
                 )}
                 <div className="k-dl-result__main">
                   <div className="k-dl-result__title" title={item.title}>
-                    {formatNyaaWorkHeadline(item, selectedSeries ?? directAniInfo)}
+                    {formatNyaaWorkHeadline(item, t, locale, selectedSeries ?? directAniInfo)}
                   </div>
                   <div className="k-dl-result__sub k-muted" title={item.title}>
                     {item.title}
@@ -661,7 +682,7 @@ export function NyaaSearch() {
                       </span>
                     ))}
                     {item.trusted && <span className="k-tag k-tag--tone">✓</span>}
-                    {item.remake && <span className="k-tag k-tag--muted">remake</span>}
+                    {item.remake && <span className="k-tag k-tag--muted">{t('downloads.nyaa.remake')}</span>}
                     <span className="k-dl-result__stat k-dl-result__stat--seed" title={t('downloads.nyaa.seeders')}>
                       ▲ {item.seeders}
                     </span>
@@ -730,33 +751,35 @@ export function NyaaSearch() {
           selected={searchMode === 'series'}
           onClick={() => switchSearchMode('series')}
         >
-          番剧系列探索
+          {t('downloads.nyaa.modeSeries')}
         </Chip>
         <Chip
           kind="filter"
           selected={searchMode === 'direct'}
           onClick={() => switchSearchMode('direct')}
         >
-          直接搜种子
+          {t('downloads.nyaa.modeDirect')}
         </Chip>
 
         {searchMode === 'series' && !selectedSeries && (
           <>
             <span className="k-dl-sort-divider" aria-hidden="true" />
             <Chip kind="filter" selected={seriesSort === 'popularity'} onClick={() => setSeriesSort('popularity')}>
-              按热度
+              {t('downloads.nyaa.seriesSortPopularity')}
             </Chip>
             <Chip kind="filter" selected={seriesSort === 'score'} onClick={() => setSeriesSort('score')}>
-              评分最高
+              {t('downloads.sortScore')}
             </Chip>
             <Chip kind="filter" selected={seriesSort === 'year'} onClick={() => setSeriesSort('year')}>
-              最新年份
+              {t('downloads.nyaa.seriesSortYear')}
             </Chip>
             <Chip kind="filter" selected={seriesSort === 'name'} onClick={() => setSeriesSort('name')}>
-              名称 A-Z
+              {t('downloads.sortNameAZ')}
             </Chip>
             <span className="k-dl-count-badge">
-              {hasSearchedSeries ? `匹配 ${sortedSeriesList.length} 部番剧` : `热门番剧 ${sortedSeriesList.length} 部`}
+              {hasSearchedSeries
+                ? t('downloads.nyaa.seriesMatchedCount', { count: sortedSeriesList.length })
+                : t('downloads.nyaa.seriesTrendingCount', { count: sortedSeriesList.length })}
             </span>
           </>
         )}
@@ -769,14 +792,16 @@ export function NyaaSearch() {
           STAGE 1: ANIME SERIES LIST (Trending or Search Matches)
           ===================================================================== */}
       {searchMode === 'series' && !selectedSeries && (
-        <div className="k-dl-media-list" aria-label="番剧系列列表">
+        <div className="k-dl-media-list" aria-label={t('downloads.nyaa.seriesListAria')}>
           {sortedSeriesList.map((series) => {
-            const primaryTitle = series.nativeTitle ?? series.romajiTitle ?? series.englishTitle ?? 'Unknown';
-            const subTitles = [series.chineseTitle, series.romajiTitle, series.englishTitle]
+            const primaryTitle = series.nativeTitle ?? series.romajiTitle ?? series.englishTitle ?? t('downloads.nyaa.unknownTitle');
+            const subTitles = [locale === 'zh-CN' ? series.chineseTitle : undefined, series.romajiTitle, series.englishTitle]
               .filter((x, i, a): x is string => Boolean(x) && x !== primaryTitle && a.indexOf(x) === i)
               .join(' · ');
             const studio = series.studios?.[0];
-            const statusText = series.status ? (STATUS_LABELS[series.status] ?? series.status) : undefined;
+            const statusKey = series.status ? STATUS_KEYS[series.status] : undefined;
+            const statusText = statusKey ? t(statusKey) : series.status;
+            const seriesDesc = getAniListDescription(series, locale);
             return (
               <button
                 key={series.id}
@@ -793,11 +818,13 @@ export function NyaaSearch() {
                     {series.score !== undefined && <span className="k-tag k-tag--tone">★ {series.score}%</span>}
                     {series.format && <span className="k-tag">{series.format}</span>}
                     {series.seasonYear && <span className="k-tag k-tag--muted">{series.seasonYear}</span>}
-                    {series.episodes !== undefined && <span className="k-tag">{series.episodes} 话</span>}
+                    {series.episodes !== undefined && (
+                      <span className="k-tag">{t('anime.episodesShort', { count: series.episodes })}</span>
+                    )}
                     {studio && <span className="k-tag k-tag--muted">{studio}</span>}
                     {statusText && <span className="k-tag k-tag--muted">{statusText}</span>}
                   </div>
-                  {series.description && <p className="k-dl-media-card__desc">{series.description}</p>}
+                  {seriesDesc && <p className="k-dl-media-card__desc">{seriesDesc}</p>}
                   {series.genres && series.genres.length > 0 && (
                     <div className="k-dl-media-card__chips">
                       {series.genres.slice(0, 5).map((g) => (
@@ -820,7 +847,10 @@ export function NyaaSearch() {
       {/* =====================================================================
           STAGE 2: SERIES DETAIL + INTEGRATED NYAA TORRENTS & JIMAKU SUBTITLES
           ===================================================================== */}
-      {selectedSeries && (
+      {selectedSeries && (() => {
+        const selectedDesc = getAniListDescription(selectedSeries, locale);
+        const selectedStatusKey = selectedSeries.status ? STATUS_KEYS[selectedSeries.status] : undefined;
+        return (
         <>
           <div className="k-dl-detail-nav">
             <Button
@@ -829,7 +859,7 @@ export function NyaaSearch() {
               data-testid="back-to-series-list"
               onClick={() => setSelectedSeries(undefined)}
             >
-              返回番剧列表
+              {t('downloads.nyaa.backToSeries')}
             </Button>
             <div className="k-row k-dl-sort-bar">
               <Chip
@@ -837,14 +867,14 @@ export function NyaaSearch() {
                 selected={detailTab === 'torrents'}
                 onClick={() => setDetailTab('torrents')}
               >
-                {`视频种子 (${displayResults?.length ?? 0})`}
+                {t('downloads.nyaa.tabTorrents', { count: displayResults?.length ?? 0 })}
               </Chip>
               <Chip
                 kind="filter"
                 selected={detailTab === 'subtitles'}
                 onClick={() => setDetailTab('subtitles')}
               >
-                {`日语字幕 Jimaku (${jimakuFiles.length})`}
+                {t('downloads.nyaa.tabSubtitles', { count: jimakuFiles.length })}
               </Chip>
             </div>
           </div>
@@ -861,9 +891,9 @@ export function NyaaSearch() {
               <div className="k-dl-banner__title">
                 {selectedSeries.nativeTitle ?? selectedSeries.romajiTitle ?? selectedSeries.englishTitle}
               </div>
-              {(selectedSeries.chineseTitle || selectedSeries.romajiTitle || selectedSeries.englishTitle) && (
+              {((locale === 'zh-CN' && selectedSeries.chineseTitle) || selectedSeries.romajiTitle || selectedSeries.englishTitle) && (
                 <div className="k-dl-media-card__subtitle">
-                  {[selectedSeries.chineseTitle, selectedSeries.romajiTitle, selectedSeries.englishTitle]
+                  {[locale === 'zh-CN' ? selectedSeries.chineseTitle : undefined, selectedSeries.romajiTitle, selectedSeries.englishTitle]
                     .filter((x, i, a): x is string => Boolean(x) && a.indexOf(x) === i)
                     .join(' · ')}
                 </div>
@@ -874,13 +904,15 @@ export function NyaaSearch() {
                 )}
                 {selectedSeries.format && <span className="k-tag">{selectedSeries.format}</span>}
                 {selectedSeries.seasonYear && <span className="k-tag k-tag--muted">{selectedSeries.seasonYear}</span>}
-                {selectedSeries.episodes !== undefined && <span className="k-tag">{selectedSeries.episodes} 话</span>}
+                {selectedSeries.episodes !== undefined && (
+                  <span className="k-tag">{t('anime.episodesShort', { count: selectedSeries.episodes })}</span>
+                )}
                 {selectedSeries.studios?.[0] && (
                   <span className="k-tag k-tag--muted">{selectedSeries.studios.join(' / ')}</span>
                 )}
                 {selectedSeries.status && (
                   <span className="k-tag k-tag--muted">
-                    {STATUS_LABELS[selectedSeries.status] ?? selectedSeries.status}
+                    {selectedStatusKey ? t(selectedStatusKey) : selectedSeries.status}
                   </span>
                 )}
               </div>
@@ -893,18 +925,18 @@ export function NyaaSearch() {
                   ))}
                 </div>
               )}
-              {selectedSeries.description && (
+              {selectedDesc && (
                 <div>
                   <p className={`k-dl-banner__desc ${descExpanded ? '' : 'k-dl-banner__desc--clamped'}`}>
-                    {selectedSeries.description}
+                    {selectedDesc}
                   </p>
-                  {selectedSeries.description.length > 90 && (
+                  {selectedDesc.length > 90 && (
                     <button
                       type="button"
                       className="k-dl-crumb"
                       onClick={() => setDescExpanded((v) => !v)}
                     >
-                      {descExpanded ? '收起简介' : '展开完整简介'}
+                      {descExpanded ? t('anime.descCollapse') : t('anime.descExpand')}
                     </button>
                   )}
                 </div>
@@ -912,7 +944,8 @@ export function NyaaSearch() {
             </div>
           </div>
         </>
-      )}
+        );
+      })()}
 
       {/* Stage-2 pages 视频种子 ⇄ 日语字幕: a flow-layout <TabPager>, so a drag shows both
           side by side; at either edge the gesture falls through to the Downloads sub-tabs. */}

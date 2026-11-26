@@ -54,11 +54,13 @@ export function AppearanceSection() {
       <div className="k-settings-field">
         <span className="k-label-large">{t('settings.appearance.locale')}</span>
         <SegmentedButton<UiSettings['locale']>
+          className="k-appearance__locale"
           label={t('settings.appearance.locale')}
           value={ui.locale}
           onChange={(locale) => void patch({ ui: { locale } })}
           segments={[
-            { value: 'zh-CN', label: '简体中文' },
+            { value: 'system', label: t('settings.appearance.localeSystem') },
+            { value: 'zh-CN', label: '中文' },
             { value: 'en', label: 'English' },
             { value: 'ja', label: '日本語' },
           ]}

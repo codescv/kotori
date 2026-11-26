@@ -141,19 +141,22 @@ export function formatAnimeSeriesTitle(
   return meta?.nativeTitle ?? meta?.chineseTitle ?? (parsed || raw);
 }
 
+import { getCurrentTranslator, type Translate } from '../i18n';
+
 /**
- * Prioritize clean episode title (`第X話` or work title + episode) over raw video filename stems.
+ * Prioritize clean episode title over raw video filename stems.
  */
 export function formatAnimeEpisodeTitle(
   episode: Pick<AnimeEpisode, 'title' | 'fileName' | 'parsedName'>,
   seriesTitle?: string,
+  t: Translate = getCurrentTranslator(),
 ): string {
   const epNum = episode.parsedName.episode;
   const rawTitle = episode.title.trim();
   const fileStem = episode.fileName.replace(/\.[^.]+$/, '').trim();
   const isRaw = rawTitle === fileStem || isRawMediaFileName(rawTitle);
   if (isRaw) {
-    if (epNum !== undefined) return `第${epNum}話`;
+    if (epNum !== undefined) return t('anime.episodeNumber', { n: epNum });
     const cleanWork = seriesTitle?.trim() || episode.parsedName.title.trim();
     if (cleanWork) return cleanWork;
   }

@@ -91,20 +91,25 @@ export function inferMangaSeriesTitle(v: { readonly title: string; readonly seri
   return stripped || v.title.trim();
 }
 
+import { getCurrentTranslator, type Translate } from '../i18n';
+
 /**
  * Format a clean display title for a manga volume that prioritizes the work
- * name (`作品名称`) + volume number over raw archive/mokuro filenames.
+ * name over raw archive/mokuro filenames.
  */
-export function formatMangaVolumeTitle(v: {
-  readonly title: string;
-  readonly seriesTitle?: string | undefined;
-  readonly volumeNumber?: number | undefined;
-}): string {
+export function formatMangaVolumeTitle(
+  v: {
+    readonly title: string;
+    readonly seriesTitle?: string | undefined;
+    readonly volumeNumber?: number | undefined;
+  },
+  t: Translate = getCurrentTranslator(),
+): string {
   const seriesTitle = inferMangaSeriesTitle(v);
   const parsed = parseVolumeName(v.title);
   const volNum = v.volumeNumber ?? parsed.volumeNumber;
   if (volNum !== undefined && seriesTitle && !/^\d+$/.test(seriesTitle)) {
-    return `${seriesTitle} · 第 ${volNum} 卷`;
+    return t('manga.volumeTitle', { series: seriesTitle, volume: volNum });
   }
   return seriesTitle || v.title;
 }

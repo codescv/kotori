@@ -235,6 +235,55 @@ public class KotoriTorrentPlugin extends Plugin {
         }
     }
 
+    private static final String PREFS_NAME = "kotori_native_prefs";
+    private static final String PREF_UI_LOCALE = "ui_locale";
+    private volatile String activeUiLocale = "system";
+
+    @PluginMethod
+    public void setUiLocale(PluginCall call) {
+        String locale = call.getString("locale", "system");
+        String resolved = call.getString("resolvedLocale", "");
+        String effective = (locale != null && !"system".equals(locale) && !locale.isEmpty())
+            ? locale
+            : (resolved != null && !resolved.isEmpty() ? resolved : "system");
+        activeUiLocale = effective;
+        try {
+            getContext()
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(PREF_UI_LOCALE, effective)
+                .apply();
+        } catch (Exception ignored) {
+            // Non-fatal in restricted environments
+        }
+        JSObject out = new JSObject();
+        out.put("locale", locale == null ? "system" : locale);
+        out.put("resolvedLocale", effective);
+        call.resolve(out);
+    }
+
+    private String localizedSendFeedbackTitle(Context context) {
+        String loc = activeUiLocale;
+        if (loc == null || loc.isEmpty() || "system".equals(loc)) {
+            try {
+                loc = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(PREF_UI_LOCALE, "system");
+            } catch (Exception ignored) {
+                loc = "system";
+            }
+        }
+        if (loc != null) {
+            String lower = loc.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("zh")) return "发送反馈";
+            if (lower.startsWith("ja")) return "フィードバックを送信";
+            if (lower.startsWith("en")) return "Send feedback";
+        }
+        try {
+            return context.getString(R.string.send_feedback);
+        } catch (Exception ignored) {
+            return "Send feedback";
+        }
+    }
+
     @PluginMethod
     public void setImmersive(PluginCall call) {
         final boolean on = Boolean.TRUE.equals(call.getBoolean("immersive", false));
@@ -377,7 +426,7 @@ public class KotoriTorrentPlugin extends Plugin {
                 Intent send = buildFeedbackSendIntent(context, spec, to, safeSubject, safeBody, contentUri);
                 Intent toStart = send;
                 if (spec.strategy == FeedbackEmailIntentBuilder.Strategy.CHOOSER) {
-                    toStart = Intent.createChooser(send, safeSubject.isEmpty() ? "Send feedback" : safeSubject);
+                    toStart = Intent.createChooser(send, safeSubject.isEmpty() ? localizedSendFeedbackTitle(context) : safeSubject);
                     toStart.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 }
                 if (spec.packageName != null) {

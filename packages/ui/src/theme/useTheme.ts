@@ -4,10 +4,28 @@
  * colour-scheme preference. Also publishes `--kotori-font-scale`.
  */
 import { useLayoutEffect, useMemo } from 'react';
+import type { UiLocale, UiLocaleSetting } from '@kotori/core';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useLocale } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
 import { appIconUrl } from './app-icons';
 import { applyM3Tokens, buildM3Tokens, normaliseSeed, type M3Tokens } from './m3-theme';
+
+interface NativeLocalePlugin {
+  setUiLocale?: (options: { locale: UiLocaleSetting; resolvedLocale: UiLocale }) => Promise<unknown>;
+}
+
+function syncNativeLocale(locale: UiLocaleSetting, resolvedLocale: UiLocale): void {
+  if (typeof window === 'undefined') return;
+  const cap = (window as unknown as {
+    Capacitor?: { isNativePlatform?: () => boolean; Plugins?: { KotoriTorrent?: NativeLocalePlugin } };
+  }).Capacitor;
+  if (!cap?.isNativePlatform?.()) return;
+  const fn = cap.Plugins?.KotoriTorrent?.setUiLocale;
+  if (typeof fn === 'function') {
+    void fn({ locale, resolvedLocale }).catch(() => undefined);
+  }
+}
 
 export interface ThemeState {
   readonly dark: boolean;
@@ -30,11 +48,14 @@ export function useTheme(target?: HTMLElement | null): ThemeState {
   const theme = useResolvedTheme();
   const fontScale = useSettingsStore((s) => s.settings.ui.fontScale);
   const appIcon = useSettingsStore((s) => s.settings.ui.appIcon);
+  const localeSetting = useSettingsStore((s) => s.settings.ui.locale);
+  const resolvedLocale = useLocale();
   useLayoutEffect(() => {
     const el = target ?? (typeof document !== 'undefined' ? document.documentElement : null);
     if (!el) return;
     applyM3Tokens(el, theme.tokens, theme.dark);
     el.style.setProperty('--kotori-font-scale', String(fontScale));
+    el.lang = resolvedLocale;
     if (!target && typeof document !== 'undefined' && document.head) {
       const href = appIconUrl(appIcon);
       let link = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]');
@@ -48,10 +69,13 @@ export function useTheme(target?: HTMLElement | null): ThemeState {
         link.setAttribute('href', href);
       }
     }
+    if (!target) {
+      syncNativeLocale(localeSetting, resolvedLocale);
+    }
     if (el.dataset['themeReady'] === undefined && typeof requestAnimationFrame === 'function') {
       // Enable colour transitions only after the first themed frame has painted.
       requestAnimationFrame(() => requestAnimationFrame(() => (el.dataset['themeReady'] = '')));
     }
-  }, [target, theme.tokens, theme.dark, fontScale, appIcon]);
+  }, [target, theme.tokens, theme.dark, fontScale, appIcon, localeSetting, resolvedLocale]);
   return theme;
 }

@@ -13,3 +13,8 @@ afterEach(() => {
 Object.defineProperty(HTMLMediaElement.prototype, 'pause', { configurable: true, value: () => {} });
 Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: () => Promise.resolve() });
 Object.defineProperty(HTMLMediaElement.prototype, 'load', { configurable: true, value: () => {} });
+
+// Legacy UI tests assert Chinese copy against default `locale: 'system'`; keep
+// `navigator.language` configurable so i18n tests can override it freely.
+Object.defineProperty(navigator, 'language', { configurable: true, value: 'zh-CN' });
+Object.defineProperty(navigator, 'languages', { configurable: true, value: ['zh-CN', 'en'] });

@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     cacheEnabled: true,
     timeoutMs: 30_000,
   },
-  ui: { theme: 'system', seedColor: DEFAULT_SEED_COLOR, locale: 'zh-CN', fontScale: 1 },
+  ui: { theme: 'system', seedColor: DEFAULT_SEED_COLOR, locale: 'system', fontScale: 1 },
   anime: {
     mergeKaraokeCues: true,
     hideSigns: true,

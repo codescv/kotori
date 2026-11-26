@@ -134,7 +134,7 @@ describe('AiProviderForm — Vertex AI', () => {
     expect(adv.open).toBe(false);
 
     // Select gemini-3.8-flash on top-level 模型 → visionModel updates in lockstep while uncustomized.
-    fireEvent.click(screen.getByRole('button', { name: '模型 options' }));
+    fireEvent.click(screen.getByRole('button', { name: '模型 选项' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'gemini-3.8-flash' }));
     expect(screen.getByLabelText('模型')).toHaveValue('gemini-3.8-flash');
     expect(screen.getByLabelText('视觉模型')).toHaveValue('gemini-3.8-flash');

@@ -10,6 +10,7 @@ import { Button } from '../../components/m3/Button';
 import { IconButton } from '../../components/m3/IconButton';
 import { LinearProgress } from '../../components/m3/Progress';
 import { useHost } from '../../host/HostContext';
+import { useT } from '../../i18n';
 import { formatBytes } from '../downloads/format';
 import { useUpdateStore } from './updater';
 import './updater.css';
@@ -24,6 +25,7 @@ function summariseReleaseNotes(notes: string): string {
 
 export function UpdateBanner() {
   const host = useHost();
+  const t = useT();
   const status = useUpdateStore((s) => s.status);
   const release = useUpdateStore((s) => s.release);
   const progressPercent = useUpdateStore((s) => s.progressPercent);
@@ -44,12 +46,12 @@ export function UpdateBanner() {
   const summary = summariseReleaseNotes(release.notes);
 
   return (
-    <div className="k-update-banner" role="region" aria-label="版本更新提示" data-testid="update-banner">
+    <div className="k-update-banner" role="region" aria-label={t('updater.bannerAria')} data-testid="update-banner">
       <div className="k-update-banner__main">
         <div className="k-update-banner__title-row">
-          <span className="k-update-banner__badge">NEW</span>
+          <span className="k-update-banner__badge">{t('updater.badgeNew')}</span>
           <strong className="k-title-small">
-            发现新版本 v{release.version}
+            {t('updater.newVersionTitle', { version: release.version })}
           </strong>
           {release.apkSizeBytes ? (
             <span className="k-label-small k-muted">({formatBytes(release.apkSizeBytes)})</span>
@@ -60,7 +62,7 @@ export function UpdateBanner() {
           <div className="k-update-banner__progress" data-testid="update-download-progress">
             <LinearProgress {...(progressPercent > 0 ? { value: progressPercent / 100 } : {})} />
             <span className="k-label-small k-muted">
-              正在下载更新包… {progressPercent > 0 ? `${progressPercent}%` : ''}{' '}
+              {t('updater.downloadingPkg')} {progressPercent > 0 ? `${progressPercent}%` : ''}{' '}
               {downloadedBytes > 0
                 ? `(${formatBytes(downloadedBytes)}${totalBytes > 0 ? ` / ${formatBytes(totalBytes)}` : ''})`
                 : ''}
@@ -76,7 +78,7 @@ export function UpdateBanner() {
             onClick={() => void downloadUpdate(host)}
             data-testid="update-banner-download"
           >
-            立即更新
+            {t('updater.updateNow')}
           </Button>
         )}
         {status === 'ready-to-install' && (
@@ -86,13 +88,13 @@ export function UpdateBanner() {
             onClick={() => void installDownloadedApk(host)}
             data-testid="update-banner-install"
           >
-            {needsPermission ? '授权后安装' : '安装更新'}
+            {needsPermission ? t('updater.grantAndInstall') : t('updater.installUpdate')}
           </Button>
         )}
         {status !== 'downloading' && (
           <IconButton
             icon="close"
-            label="稍后提醒"
+            label={t('updater.remindLater')}
             onClick={() => dismiss(release.tagName)}
             data-testid="update-banner-dismiss"
           />
@@ -104,6 +106,7 @@ export function UpdateBanner() {
 
 export function UpdateSection() {
   const host = useHost();
+  const t = useT();
   const status = useUpdateStore((s) => s.status);
   const release = useUpdateStore((s) => s.release);
   const progressPercent = useUpdateStore((s) => s.progressPercent);
@@ -119,19 +122,22 @@ export function UpdateSection() {
     <div className="k-update-section" data-testid="settings-update-section">
       <div className="k-update-section__row">
         <div className="k-update-section__status">
-          <span className="k-label-large">版本更新</span>
+          <span className="k-label-large">{t('updater.sectionTitle')}</span>
           <span className="k-body-small k-muted" data-testid="update-status-text">
-            {status === 'checking' && '正在检查 GitHub Releases 最新版本…'}
-            {status === 'up-to-date' && `当前已是最新版本 (v${host.info.version})`}
-            {status === 'available' && release && `发现新版本 v${release.version}（当前 v${host.info.version}）`}
+            {status === 'checking' && t('updater.statusChecking')}
+            {status === 'up-to-date' && t('updater.statusUpToDate', { version: host.info.version })}
+            {status === 'available' && release && t('updater.statusAvailable', { version: release.version, current: host.info.version })}
             {status === 'downloading' &&
-              `正在下载 v${release?.version ?? ''}… ${progressPercent > 0 ? `${progressPercent}%` : ''}`}
+              t('updater.statusDownloading', {
+                version: release?.version ?? '',
+                percent: progressPercent > 0 ? `${progressPercent}%` : '',
+              }).trim()}
             {status === 'ready-to-install' &&
               (needsPermission
-                ? '已下载完成，请允许「安装未知应用」，返回后将自动安装'
-                : `v${release?.version ?? ''} 已下载，已调起系统安装器（如已取消可点击「安装更新」重新安装）`)}
-            {status === 'error' && `检查或下载失败：${error ?? '未知错误'}`}
-            {status === 'idle' && `当前版本 v${host.info.version} · 自动检查 GitHub Releases 更新`}
+                ? t('updater.statusNeedsPermission')
+                : t('updater.statusReadyToInstall', { version: release?.version ?? '' }))}
+            {status === 'error' && t('updater.statusError', { message: error ?? t('updater.unknownError') })}
+            {status === 'idle' && t('updater.statusIdle', { version: host.info.version })}
           </span>
         </div>
         <div className="k-update-section__buttons">
@@ -141,7 +147,7 @@ export function UpdateSection() {
             onClick={() => void checkForUpdate(host, { silent: false })}
             data-testid="check-update-btn"
           >
-            {status === 'checking' ? '检查中…' : '检查更新'}
+            {status === 'checking' ? t('updater.checkingBtn') : t('updater.checkBtn')}
           </Button>
           {(status === 'available' || (status === 'error' && release)) && release && (
             <Button
@@ -150,7 +156,7 @@ export function UpdateSection() {
               onClick={() => void downloadUpdate(host)}
               data-testid="download-update-btn"
             >
-              下载并安装 v{release.version}
+              {t('updater.downloadAndInstallBtn', { version: release.version })}
             </Button>
           )}
           {status === 'ready-to-install' && (
@@ -160,7 +166,7 @@ export function UpdateSection() {
               onClick={() => void installDownloadedApk(host)}
               data-testid="install-update-btn"
             >
-              安装更新
+              {t('updater.installUpdate')}
             </Button>
           )}
         </div>
@@ -171,13 +177,13 @@ export function UpdateSection() {
           <span className="k-label-small k-muted">
             {downloadedBytes > 0
               ? `${formatBytes(downloadedBytes)}${totalBytes > 0 ? ` / ${formatBytes(totalBytes)}` : ''}`
-              : '正在连接下载源…'}
+              : t('updater.connecting')}
           </span>
         </div>
       )}
       {release && (status === 'available' || status === 'ready-to-install') && release.notes && (
         <details className="k-update-section__notes" data-testid="update-release-notes">
-          <summary className="k-label-medium">v{release.version} 更新日志</summary>
+          <summary className="k-label-medium">{t('updater.releaseNotes', { version: release.version })}</summary>
           <pre className="k-body-small k-update-section__notes-body">{release.notes}</pre>
         </details>
       )}

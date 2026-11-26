@@ -187,6 +187,7 @@ function ModelComboField(props: {
   readonly onValueChange: (value: string) => void;
   readonly error?: string | undefined;
 }) {
+  const t = useT();
   const { label, value, onValueChange, error } = props;
   return (
     <TextField
@@ -205,7 +206,7 @@ function ModelComboField(props: {
             onSelect: () => onValueChange(m),
           }))}
           trigger={({ open, toggle }) => (
-            <IconButton icon={open ? 'expandLess' : 'expandMore'} label={`${label} options`} size="small" onClick={toggle} />
+            <IconButton icon={open ? 'expandLess' : 'expandMore'} label={t('settings.ai.modelOptions', { label })} size="small" onClick={toggle} />
           )}
         />
       }

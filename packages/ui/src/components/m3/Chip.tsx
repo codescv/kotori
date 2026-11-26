@@ -1,5 +1,6 @@
 /** M3 chips: assist · filter (toggle) · input · suggestion. */
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { useT } from '../../i18n';
 import { cx } from './cx';
 import { Icon, type IconName } from './Icon';
 
@@ -12,6 +13,7 @@ export interface ChipProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 export function Chip({ kind = 'assist', icon, selected, onRemove, className, children, type = 'button', ...rest }: ChipProps) {
+  const t = useT();
   return (
     <span className={cx('k-chip-wrap')}>
       <button
@@ -24,7 +26,7 @@ export function Chip({ kind = 'assist', icon, selected, onRemove, className, chi
         <span>{children}</span>
       </button>
       {onRemove && (
-        <button type="button" className="k-chip__remove" aria-label="remove" onClick={onRemove}>
+        <button type="button" className="k-chip__remove" aria-label={t('common.remove')} onClick={onRemove}>
           <Icon name="close" size={16} />
         </button>
       )}

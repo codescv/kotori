@@ -3,10 +3,11 @@
  * URL builder for routing one-click user feedback to the Vibe Coding dispatcher.
  */
 import type { PlatformHost } from '@kotori/core';
+import { getCurrentTranslator } from '../../i18n';
 
 export const AGENT_FEEDBACK_EMAIL_STORAGE_KEY = 'kotori_agent_feedback_email';
 export const AGENT_FEEDBACK_EMAIL_PLACEHOLDER = 'agent@example.com';
-export const KOTORI_UI_VERSION = '0.1.44';
+export const KOTORI_UI_VERSION = '0.1.45';
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
@@ -137,7 +138,7 @@ export function deriveFeedbackSummary(summary: string, details?: string): string
   if (firstDetailLine) {
     return firstDetailLine.length > 60 ? `${firstDetailLine.slice(0, 60)}…` : firstDetailLine;
   }
-  return '用户反馈';
+  return getCurrentTranslator()('settings.feedback.defaultSummary');
 }
 
 /** Format the `kotori:`-prefixed subject routed by the Vibe Coding dispatcher. */

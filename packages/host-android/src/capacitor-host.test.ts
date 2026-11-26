@@ -216,7 +216,7 @@ describe('settings', () => {
       cacheEnabled: true,
       timeoutMs: 30000,
     });
-    expect(s.ui).toEqual({ theme: 'system', seedColor: '#8ab49a', locale: 'zh-CN', fontScale: 1 });
+    expect(s.ui).toEqual({ theme: 'system', seedColor: '#8ab49a', locale: 'system', fontScale: 1 });
     expect(s.anime).toMatchObject({ mergeKaraokeCues: true, hideSigns: true, repeatCount: 3, seekPaddingMs: 250 });
     expect(s.manga.defaultReadingMode).toBe('spread-rtl');
     expect(s.downloads).toMatchObject({

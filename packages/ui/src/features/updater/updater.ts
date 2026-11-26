@@ -15,6 +15,7 @@
  */
 import { create } from 'zustand';
 import type { PlatformHost } from '@kotori/core';
+import { getCurrentTranslator } from '../../i18n';
 import { showSnackbar } from '../../stores/snackbar';
 
 export const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/codescv/kotori/releases/latest';
@@ -308,7 +309,7 @@ async function fetchLatestRelease(fetchImpl: typeof fetch): Promise<ReleaseInfo>
   if (lastStatus !== undefined && lastStatus >= 400) {
     throw new Error(`HTTP ${lastStatus}`);
   }
-  throw new Error('未找到有效的版本发布记录');
+  throw new Error(getCurrentTranslator()('updater.errNoRelease'));
 }
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
@@ -319,13 +320,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   totalBytes: 0,
 
   async checkForUpdate(host, options) {
+    const t = getCurrentTranslator();
     const silent = options?.silent ?? false;
     const fetchImpl = options?.fetchImpl ?? globalThis.fetch?.bind(globalThis);
     const currentVersion = host.info.version;
     set({ status: 'checking', currentVersion, error: undefined });
     try {
       if (typeof fetchImpl !== 'function') {
-        throw new Error('当前环境不支持网络请求');
+        throw new Error(t('updater.errNoFetch'));
       }
       const release = await fetchLatestRelease(fetchImpl);
       const cmp = compareSemanticVersions(release.version, currentVersion);
@@ -338,7 +340,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           error: undefined,
         });
         if (!silent) {
-          showSnackbar(`发现新版本 v${release.version}`, { tone: 'info' });
+          showSnackbar(t('updater.newVersionTitle', { version: release.version }), { tone: 'info' });
         }
       } else {
         set({
@@ -349,7 +351,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           error: undefined,
         });
         if (!silent) {
-          showSnackbar(`当前已是最新版本 (v${currentVersion})`, { tone: 'info' });
+          showSnackbar(t('updater.statusUpToDate', { version: currentVersion }), { tone: 'info' });
         }
       }
       return release;
@@ -362,13 +364,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         lastCheckedAt: Date.now(),
       });
       if (!silent) {
-        showSnackbar(`检查更新失败：${msg}`, { tone: 'error' });
+        showSnackbar(t('updater.checkFailed', { message: msg }), { tone: 'error' });
       }
       return undefined;
     }
   },
 
   async downloadUpdate(host) {
+    const t = getCurrentTranslator();
     const { release } = get();
     if (!release) return;
     const nativePlugin = getNativeUpdaterPlugin();
@@ -404,14 +407,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         });
         if (res.needsPermission) {
           watchInstallResumed(nativePlugin);
-          showSnackbar('请允许 Kotori「安装未知应用」，返回后将自动安装更新', { tone: 'info' });
+          showSnackbar(t('updater.permissionSnackbar'), { tone: 'info' });
         } else {
-          showSnackbar(`v${release.version} 下载完成，正在调起系统安装器…`, { tone: 'info' });
+          showSnackbar(t('updater.downloadDoneLaunching', { version: release.version }), { tone: 'info' });
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         set({ status: 'error', error: msg });
-        showSnackbar(`更新包下载失败：${msg}`, { tone: 'error' });
+        showSnackbar(t('updater.downloadFailed', { message: msg }), { tone: 'error' });
       } finally {
         if (listenerHandle) {
           await listenerHandle.remove().catch(() => undefined);
@@ -429,13 +432,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       } else if (typeof window !== 'undefined') {
         window.open(targetUrl, '_blank', 'noopener');
       }
-      showSnackbar(`已打开 v${release.version} 下载页面`, { tone: 'info' });
+      showSnackbar(t('updater.openedDownloadPage', { version: release.version }), { tone: 'info' });
     } catch (e) {
       showSnackbar(e instanceof Error ? e.message : String(e), { tone: 'error' });
     }
   },
 
   async installDownloadedApk(host) {
+    const t = getCurrentTranslator();
     const { downloadedFilePath, release } = get();
     const nativePlugin = getNativeUpdaterPlugin();
     if (nativePlugin?.installApkFile && downloadedFilePath) {
@@ -444,9 +448,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         set({ needsPermission: Boolean(res.needsPermission) });
         if (res.needsPermission) {
           watchInstallResumed(nativePlugin);
-          showSnackbar('请允许 Kotori「安装未知应用」，返回后将自动安装更新', { tone: 'info' });
+          showSnackbar(t('updater.permissionSnackbar'), { tone: 'info' });
         } else if (release) {
-          showSnackbar(`正在调起系统安装器安装 v${release.version}…`, { tone: 'info' });
+          showSnackbar(t('updater.launchingInstaller', { version: release.version }), { tone: 'info' });
         }
         return;
       } catch (e) {
@@ -486,10 +490,11 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
  * its "needs permission" hint while keeping 「安装更新」 as a re-trigger.
  */
 export function handleApkInstallResumed(event: ApkInstallResumedEvent): void {
+  const t = getCurrentTranslator();
   const state = useUpdateStore.getState();
   if (event.installed === false) {
     useUpdateStore.setState({ needsPermission: false });
-    showSnackbar(`无法启动安装程序：${event.error ?? '未知错误'}，请点击「安装更新」重试`, { tone: 'error' });
+    showSnackbar(t('updater.resumeFailed', { message: event.error ?? t('updater.unknownError') }), { tone: 'error' });
     return;
   }
   useUpdateStore.setState({
@@ -497,7 +502,7 @@ export function handleApkInstallResumed(event: ApkInstallResumedEvent): void {
     ...(event.filePath ? { downloadedFilePath: event.filePath } : {}),
   });
   const version = state.release?.version;
-  showSnackbar(version ? `已获得安装权限，正在安装 v${version}…` : '已获得安装权限，正在调起系统安装器…', {
+  showSnackbar(version ? t('updater.resumedInstallingVersion', { version }) : t('updater.resumedInstalling'), {
     tone: 'info',
   });
 }

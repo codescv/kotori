@@ -1,10 +1,12 @@
 /** Snackbar host: shows the head of the snackbar queue, auto-dismiss after 4 s. */
 import { useEffect } from 'react';
+import { useT } from '../../i18n';
 import { useSnackbarStore } from '../../stores/snackbar';
 import { cx } from './cx';
 import { IconButton } from './IconButton';
 
 export function SnackbarHost() {
+  const t = useT();
   const head = useSnackbarStore((s) => s.queue[0]);
   const dismiss = useSnackbarStore((s) => s.dismiss);
   useEffect(() => {
@@ -28,7 +30,7 @@ export function SnackbarHost() {
           {head.action.label}
         </button>
       )}
-      <IconButton icon="close" label="dismiss" size="small" onClick={() => dismiss(head.id)} />
+      <IconButton icon="close" label={t('common.dismiss')} size="small" onClick={() => dismiss(head.id)} />
     </div>
   );
 }

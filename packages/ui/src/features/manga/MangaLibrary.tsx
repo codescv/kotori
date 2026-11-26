@@ -87,7 +87,7 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
       {multiVolumeSeries.length > 0 && (
         <div className="k-row k-manga-library__series-bar" data-testid="manga-series-chips">
           <Chip kind="filter" selected={selectedSeries === '__all__'} onClick={() => setSelectedSeries('__all__')}>
-            {`全部 (${list.length})`}
+            {t('manga.library.allFilter', { count: list.length })}
           </Chip>
           {multiVolumeSeries.map(([seriesTitle, arr]) => (
             <Chip
@@ -96,7 +96,7 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
               selected={selectedSeries === seriesTitle}
               onClick={() => setSelectedSeries(selectedSeries === seriesTitle ? '__all__' : seriesTitle)}
             >
-              {`📚 ${seriesTitle} (${arr.length} 卷)`}
+              {t('manga.library.seriesChip', { title: seriesTitle, count: arr.length })}
             </Chip>
           ))}
         </div>
@@ -112,7 +112,7 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
         {displayedList.map((v) => {
           const progress = v.progress && v.pageCount > 1 ? (v.progress.pageIndex + 1) / v.pageCount : undefined;
           const sTitle = inferMangaSeriesTitle(v);
-          const displayTitle = formatMangaVolumeTitle(v);
+          const displayTitle = formatMangaVolumeTitle(v, t);
           const siblings = seriesGroups.get(sTitle) ?? [v];
           const volIndex = siblings.findIndex((x) => x.id === v.id);
           return (
@@ -129,7 +129,11 @@ export function MangaLibrary({ onOpen }: MangaLibraryProps) {
                 </div>
                 {siblings.length > 1 && (
                   <div className="k-volume-card__series k-label-small" data-testid={`volume-series-${v.id}`}>
-                    {`${sTitle} · 第 ${v.volumeNumber ?? volIndex + 1} 卷 / 共 ${siblings.length} 卷`}
+                    {t('manga.library.volumeOfSeries', {
+                      series: sTitle,
+                      current: v.volumeNumber ?? volIndex + 1,
+                      total: siblings.length,
+                    })}
                   </div>
                 )}
                 <div className="k-volume-card__meta k-muted">

@@ -8,13 +8,14 @@ import { Dialog } from '../../components/m3/Dialog';
 import { LinearProgress } from '../../components/m3/Progress';
 import { TextField } from '../../components/m3/TextField';
 import { useHost } from '../../host/HostContext';
-import { useT } from '../../i18n';
+import { useLocale, useT } from '../../i18n';
 import { searchAniListMediaList, type AniListMediaInfo } from '../downloads/anilist';
 import { useAnimeStore } from './useAnimeStore';
 
 export function ImportSeriesDialog({ open, onClose }: { readonly open: boolean; readonly onClose: () => void }) {
   const host = useHost();
   const t = useT();
+  const locale = useLocale();
   const openAnime = useRouteStore((s) => s.openAnime);
   const [path, setPath] = useState('');
   const [title, setTitle] = useState('');
@@ -103,8 +104,8 @@ export function ImportSeriesDialog({ open, onClose }: { readonly open: boolean; 
       <TextField label={t('anime.import.titleOverride')} value={title} onValueChange={setTitle} />
       {Boolean(queryTerm.trim()) && (
         <div className="k-anilist-picker" data-testid="import-anilist-candidates">
-          <div className="k-label-medium k-muted">番剧信息匹配（需确认，默认不关联）</div>
-          <div className="k-anilist-candidates" role="radiogroup" aria-label="番剧信息匹配">
+          <div className="k-label-medium k-muted">{t('anime.import.anilistMatchHeader')}</div>
+          <div className="k-anilist-candidates" role="radiogroup" aria-label={t('anime.import.anilistMatchAria')}>
             <button
               type="button"
               role="radio"
@@ -115,13 +116,13 @@ export function ImportSeriesDialog({ open, onClose }: { readonly open: boolean; 
             >
               <div className="k-anilist-candidate__thumb k-anilist-candidate__thumb--none">📁</div>
               <div className="k-anilist-candidate__body">
-                <span className="k-title-small">不关联番剧数据库（仅使用文件夹/自定义名称）</span>
-                <span className="k-body-small k-muted">适合综艺、真人节目、自录视频或非 AniList 收录作品</span>
+                <span className="k-title-small">{t('anime.import.noAnilistTitle')}</span>
+                <span className="k-body-small k-muted">{t('anime.import.noAnilistHint')}</span>
               </div>
             </button>
             {displayedCandidates.map((c) => {
-              const primaryTitle = c.nativeTitle ?? c.chineseTitle ?? c.romajiTitle ?? `#${c.id}`;
-              const sub = [c.chineseTitle, c.romajiTitle, c.seasonYear ? String(c.seasonYear) : undefined]
+              const primaryTitle = c.nativeTitle ?? (locale === 'zh-CN' ? c.chineseTitle : c.englishTitle) ?? c.romajiTitle ?? `#${c.id}`;
+              const sub = [locale === 'zh-CN' ? c.chineseTitle : undefined, c.romajiTitle, c.englishTitle, c.seasonYear ? String(c.seasonYear) : undefined]
                 .filter((x, i, a): x is string => Boolean(x) && x !== primaryTitle && a.indexOf(x) === i)
                 .join(' · ');
               const selected = selectedMedia?.id === c.id;

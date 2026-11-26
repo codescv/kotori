@@ -7,10 +7,10 @@ import { IconButton } from '../../components/m3/IconButton';
 import { List, ListItem } from '../../components/m3/List';
 import { CircularProgress, LinearProgress } from '../../components/m3/Progress';
 import { useHost } from '../../host/HostContext';
-import { useT } from '../../i18n';
+import { useLocale, useT, type MessageKey } from '../../i18n';
 import { formatAnimeEpisodeTitle, formatAnimeSeriesTitle, formatClock } from '../../lib/cues';
 import { showSnackbar } from '../../stores/snackbar';
-import { fetchAniListByIds, fetchAniListBySearch, type AniListMediaInfo } from '../downloads/anilist';
+import { fetchAniListByIds, fetchAniListBySearch, getAniListDescription, type AniListMediaInfo } from '../downloads/anilist';
 import { CacheExplainButton } from '../ai-cache/CacheExplainButton';
 import { useAiCacheStore, type AiCacheTarget } from '../ai-cache/useAiCacheStore';
 import { EditSeriesDialog } from './EditSeriesDialog';
@@ -19,15 +19,16 @@ import './player/player.css';
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-const STATUS_LABELS: Readonly<Record<string, string>> = {
-  FINISHED: '已完结',
-  RELEASING: '连载中',
-  NOT_YET_RELEASED: '未开播',
+const STATUS_KEYS: Readonly<Record<string, MessageKey>> = {
+  FINISHED: 'anime.status.FINISHED',
+  RELEASING: 'anime.status.RELEASING',
+  NOT_YET_RELEASED: 'anime.status.NOT_YET_RELEASED',
 };
 
 export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   const host = useHost();
   const t = useT();
+  const locale = useLocale();
   const openAnime = useRouteStore((s) => s.openAnime);
   const series = useAnimeStore((s) => s.series?.find((x) => x.id === seriesId));
   const episodes = useAnimeStore((s) => s.episodes[seriesId]);
@@ -80,13 +81,14 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   const coverUrl = series?.coverUrl ?? aniMeta?.coverUrl;
   const displaySeriesTitle = formatAnimeSeriesTitle(series, aniMeta);
   const subTitles = series
-    ? [aniMeta?.chineseTitle, aniMeta?.nativeTitle, aniMeta?.romajiTitle, aniMeta?.englishTitle]
+    ? [locale === 'zh-CN' ? aniMeta?.chineseTitle : undefined, aniMeta?.nativeTitle, aniMeta?.romajiTitle, aniMeta?.englishTitle]
         .filter((x, i, a): x is string => Boolean(x) && x !== displaySeriesTitle && a.indexOf(x) === i)
         .join(' · ')
     : '';
   const suggestedTitle = suggestedMeta
-    ? (suggestedMeta.nativeTitle ?? suggestedMeta.chineseTitle ?? suggestedMeta.romajiTitle ?? '')
+    ? (suggestedMeta.nativeTitle ?? (locale === 'zh-CN' ? suggestedMeta.chineseTitle : suggestedMeta.englishTitle) ?? suggestedMeta.romajiTitle ?? '')
     : '';
+  const aniDescription = aniMeta ? getAniListDescription(aniMeta, locale) : undefined;
 
   const confirmSuggestedAniList = async (): Promise<void> => {
     if (!series || !suggestedMeta) return;
@@ -96,7 +98,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
         ...(suggestedMeta.coverUrl ? { coverUrl: suggestedMeta.coverUrl } : {}),
       });
       await useAnimeStore.getState().invalidate(host);
-      showSnackbar('已关联番剧信息');
+      showSnackbar(t('anime.series.linkedAnilist'));
     } catch (e) {
       showSnackbar(errMsg(e), { tone: 'error' });
     }
@@ -105,7 +107,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
   const episodeCacheTarget = (ep: NonNullable<typeof episodes>[number]): AiCacheTarget => ({
     kind: 'anime',
     episodeId: ep.id,
-    title: ep.parsedName.episode !== undefined ? `${displaySeriesTitle || ep.parsedName.title} #${ep.parsedName.episode}` : formatAnimeEpisodeTitle(ep, displaySeriesTitle),
+    title: ep.parsedName.episode !== undefined ? `${displaySeriesTitle || ep.parsedName.title} #${ep.parsedName.episode}` : formatAnimeEpisodeTitle(ep, displaySeriesTitle, t),
   });
 
   /** 「缓存全季解读」: queue every episode (run one after another; cached lines are skipped at 0 tokens). */
@@ -139,17 +141,17 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
       {series && series.anilistId === undefined && suggestedMeta && !dismissedSuggestion && (
         <div className="k-anilist-banner" data-testid="anilist-confirm-banner">
           <span className="k-anilist-banner__text" lang="ja">
-            {`检测到候选番剧信息：「${suggestedTitle}」`}
+            {t('anime.series.candidateDetected', { title: suggestedTitle })}
           </span>
           <div className="k-anilist-banner__actions">
             <Button variant="tonal" onClick={() => void confirmSuggestedAniList()} data-testid="anilist-confirm-accept-btn">
-              确认关联
+              {t('anime.series.confirmLink')}
             </Button>
             <Button variant="outlined" onClick={() => setEditOpen(true)}>
-              编辑信息
+              {t('anime.series.editInfo')}
             </Button>
             <Button variant="text" onClick={() => setDismissedSuggestion(true)} data-testid="anilist-confirm-dismiss-btn">
-              忽略
+              {t('anime.series.ignore')}
             </Button>
           </div>
         </div>
@@ -173,7 +175,9 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
               <span className="k-tag">{t('anime.library.episodes', { count: series.episodeCount })}</span>
               {aniMeta?.studios?.[0] && <span className="k-tag k-tag--muted">{aniMeta.studios.join(' / ')}</span>}
               {aniMeta?.status && (
-                <span className="k-tag k-tag--muted">{STATUS_LABELS[aniMeta.status] ?? aniMeta.status}</span>
+                <span className="k-tag k-tag--muted">
+                  {STATUS_KEYS[aniMeta.status] ? t(STATUS_KEYS[aniMeta.status]!) : aniMeta.status}
+                </span>
               )}
             </div>
             {aniMeta?.genres && aniMeta.genres.length > 0 && (
@@ -185,18 +189,18 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
                 ))}
               </div>
             )}
-            {aniMeta?.description && (
+            {aniDescription && (
               <div>
                 <p className={`k-series-hero__desc ${descExpanded ? '' : 'k-series-hero__desc--clamped'}`}>
-                  {aniMeta.description}
+                  {aniDescription}
                 </p>
-                {aniMeta.description.length > 100 && (
+                {aniDescription.length > 100 && (
                   <button
                     type="button"
                     className="k-series-hero__expand"
                     onClick={() => setDescExpanded((v) => !v)}
                   >
-                    {descExpanded ? '收起简介' : '展开完整简介'}
+                    {descExpanded ? t('anime.descCollapse') : t('anime.descExpand')}
                   </button>
                 )}
               </div>
@@ -204,7 +208,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
             <span className="k-body-small k-muted">{series.sourcePath}</span>
             <div className="k-row">
               <Button variant="tonal" icon="edit" onClick={() => setEditOpen(true)} data-testid="edit-series-btn">
-                编辑信息
+                {t('anime.series.editInfo')}
               </Button>
               <Button
                 variant="tonal"
@@ -250,7 +254,7 @@ export function SeriesDetail({ seriesId }: { readonly seriesId: string }) {
         {episodes?.map((ep) => {
           const textTracks = ep.subtitleTracks.filter((s) => s.origin !== 'embedded' || s.filePath).length;
           const pct = ep.progress && ep.progress.durationMs > 0 ? ep.progress.positionMs / ep.progress.durationMs : undefined;
-          const epTitle = formatAnimeEpisodeTitle(ep, displaySeriesTitle);
+          const epTitle = formatAnimeEpisodeTitle(ep, displaySeriesTitle, t);
           return (
             <ListItem
               key={ep.id}

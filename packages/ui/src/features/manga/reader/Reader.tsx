@@ -490,7 +490,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
             <div className="k-reader__scrubber-preview" data-testid="scrubber-preview">
               <img className="k-reader__scrubber-thumb" src={previewPage.imageUrl} alt="" />
               <div className="k-reader__scrubber-meta">
-                <strong>{`第 ${previewPageIdx + 1} 页`}</strong>
+                <strong>{t('manga.reader.pageNumber', { page: previewPageIdx + 1 })}</strong>
                 {previewPage.blocks[0]?.text && (
                   <span lang="ja">{previewPage.blocks[0].text}</span>
                 )}
@@ -539,7 +539,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
       <header className="k-reader__bar" aria-hidden={immersive}>
         <IconButton icon="back" label={t('common.back')} onClick={onExit} />
         <h1 className="k-reader__title k-title-medium" lang="ja" title={volume?.title}>
-          {volume ? formatMangaVolumeTitle(volume) : t('common.loading')}
+          {volume ? formatMangaVolumeTitle(volume, t) : t('common.loading')}
         </h1>
         {!isMobilePortrait && renderTocToggle()}
         <span className="k-spacer" />
@@ -610,7 +610,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                     setAnchor(target);
                   }}
                 >
-                  {`↩ 跳回第 ${jumpBackPage + 1} 页`}
+                  {t('manga.reader.jumpBack', { page: jumpBackPage + 1 })}
                 </button>
               )}
               {isLastSpread && nextVolume && onOpenVolume && (
@@ -620,7 +620,7 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                   data-testid="next-volume-banner"
                   onClick={() => onOpenVolume(nextVolume.id)}
                 >
-                  {`继续阅读下一卷：${formatMangaVolumeTitle(nextVolume)} →`}
+                  {t('manga.reader.nextVolume', { title: formatMangaVolumeTitle(nextVolume, t) })}
                 </button>
               )}
               <button
@@ -664,31 +664,31 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
         <AdaptiveSheet
           open={tocOpen && !breakdownOpen}
           onClose={() => setTocOpen(false)}
-          title={`页码与目录 · 第 ${pageLabel} / ${total} 页 (${progressPct}%)`}
+          title={t('manga.toc.title', { current: pageLabel, total, percent: progressPct })}
           closeLabel={t('common.close')}
         >
           <div className="k-toc" data-testid="manga-toc-sheet">
             <div className="k-toc__controls">
               <div className="k-row">
                 <Button variant="tonal" onClick={() => setAnchor(0)} disabled={anchor <= 0}>
-                  首页
+                  {t('manga.toc.firstPage')}
                 </Button>
                 <Button variant="tonal" onClick={() => setAnchor((a) => Math.max(0, a - 10))} disabled={anchor <= 0}>
-                  -10 页
+                  {t('manga.toc.back10')}
                 </Button>
                 <Button
                   variant="tonal"
                   onClick={() => setAnchor((a) => Math.min(Math.max(0, total - 1), a + 10))}
                   disabled={anchor >= total - 1}
                 >
-                  +10 页
+                  {t('manga.toc.forward10')}
                 </Button>
                 <Button
                   variant="tonal"
                   onClick={() => setAnchor(Math.max(0, total - 1))}
                   disabled={anchor >= total - 1}
                 >
-                  末页
+                  {t('manga.toc.lastPage')}
                 </Button>
               </div>
               {total > 1 && (
@@ -698,16 +698,16 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                   min={0}
                   max={total - 1}
                   value={anchor}
-                  aria-label="跳转页码"
+                  aria-label={t('manga.toc.jumpPage')}
                   onChange={(e) => setAnchor(Number(e.currentTarget.value))}
                 />
               )}
               <div className="k-row">
                 <Chip kind="filter" selected={tocFilter === 'all'} onClick={() => setTocFilter('all')}>
-                  {`全部页面 (${pages?.length ?? 0})`}
+                  {t('manga.toc.allPages', { count: pages?.length ?? 0 })}
                 </Chip>
                 <Chip kind="filter" selected={tocFilter === 'dialogue'} onClick={() => setTocFilter('dialogue')}>
-                  {`有台词页 (${dialoguePages.length})`}
+                  {t('manga.toc.dialoguePages', { count: dialoguePages.length })}
                 </Chip>
                 <button
                   type="button"
@@ -739,12 +739,12 @@ export function Reader({ volumeId, onExit, onOpenVolume }: ReaderProps) {
                     <img className="k-toc__thumb" src={p.imageUrl} alt="" loading="lazy" />
                     <div className="k-toc__item-body">
                       <div className="k-row">
-                        <span className="k-title-small">{`第 ${p.index + 1} 页`}</span>
-                        {p.blocks.length > 0 && <span className="k-tag">{`💬 ${p.blocks.length} 处台词`}</span>}
-                        {isCurrent && <span className="k-tag k-tag--tone">当前页</span>}
+                        <span className="k-title-small">{t('manga.reader.pageNumber', { page: p.index + 1 })}</span>
+                        {p.blocks.length > 0 && <span className="k-tag">{t('manga.toc.dialogueCount', { count: p.blocks.length })}</span>}
+                        {isCurrent && <span className="k-tag k-tag--tone">{t('manga.toc.currentPage')}</span>}
                       </div>
-                      <span className="k-toc__preview" lang="ja">
-                        {firstLine ?? '（无台词 / 插画页）'}
+                      <span className="k-toc__preview" lang={firstLine ? 'ja' : undefined}>
+                        {firstLine ?? t('manga.toc.noDialogue')}
                       </span>
                     </div>
                   </button>

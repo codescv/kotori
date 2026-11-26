@@ -68,6 +68,7 @@ interface KotoriTorrentNativePlugin {
     base64: string;
   }): Promise<{ ok: boolean; mode: 'email' | 'chooser' }>;
   setAppIcon(options: { iconId: AppIconId }): Promise<{ iconId: AppIconId; changed: boolean }>;
+  setUiLocale?(options: { locale: string; resolvedLocale: string }): Promise<void>;
   setImmersive?(options: { immersive: boolean; orientation: ScreenOrientationMode }): Promise<void>;
   startTorrent(options: {
     taskId: string;
@@ -264,7 +265,7 @@ export async function resolveDeps(overrides: Partial<CapacitorHostDeps>): Promis
     try {
       version = (await App.getInfo()).version;
     } catch {
-      version = '0.1.44';
+      version = '0.1.45';
     }
   }
   return {

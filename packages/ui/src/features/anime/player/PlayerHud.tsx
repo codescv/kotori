@@ -163,7 +163,7 @@ export function PlayerHud({
           max={maxDuration}
           step={100}
           value={Math.min(currentMs, maxDuration)}
-          aria-label="seek"
+          aria-label={t('player.seek')}
           onPointerDown={() => {
             onScrubbingChange(true);
             onActivity();

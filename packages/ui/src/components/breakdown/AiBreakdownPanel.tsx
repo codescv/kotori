@@ -94,7 +94,7 @@ export interface AiBreakdownPanelProps {
   readonly className?: string | undefined;
 }
 
-function BubbleCropHeader({ preview }: { readonly preview: BubbleCropPreview }) {
+function BubbleCropHeader({ preview, t }: { readonly preview: BubbleCropPreview; readonly t: Translate }) {
   const [expanded, setExpanded] = useState(false);
   const pw = Math.max(1, preview.pageWidth || 800);
   const ph = Math.max(1, preview.pageHeight || 1200);
@@ -111,7 +111,7 @@ function BubbleCropHeader({ preview }: { readonly preview: BubbleCropPreview }) 
     <div
       className={cx('k-breakdown__bubble-crop', expanded && 'is-expanded')}
       onClick={() => setExpanded((v) => !v)}
-      title={expanded ? '点击收起原图裁切' : '点击放大查看气泡上下文'}
+      title={expanded ? t('breakdown.bubbleCropCollapseTitle') : t('breakdown.bubbleCropExpandTitle')}
       data-testid="breakdown-bubble-crop"
     >
       <svg
@@ -132,7 +132,7 @@ function BubbleCropHeader({ preview }: { readonly preview: BubbleCropPreview }) 
         />
       </svg>
       <span className="k-breakdown__bubble-crop-hint">
-        {expanded ? '🔍 原图上下文（点击收起）' : '🖼️ 原漫气泡裁切（点击展开）'}
+        {expanded ? t('breakdown.bubbleCropExpanded') : t('breakdown.bubbleCropCollapsed')}
       </span>
     </div>
   );
@@ -318,7 +318,13 @@ export function AiBreakdownPanel({
     later(slice + pause + slice, () => setShadowPhase('idle'));
   }, [onReplayAudio, audioDurationMs, shadowPhase, clearShadow]);
   const shadowLabel =
-    shadowPhase === 'listen' ? '👂 听原声…' : shadowPhase === 'speak' ? `🎙 请跟读… ${shadowLeft}s` : shadowPhase === 'compare' ? '🔁 对比原声…' : '🗣 跟读';
+    shadowPhase === 'listen'
+      ? t('breakdown.shadow.listen')
+      : shadowPhase === 'speak'
+        ? t('breakdown.shadow.speak', { seconds: shadowLeft })
+        : shadowPhase === 'compare'
+          ? t('breakdown.shadow.compare')
+          : t('breakdown.shadow.idle');
   const omitted = (explanation.omitted ?? []).filter((o) => o.text.trim() !== '');
   const dialogueRelation = explanation.dialogueRelation?.trim();
 
@@ -333,7 +339,7 @@ export function AiBreakdownPanel({
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchCancel}
     >
-      {bubblePreview && <BubbleCropHeader preview={bubblePreview} />}
+      {bubblePreview && <BubbleCropHeader preview={bubblePreview} t={t} />}
       {/* Direct child of the scroll content so `position: sticky` keeps it in view. */}
       <div className="k-breakdown__sentence" data-testid="breakdown-sentence">
         <RubyText
@@ -355,10 +361,10 @@ export function AiBreakdownPanel({
               type="button"
               className="k-breakdown__action-pill"
               onClick={() => onReplayAudio()}
-              title="重听该句原声片段"
+              title={t('breakdown.audio.replayTitle')}
               data-testid="breakdown-replay-audio"
             >
-              🔊 原声
+              {t('breakdown.audio.replay')}
             </button>
           )}
           {onReplayAudio && (
@@ -366,10 +372,10 @@ export function AiBreakdownPanel({
               type="button"
               className="k-breakdown__action-pill"
               onClick={() => onReplayAudio(SLOW_REPLAY_RATE)}
-              title="0.75× 慢放该句原声"
+              title={t('breakdown.audio.slowTitle')}
               data-testid="breakdown-slow-audio"
             >
-              🐢 慢放
+              {t('breakdown.audio.slow')}
             </button>
           )}
           {canShadow && (
@@ -377,7 +383,7 @@ export function AiBreakdownPanel({
               type="button"
               className={cx('k-breakdown__action-pill', shadowPhase !== 'idle' && 'is-active', shadowPhase === 'speak' && 'is-speak')}
               onClick={toggleShadow}
-              title="跟读：播放原声 → 停顿留给你跟读 → 再播一遍对比"
+              title={t('breakdown.shadow.title')}
               aria-pressed={shadowPhase !== 'idle'}
               aria-live="polite"
               data-testid="breakdown-shadow-audio"
@@ -391,10 +397,10 @@ export function AiBreakdownPanel({
               type="button"
               className="k-breakdown__action-pill"
               onClick={speak}
-              title="日语语音朗读 (TTS)"
+              title={t('breakdown.tts.title')}
               data-testid="breakdown-tts-sentence"
             >
-              🗣️ 朗读
+              {t('breakdown.tts.label')}
             </button>
           )}
           <IconButton icon="file" size="small" label={t('breakdown.copy')} onClick={copy} />
@@ -409,15 +415,16 @@ export function AiBreakdownPanel({
               <div className="k-breakdown__omitted" data-testid="breakdown-omitted">
                 {omitted.map((o, i) => (
                   <span key={`${o.text}-${i}`} className="k-breakdown__ghost-chip" lang="ja" title={o.role}>
-                    （省略：{o.text}
-                    {o.role ? <span className="k-breakdown__ghost-role"> · {o.role}</span> : null}）
+                    {o.role
+                      ? t('breakdown.omittedWithRole', { text: o.text, role: o.role })
+                      : t('breakdown.omitted', { text: o.text })}
                   </span>
                 ))}
               </div>
             )}
             {explanation.literalTranslation && (
               <p className="k-breakdown__literal">
-                <span className="k-muted">{t('breakdown.literal')}：</span>
+                <span className="k-muted">{t('breakdown.literalPrefix')}</span>
                 {explanation.literalTranslation}
               </p>
             )}
@@ -429,17 +436,17 @@ export function AiBreakdownPanel({
               🔗
             </span>
             <div className="k-breakdown__cultural-body">
-              <strong className="k-breakdown__cultural-label">句间关系与语体</strong>
+              <strong className="k-breakdown__cultural-label">{t('breakdown.dialogueRelation')}</strong>
               <p className="k-breakdown__cultural-text">{dialogueRelation}</p>
             </div>
           </div>
         )}
         {explanation.degraded && (
           <div className="k-breakdown__degraded" role="status" data-testid="breakdown-degraded">
-            <span>部分词块未通过原文对齐校验，已自动过滤</span>
+            <span>{t('breakdown.degradedNotice')}</span>
             {onRegenerate && (
               <button type="button" className="k-breakdown__action-pill" onClick={onRegenerate} data-testid="breakdown-degraded-regenerate">
-                重新生成
+                {t('breakdown.regenerate')}
               </button>
             )}
           </div>
@@ -448,7 +455,7 @@ export function AiBreakdownPanel({
           <div className="k-breakdown__cultural-note" data-testid="breakdown-cultural-note">
             <span className="k-breakdown__cultural-icon" aria-hidden="true">💡</span>
             <div className="k-breakdown__cultural-body">
-              <strong className="k-breakdown__cultural-label">文化与语境小贴士</strong>
+              <strong className="k-breakdown__cultural-label">{t('breakdown.culturalNote')}</strong>
               <p className="k-breakdown__cultural-text">{explanation.culturalNote}</p>
             </div>
           </div>
