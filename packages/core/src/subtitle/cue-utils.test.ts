@@ -13,9 +13,11 @@ import {
   prevCueIndex,
   sentenceIndexToCueOffset,
   sortCuesByStart,
+  splitBilingualCueWithRuby,
   translationTextOf,
   type SubtitleExplainSource,
 } from './cue-utils';
+import { mergePerCharacterCueGroups } from './merge-per-char';
 import { buildTranscriptRows } from './transcript';
 
 const cue = (index: number, text: string, startMs: number, endMs: number): SubtitleCue => ({ index, startMs, endMs, text, rawText: text });
@@ -179,5 +181,109 @@ describe('secondary subtitle cue helpers', () => {
     expect(isBilingualTrack(raw)).toBe(false);
     const rowCues = buildTranscriptRows(raw, { mergeKaraoke: true, hideSigns: true }).map((r) => r.cue);
     expect(isBilingualTrack(rowCues)).toBe(true);
+  });
+});
+
+describe('ruby preservation across cue helpers', () => {
+  it('splitBilingualCueWithRuby slices and rebases primaryRuby onto primaryJa', () => {
+    const mono: SubtitleCue = {
+      index: 0,
+      startMs: 0,
+      endMs: 1000,
+      text: '漢字を読む',
+      rawText: '<ruby>漢字<rt>かんじ</rt></ruby>を<ruby>読<rt>よ</rt></ruby>む',
+      ruby: [
+        { base: '漢字', ruby: 'かんじ', charSpan: [0, 2] },
+        { base: '読', ruby: 'よ', charSpan: [3, 4] },
+      ],
+    };
+    expect(splitBilingualCueWithRuby(mono)).toEqual({
+      primaryJa: '漢字を読む',
+      primaryRuby: mono.ruby,
+    });
+
+    const bilingual: SubtitleCue = {
+      index: 1,
+      startMs: 1000,
+      endMs: 2000,
+      text: '  漢字を読む\n阅读汉字',
+      rawText: '  <ruby>漢字<rt>かんじ</rt></ruby>を<ruby>読<rt>よ</rt></ruby>む\n<ruby>阅读<rt>yuedu</rt></ruby>汉字',
+      ruby: [
+        { base: '漢字', ruby: 'かんじ', charSpan: [2, 4] },
+        { base: '読', ruby: 'よ', charSpan: [5, 6] },
+        { base: '阅读', ruby: 'yuedu', charSpan: [8, 10] },
+      ],
+    };
+    const split = splitBilingualCueWithRuby(bilingual);
+    expect(split).toEqual({
+      primaryJa: '漢字を読む',
+      secondaryTranslation: '阅读汉字',
+      primaryRuby: [
+        { base: '漢字', ruby: 'かんじ', charSpan: [0, 2] },
+        { base: '読', ruby: 'よ', charSpan: [3, 4] },
+      ],
+    });
+    for (const seg of split.primaryRuby ?? []) {
+      expect(split.primaryJa.slice(seg.charSpan[0], seg.charSpan[1])).toBe(seg.base);
+    }
+
+    // No ruby on Japanese line → primaryRuby omitted
+    const translationOnlyRuby: SubtitleCue = {
+      index: 2,
+      startMs: 2000,
+      endMs: 3000,
+      text: 'おはよう\n早安',
+      rawText: 'おはよう\n早安',
+      ruby: [{ base: '早安', ruby: 'zaoan', charSpan: [5, 7] }],
+    };
+    expect(splitBilingualCueWithRuby(translationOnlyRuby)).toEqual({
+      primaryJa: 'おはよう',
+      secondaryTranslation: '早安',
+    });
+
+    // CRLF + full-width spaces around the Japanese line
+    const crlfBilingual: SubtitleCue = {
+      index: 3,
+      startMs: 3000,
+      endMs: 4000,
+      text: '\r\n\u3000漢字です\u3000\r\n这是汉字\r\n',
+      rawText: '',
+      ruby: [{ base: '漢字', ruby: 'かんじ', charSpan: [3, 5] }],
+    };
+    const crlfSplit = splitBilingualCueWithRuby(crlfBilingual);
+    expect(crlfSplit).toEqual({
+      primaryJa: '漢字です',
+      secondaryTranslation: '这是汉字',
+      primaryRuby: [{ base: '漢字', ruby: 'かんじ', charSpan: [0, 2] }],
+    });
+  });
+
+  it('sortCuesByStart, applyDelay, and mergePerCharacterCueGroups preserve ruby segments', () => {
+    const r0 = [{ base: '漢', ruby: 'かん', charSpan: [0, 1] as const }];
+    const r1 = [{ base: '字', ruby: 'じ', charSpan: [0, 1] as const }];
+    const sorted = sortCuesByStart([
+      { index: 0, startMs: 200, endMs: 400, text: '字', rawText: '字', ruby: r1 },
+      { index: 1, startMs: 100, endMs: 200, text: '漢', rawText: '漢', ruby: r0 },
+    ]);
+    expect(sorted[0]?.ruby).toEqual(r0);
+    expect(sorted[1]?.ruby).toEqual(r1);
+
+    const delayed = applyDelay(sorted, 500);
+    expect(delayed[0]?.ruby).toEqual(r0);
+    expect(delayed[1]?.ruby).toEqual(r1);
+
+    // Typewriter merge rebases ruby spans across merged pieces.
+    const typewriter: SubtitleCue[] = [
+      { index: 0, startMs: 0, endMs: 100, text: '漢', rawText: '漢', ruby: r0 },
+      { index: 1, startMs: 100, endMs: 200, text: '字', rawText: '字', ruby: r1 },
+      { index: 2, startMs: 200, endMs: 300, text: 'だ', rawText: 'だ' },
+    ];
+    const merged = mergePerCharacterCueGroups(typewriter);
+    const mergedCue = merged.byRep.get(0);
+    expect(mergedCue?.text).toBe('漢字だ');
+    expect(mergedCue?.ruby).toEqual([
+      { base: '漢', ruby: 'かん', charSpan: [0, 1] },
+      { base: '字', ruby: 'じ', charSpan: [1, 2] },
+    ]);
   });
 });

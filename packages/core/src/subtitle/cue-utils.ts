@@ -4,7 +4,8 @@
  * Unless stated otherwise, functions assume `cues` is sorted by `startMs`
  * (every parser in this module guarantees that) and that `cues[k].index === k`.
  */
-import type { CharSpan, ExplainSource, SubtitleCue } from '../types';
+import type { CharSpan, ExplainSource, RubySegment, SubtitleCue } from '../types';
+import { sliceRuby } from '../ai/ruby';
 import { KotoriError } from '../util/errors';
 import { TERMINAL_PUNCTUATION } from '../util/text';
 
@@ -185,6 +186,12 @@ export interface BilingualCueText {
   readonly secondaryTranslation?: string | undefined;
 }
 
+/** Result of {@link splitBilingualCueWithRuby}. */
+export interface BilingualCueWithRuby extends BilingualCueText {
+  /** Ruby segments covering `primaryJa`, with `charSpan` rebased to `[0, primaryJa.length]`. */
+  readonly primaryRuby?: readonly RubySegment[] | undefined;
+}
+
 const KANA_RE = /[\u3040-\u30ff]/u;
 /** CJK ideographs or Latin letters (a translation line must contain some). */
 const CJK_OR_LATIN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaffA-Za-z\uff21-\uff3a\uff41-\uff5a]/u;
@@ -206,6 +213,32 @@ export function splitBilingualCueText(text: string): BilingualCueText {
   if (!KANA_RE.test(first)) return { primaryJa: text };
   if (!rest.every((l) => !KANA_RE.test(l) && CJK_OR_LATIN_RE.test(l))) return { primaryJa: text };
   return { primaryJa: first, secondaryTranslation: rest.join('\n') };
+}
+
+/**
+ * Split a bilingual cue like {@link splitBilingualCueText} and slice / rebase
+ * `cue.ruby` into `primaryJa` coordinate space (`[0, primaryJa.length]`).
+ */
+export function splitBilingualCueWithRuby(cue: Pick<SubtitleCue, 'text' | 'ruby'>): BilingualCueWithRuby {
+  const split = splitBilingualCueText(cue.text);
+  const rawRuby = cue.ruby;
+  if (!rawRuby || rawRuby.length === 0) return split;
+  if (split.secondaryTranslation === undefined) {
+    return rawRuby.some((r) => Boolean(r.ruby)) ? { ...split, primaryRuby: rawRuby } : split;
+  }
+  const offset = cue.text.indexOf(split.primaryJa);
+  if (offset < 0) return split;
+  const sliced = sliceRuby(rawRuby, [offset, offset + split.primaryJa.length]);
+  const rebased: RubySegment[] = [];
+  for (const r of sliced) {
+    if (!r.ruby) continue;
+    const start = r.charSpan[0] - offset;
+    const end = r.charSpan[1] - offset;
+    if (start >= 0 && end <= split.primaryJa.length && end > start) {
+      rebased.push({ base: r.base, ruby: r.ruby, charSpan: [start, end] });
+    }
+  }
+  return rebased.length > 0 ? { ...split, primaryRuby: rebased } : split;
 }
 
 const normaliseCueLine = (s: string): string => s.replace(/[\s\u3000]+/g, '');

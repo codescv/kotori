@@ -4,7 +4,8 @@
  * (fushi/lib/src/media/video/video_subtitle_jump_panel.dart, TODO-1384 /
  * BUG-1439).
  */
-import type { MergedCueGroups, SubtitleCue } from '../types';
+import type { MergedCueGroups, RubySegment, SubtitleCue } from '../types';
+import { sliceRuby } from '../ai/ruby';
 import { graphemeCount } from '../util/graphemes';
 
 /** Max `|Δ yFraction|` for two `\pos` events to count as the same row. */
@@ -99,6 +100,17 @@ export function mergePerCharacterCueGroups(cues: readonly SubtitleCue[]): Merged
       const ordered = [...group].sort(
         (a, b) => (a.markup?.posFraction?.xFraction ?? 0) - (b.markup?.posFraction?.xFraction ?? 0),
       );
+      let offset = 0;
+      const mergedRuby: RubySegment[] = [];
+      for (const c of ordered) {
+        if (c.ruby && c.ruby.length > 0) {
+          for (const r of c.ruby) {
+            if (!r.ruby) continue;
+            mergedRuby.push({ base: r.base, ruby: r.ruby, charSpan: [r.charSpan[0] + offset, r.charSpan[1] + offset] });
+          }
+        }
+        offset += c.text.length;
+      }
       for (let k = i; k < j; k++) repByRaw.set(k, i);
       byRep.set(i, {
         index: head.index,
@@ -106,6 +118,7 @@ export function mergePerCharacterCueGroups(cues: readonly SubtitleCue[]): Merged
         endMs: unionEnd,
         text: ordered.map((c) => c.text).join(''),
         rawText: group.map((c) => c.rawText).join('\n'),
+        ...(mergedRuby.length > 0 ? { ruby: mergedRuby } : {}),
         // markup deliberately omitted: the synthesised line has no single \pos / \fad.
       });
     }
@@ -146,6 +159,23 @@ function mergeTypewriterRuns(cues: readonly SubtitleCue[], byRep: Map<number, Su
     }
     if (j - i >= TYPEWRITER_MIN_RUN) {
       const group = cues.slice(i, j);
+      let offset = 0;
+      const mergedRuby: RubySegment[] = [];
+      for (const c of group) {
+        const trimmed = c.text.trim();
+        const lead = c.text.indexOf(trimmed);
+        if (c.ruby && c.ruby.length > 0 && lead >= 0) {
+          for (const r of sliceRuby(c.ruby, [lead, lead + trimmed.length])) {
+            if (!r.ruby) continue;
+            mergedRuby.push({
+              base: r.base,
+              ruby: r.ruby,
+              charSpan: [r.charSpan[0] - lead + offset, r.charSpan[1] - lead + offset],
+            });
+          }
+        }
+        offset += trimmed.length;
+      }
       for (let k = i; k < j; k++) repByRaw.set(k, i);
       byRep.set(i, {
         index: head.index,
@@ -153,6 +183,7 @@ function mergeTypewriterRuns(cues: readonly SubtitleCue[], byRep: Map<number, Su
         endMs: prev.endMs,
         text: group.map((c) => c.text.trim()).join(''),
         rawText: group.map((c) => c.rawText).join('\n'),
+        ...(mergedRuby.length > 0 ? { ruby: mergedRuby } : {}),
       });
       i = j;
     } else {

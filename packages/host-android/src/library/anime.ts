@@ -108,13 +108,19 @@ export function matchSidecars(videos: readonly FsEntry[], subs: readonly FsEntry
   return out;
 }
 
-/** Choose a default track: preferred languages in order, else the first track. */
+const FORMAT_RANK: Readonly<Record<SubtitleFormat, number>> = { vtt: 0, ass: 1, srt: 2 };
+
+function trackRank(t: Pick<StoredTrack, 'language' | 'format'>, preferred: readonly LanguageTag[]): number {
+  const i = t.language ? preferred.indexOf(t.language) : -1;
+  const langRank = (i < 0 ? 100 : i) * 10;
+  const formatRank = FORMAT_RANK[t.format] ?? 9;
+  return langRank + formatRank;
+}
+
+/** Choose a default track: preferred languages in order, preferring `.vtt` over `.ass`/`.srt` within the same language. */
 function pickDefault(tracks: readonly StoredTrack[], preferred: readonly LanguageTag[]): string | undefined {
-  for (const lang of preferred) {
-    const hit = tracks.find((t) => t.language === lang);
-    if (hit) return hit.id;
-  }
-  return tracks[0]?.id;
+  if (tracks.length === 0) return undefined;
+  return [...tracks].sort((a, b) => trackRank(a, preferred) - trackRank(b, preferred))[0]?.id;
 }
 
 function sortEpisodes(a: StoredEpisode, b: StoredEpisode): number {
@@ -247,9 +253,11 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
       };
       episodes.push(episode);
       const episodeTracks: StoredTrack[] = oldTracks.filter((t) => t.episodeId === id && t.origin !== 'external');
+      const addedExternalIds = new Set<string>();
       for (const sub of sidecars.get(video.path) ?? []) {
         const trackId = stableId('trk', sub.path);
         const prevTrack = oldTrackById.get(trackId);
+        if (!prevTrack) addedExternalIds.add(trackId);
         const language = detectSubtitleLanguageFromName(sub.name);
         const rawSuffix = stem(sub.name).startsWith(stem(video.name))
           ? stem(sub.name).slice(stem(video.name).length).replace(/^[.\s_-]+/, '')
@@ -273,11 +281,33 @@ export function createAnimeLibrary(ctx: HostContext, hooks: AnimeLibraryHooks): 
           delayMs: prevTrack?.delayMs ?? 0,
         });
       }
-      if (!episodeTracks.some((t) => t.isDefault)) {
-        const def = pickDefault(episodeTracks, preferred);
+      const currentDefault = episodeTracks.find((t) => t.isDefault);
+      let nextDefaultId: string | undefined;
+      if (!currentDefault) {
+        nextDefaultId = pickDefault(episodeTracks, preferred);
+      } else if (currentDefault.language === undefined) {
+        const best = [...episodeTracks].sort((a, b) => trackRank(a, preferred) - trackRank(b, preferred))[0];
+        if (best && best.id !== currentDefault.id && trackRank(best, preferred) < trackRank(currentDefault, preferred)) {
+          nextDefaultId = best.id;
+        }
+      } else if (addedExternalIds.size > 0 && currentDefault.origin === 'external' && currentDefault.format === 'srt') {
+        const addedVtt = episodeTracks
+          .filter(
+            (t) =>
+              addedExternalIds.has(t.id) &&
+              t.origin === 'external' &&
+              t.format === 'vtt' &&
+              t.language === currentDefault.language,
+          )
+          .sort((a, b) => trackRank(a, preferred) - trackRank(b, preferred))[0];
+        if (addedVtt && addedVtt.id !== currentDefault.id && trackRank(addedVtt, preferred) < trackRank(currentDefault, preferred)) {
+          nextDefaultId = addedVtt.id;
+        }
+      }
+      if (nextDefaultId !== undefined) {
         for (let i = 0; i < episodeTracks.length; i++) {
           const t = episodeTracks[i];
-          if (t && t.id === def) episodeTracks[i] = { ...t, isDefault: true };
+          if (t) episodeTracks[i] = { ...t, isDefault: t.id === nextDefaultId };
         }
       }
       tracks.push(...episodeTracks);

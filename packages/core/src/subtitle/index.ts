@@ -17,7 +17,7 @@
  *   - language.ts       detectSubtitleLanguageFromName(fileName), normalizeLanguageTag(tag) → LanguageTag | undefined
  */
 export * from './detect';
-export { normalizeJapaneseKana, parseSrt, stripSubtitleHtml } from './srt';
+export { normalizeJapaneseKana, parseSrt, parseSubtitleHtmlWithRuby, stripSubtitleHtml, type ParsedSubtitleHtml } from './srt';
 export * from './vtt';
 export * from './ass';
 export * from './parse';

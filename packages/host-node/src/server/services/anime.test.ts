@@ -264,4 +264,78 @@ describe('NodeAnimeService — animeRoots folder detection, split consolidation 
     expect(defaultTrack?.language).toBe('ja');
     expect(untaggedTrack?.isDefault).toBe(false);
   });
+
+  it('prefers .ja.vtt over .ja.srt/.ja.ass on import, upgrades .ja.srt default when a new .ja.vtt is synced, and respects manual override', async () => {
+    const jaSrt = '1\n00:00:01,000 --> 00:00:02,500\n漢字を読む\n';
+    const jaVtt = 'WEBVTT\n\n00:00:01.000 --> 00:00:02.500\n<ruby>漢字<rt>かんじ</rt></ruby>を<ruby>読<rt>よ</rt></ruby>む\n';
+    const jaAss = '[Script Info]\nPlayResX: 1920\nPlayResY: 1080\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,漢字を読む\n';
+
+    // 1. Fresh import with .ja.srt, .ja.ass, .ja.vtt, and .en.vtt → .ja.vtt wins default.
+    const freshDir = join(dir, 'Videos', 'VttPriority');
+    await mkdir(freshDir, { recursive: true });
+    await writeFile(join(freshDir, 'Show - 01.mp4'), new Uint8Array(256));
+    await writeFile(join(freshDir, 'Show - 01.ja.srt'), jaSrt, 'utf8');
+    await writeFile(join(freshDir, 'Show - 01.ja.ass'), jaAss, 'utf8');
+    await writeFile(join(freshDir, 'Show - 01.ja.vtt'), jaVtt, 'utf8');
+    await writeFile(join(freshDir, 'Show - 01.en.vtt'), 'WEBVTT\n\n00:00:01.000 --> 00:00:02.500\nRead kanji\n', 'utf8');
+
+    const freshSeries = await ctx.host.anime.importSeries({ path: freshDir });
+    const [freshEp] = await ctx.host.anime.listEpisodes(freshSeries.id);
+    const freshDefault = freshEp?.subtitleTracks.find((t) => t.isDefault);
+    expect(freshDefault).toMatchObject({ language: 'ja', format: 'vtt', origin: 'external' });
+
+    // getCues on .ja.vtt parses ruby segments and preserves them with delayMs !== 0.
+    const parsed = await ctx.host.anime.getCues(freshDefault!.id);
+    expect(parsed.cues[0]?.text).toBe('漢字を読む');
+    expect(parsed.cues[0]?.ruby).toEqual([
+      { base: '漢字', ruby: 'かんじ', charSpan: [0, 2] },
+      { base: '読', ruby: 'よ', charSpan: [3, 4] },
+    ]);
+    await ctx.host.anime.setTrackDelay(freshDefault!.id, 250);
+    const delayed = await ctx.host.anime.getCues(freshDefault!.id);
+    expect(delayed.cues[0]?.startMs).toBe(1250);
+    expect(delayed.cues[0]?.ruby).toEqual(parsed.cues[0]?.ruby);
+
+    // 2. Existing series with .ja.srt default → newly added .ja.vtt upgrades default automatically.
+    const upgradeDir = join(dir, 'Videos', 'VttUpgrade');
+    await mkdir(upgradeDir, { recursive: true });
+    await writeFile(join(upgradeDir, 'Show - 01.mp4'), new Uint8Array(256));
+    await writeFile(join(upgradeDir, 'Show - 01.ja.srt'), jaSrt, 'utf8');
+
+    const upSeries = await ctx.host.anime.importSeries({ path: upgradeDir });
+    const [epBefore] = await ctx.host.anime.listEpisodes(upSeries.id);
+    const srtTrack = epBefore?.subtitleTracks.find((t) => t.format === 'srt');
+    expect(srtTrack?.isDefault).toBe(true);
+
+    await writeFile(join(upgradeDir, 'Show - 01.ja.vtt'), jaVtt, 'utf8');
+    const [epUpgraded] = await ctx.host.anime.listEpisodes(upSeries.id);
+    const vttTrack = epUpgraded?.subtitleTracks.find((t) => t.format === 'vtt');
+    expect(vttTrack?.isDefault).toBe(true);
+    expect(epUpgraded?.subtitleTracks.find((t) => t.id === srtTrack!.id)?.isDefault).toBe(false);
+
+    // 3. User manually switches default back to .ja.srt → subsequent re-sync must NOT override it.
+    await ctx.host.anime.setDefaultTrack(epUpgraded!.id, srtTrack!.id);
+    await writeFile(join(upgradeDir, 'Show - 01.zh-CN.srt'), '1\n00:00:01,000 --> 00:00:02,500\n阅读汉字\n', 'utf8');
+    const [epAfterManual] = await ctx.host.anime.listEpisodes(upSeries.id);
+    expect(epAfterManual?.subtitleTracks.find((t) => t.isDefault)?.id).toBe(srtTrack!.id);
+
+    // 4. Real NogiKouji sidecar matrix: .ja.vtt beats .ja.srt, .ja-proofread.srt, .ja-orig.srt, .srt while keeping .zh-CN.srt available.
+    const nogiMatrixDir = join(dir, 'Videos', 'NogiKoujiMatrix');
+    await mkdir(nogiMatrixDir, { recursive: true });
+    const stem = '2026-11-22_【公式】「乃木坂工事中」# 591「揚げたらうまいもん選手権 後編」2026.11.22_[Jk--UkyfB7I]';
+    await writeFile(join(nogiMatrixDir, `${stem}.mp4`), new Uint8Array(256));
+    await writeFile(join(nogiMatrixDir, `${stem}.srt`), jaSrt, 'utf8');
+    await writeFile(join(nogiMatrixDir, `${stem}.ja-orig.srt`), jaSrt, 'utf8');
+    await writeFile(join(nogiMatrixDir, `${stem}.ja-proofread.srt`), jaSrt, 'utf8');
+    await writeFile(join(nogiMatrixDir, `${stem}.ja.srt`), jaSrt, 'utf8');
+    await writeFile(join(nogiMatrixDir, `${stem}.ja.vtt`), jaVtt, 'utf8');
+    await writeFile(join(nogiMatrixDir, `${stem}.zh-CN.srt`), '1\n00:00:01,000 --> 00:00:02,500\n阅读汉字\n', 'utf8');
+
+    const nogiSeries = await ctx.host.anime.importSeries({ path: nogiMatrixDir });
+    const [nogiEp] = await ctx.host.anime.listEpisodes(nogiSeries.id);
+    const nogiDef = nogiEp?.subtitleTracks.find((t) => t.isDefault);
+    expect(nogiDef).toMatchObject({ language: 'ja', format: 'vtt', origin: 'external' });
+    expect(nogiDef?.filePath).toBe(join(nogiMatrixDir, `${stem}.ja.vtt`));
+    expect(nogiEp?.subtitleTracks.some((t) => t.language === 'zh-CN' && t.format === 'srt')).toBe(true);
+  });
 });

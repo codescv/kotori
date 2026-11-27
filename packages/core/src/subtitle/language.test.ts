@@ -4,6 +4,8 @@ import { detectSubtitleLanguageFromName, normalizeLanguageTag } from './language
 describe('detectSubtitleLanguageFromName', () => {
   it('reads dot-suffix codes before the extension', () => {
     expect(detectSubtitleLanguageFromName('[SubsPlease] Frieren - 01 (1080p).ja.ass')).toBe('ja');
+    expect(detectSubtitleLanguageFromName('[SubsPlease] Frieren - 01 (1080p).ja.vtt')).toBe('ja');
+    expect(detectSubtitleLanguageFromName('NogiKouji #578.ja.forced.vtt')).toBe('ja');
     expect(detectSubtitleLanguageFromName('Frieren.S01E01.jpn.srt')).toBe('ja');
     expect(detectSubtitleLanguageFromName('Frieren - 01.en.srt')).toBe('en');
     expect(detectSubtitleLanguageFromName('Frieren - 01.eng.vtt')).toBe('en');

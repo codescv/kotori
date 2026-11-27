@@ -60,14 +60,19 @@ import './player.css';
 type PanelTab = 'transcript' | 'breakdown';
 const PANEL_TAB_ORDER: readonly PanelTab[] = ['transcript', 'breakdown'];
 
-/** Default track: explicit default → preferred language → first playable. */
+/** Default track: explicit default → preferred language (preferring VTT) → first playable. */
 export function pickDefaultTrack(episode: AnimeEpisode, preferred: readonly string[]): SubtitleTrack | undefined {
   const playable = episode.subtitleTracks.filter((t) => t.origin !== 'embedded' || t.filePath);
-  return (
-    playable.find((t) => t.isDefault) ??
-    preferred.map((lang) => playable.find((t) => t.language === lang)).find(Boolean) ??
-    playable[0]
-  );
+  const explicit = playable.find((t) => t.isDefault);
+  if (explicit) return explicit;
+  const formatOrder = (f: SubtitleTrack['format']): number => (f === 'vtt' ? 0 : f === 'ass' ? 1 : 2);
+  for (const lang of preferred) {
+    const matches = playable.filter((t) => t.language === lang);
+    if (matches.length > 0) {
+      return [...matches].sort((a, b) => formatOrder(a.format) - formatOrder(b.format))[0];
+    }
+  }
+  return playable[0];
 }
 
 const EMPTY_CUES: readonly SubtitleCue[] = [];

@@ -61,6 +61,7 @@ export interface NodeAnimeService extends AnimeApi {
 }
 
 const EXT_BY_FORMAT: Readonly<Record<SubtitleFormat, string>> = { ass: '.ass', srt: '.srt', vtt: '.vtt' };
+const FORMAT_RANK: Readonly<Record<SubtitleFormat, number>> = { vtt: 0, ass: 1, srt: 2 };
 const EXCLUDED_PATHS_KEY = 'excluded_anime_paths';
 
 /** Expand leading `~` / `~/` and resolve to a normalized absolute path. */
@@ -185,14 +186,17 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
           parsedName: ep.parsedName,
           sortIndex,
         });
+        const existingIds = new Set(repos.tracks.listByEpisode(episodeId).map((t) => t.id));
         const sidecarIds = new Set<Id>();
+        const addedExternalIds = new Set<Id>();
         for (const sc of ep.sidecars) {
           const trackId = stableId('tr', episodeId, sc.filePath);
           sidecarIds.add(trackId);
+          if (!existingIds.has(trackId)) addedExternalIds.add(trackId);
           repos.tracks.upsert({ id: trackId, episodeId, origin: 'external', format: sc.format, label: sc.label, filePath: sc.filePath, ...(sc.language ? { language: sc.language } : {}) }, now());
         }
         repos.tracks.pruneOrigin(episodeId, 'external', sidecarIds);
-        ensureDefaultTrack(episodeId);
+        ensureDefaultTrack(episodeId, addedExternalIds);
         if (ep.filePath !== scan.sourcePath) {
           const split = repos.series.getByPath(ep.filePath);
           if (split && split.id !== seriesId) repos.series.remove(split.id);
@@ -202,22 +206,53 @@ export function createAnimeService(deps: AnimeServiceDeps): NodeAnimeService {
     });
   }
 
-  /** Pick a default track (preferred languages first) when none is set, or upgrade an untagged default when a preferred-language playable track is synced. */
-  function ensureDefaultTrack(episodeId: Id): void {
+  /**
+   * Pick a default track (preferred languages first, preferring `.vtt` over
+   * `.ass`/`.srt` within the same language) when none is set; upgrade an
+   * untagged default when a preferred-language playable track is synced; and
+   * upgrade an external `.srt` default when a newly added external `.vtt` of
+   * the same language arrives on re-sync.
+   */
+  function ensureDefaultTrack(episodeId: Id, addedExternalIds?: ReadonlySet<Id>): void {
     const tracks = repos.tracks.listByEpisode(episodeId).filter((t) => t.filePath || t.origin === 'embedded');
     if (tracks.length === 0) return;
     const prefs = deps.settings.get().anime.preferredSubtitleLanguages;
     function rank(t: SubtitleTrack): number {
       const i = t.language ? prefs.indexOf(t.language) : -1;
-      return (i < 0 ? 100 : i) + (t.origin === 'embedded' && !t.filePath ? 50 : 0);
+      const langRank = (i < 0 ? 100 : i) * 10;
+      const unextractedRank = t.origin === 'embedded' && !t.filePath ? 500 : 0;
+      const formatRank = FORMAT_RANK[t.format] ?? 9;
+      return langRank + unextractedRank + formatRank;
     }
     if (repos.tracks.hasDefault(episodeId)) {
       const currentDefault = tracks.find((t) => t.isDefault);
-      if (!currentDefault || currentDefault.language !== undefined) return;
+      if (!currentDefault) return;
       const playable = tracks.filter((t) => t.origin !== 'embedded' || Boolean(t.filePath));
-      const best = [...playable].sort((a, b) => rank(a) - rank(b))[0];
-      if (best && best.id !== currentDefault.id && rank(best) < rank(currentDefault)) {
-        repos.tracks.setDefault(episodeId, best.id);
+      if (currentDefault.language === undefined) {
+        const best = [...playable].sort((a, b) => rank(a) - rank(b))[0];
+        if (best && best.id !== currentDefault.id && rank(best) < rank(currentDefault)) {
+          repos.tracks.setDefault(episodeId, best.id);
+        }
+        return;
+      }
+      if (
+        addedExternalIds &&
+        addedExternalIds.size > 0 &&
+        currentDefault.origin === 'external' &&
+        currentDefault.format === 'srt'
+      ) {
+        const addedVtt = playable
+          .filter(
+            (t) =>
+              addedExternalIds.has(t.id) &&
+              t.origin === 'external' &&
+              t.format === 'vtt' &&
+              t.language === currentDefault.language,
+          )
+          .sort((a, b) => rank(a) - rank(b))[0];
+        if (addedVtt && addedVtt.id !== currentDefault.id && rank(addedVtt) < rank(currentDefault)) {
+          repos.tracks.setDefault(episodeId, addedVtt.id);
+        }
       }
       return;
     }

@@ -27,7 +27,7 @@ const CODE_MAP: Readonly<Record<string, LanguageTag>> = {
 const BRACKET_ONLY_SKIP = new Set(['it', 'de', 'ar']);
 
 /** Flavour suffixes skipped when walking dot segments right-to-left (`.ja.forced.ass`). */
-const MODIFIERS = new Set(['forced', 'sdh', 'cc', 'hi', 'default', 'full', 'signs', 'songs', 'dialogue', 'ass', 'srt']);
+const MODIFIERS = new Set(['forced', 'sdh', 'cc', 'hi', 'default', 'full', 'signs', 'songs', 'dialogue', 'ass', 'srt', 'vtt']);
 
 /** Script words (checked in this order; Japanese first since Kotori is a Japanese tool). */
 const WORD_RULES: readonly (readonly [RegExp, LanguageTag])[] = [

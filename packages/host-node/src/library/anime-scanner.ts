@@ -164,8 +164,15 @@ export function matchSidecars(videos: readonly FileEntry[], subs: readonly FileE
     };
     out.get(owner.path)?.push(sidecar);
   }
-  // Japanese first, then by name.
-  for (const list of out.values()) list.sort((a, b) => Number(b.language === 'ja') - Number(a.language === 'ja') || compareNatural(a.fileName, b.fileName));
+  // Japanese first, then WebVTT before other formats, then by name.
+  for (const list of out.values()) {
+    list.sort(
+      (a, b) =>
+        Number(b.language === 'ja') - Number(a.language === 'ja') ||
+        Number(b.format === 'vtt') - Number(a.format === 'vtt') ||
+        compareNatural(a.fileName, b.fileName),
+    );
+  }
   return out;
 }
 

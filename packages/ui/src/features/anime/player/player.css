@@ -59,6 +59,29 @@
 .k-sub-line .k-glyph.is-focus { background: color-mix(in srgb, var(--md-sys-color-primary) 68%, transparent); box-shadow: inset 0 -3px 0 var(--md-sys-color-primary); }
 .k-sub-line .k-ruby-text.is-clickable .k-glyph:hover { background: rgb(255 255 255 / 0.22); }
 .k-sub-line.is-explaining { background: rgb(0 0 0 / 0.6); }
+/* Video-overlay inline furigana (<ruby>/<rt>): crisp contrast over video, zero clipping. */
+.k-sub-line .k-ruby rt {
+  font-size: max(9px, 0.46em);
+  font-weight: 500;
+  line-height: 1.1;
+  color: rgb(255 255 255 / 0.92);
+  letter-spacing: 0.01em;
+  text-shadow: 0 0 2px #000, 0 0 4px rgb(0 0 0 / 0.9), 0.7px 0.7px 0 #000;
+}
+.k-sub-line .k-ruby.is-hl rt {
+  color: color-mix(in srgb, var(--md-sys-color-primary) 35%, #fff);
+}
+.k-sub-line.has-ruby:not(:has(.hide-ruby)) {
+  line-height: 1.78;
+  padding-top: 5px;
+}
+.k-player--compact .k-sub-line.has-ruby:not(:has(.hide-ruby)) {
+  line-height: 1.65;
+  padding-top: 4px;
+}
+.k-sub-line .k-ruby-text.hide-ruby rt {
+  display: none;
+}
 /* Hide subtitles (B): the overlay renders no lines at all (no blur / hover reveal). */
 .k-sub-overlay.is-blind { display: none; }
 .k-sub-line__secondary {
@@ -393,6 +416,10 @@
   font-size: min(var(--kotori-subtitle-size), calc(5.2vh * var(--kotori-font-scale)));
   line-height: 1.48;
 }
+.k-player--immersive .k-sub-line.has-ruby:not(:has(.hide-ruby)) {
+  line-height: 1.72;
+  padding-top: 4px;
+}
 .k-player--immersive .k-sub-line--secondary {
   font-size: calc(min(var(--kotori-subtitle-size), 5.2vh * var(--kotori-font-scale)) * 0.72);
 }
@@ -509,8 +536,30 @@
 
 .k-menu__heading { padding: 8px 16px 4px; font: var(--md-sys-typescale-label-small); color: var(--md-sys-color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .k-menu__heading ~ .k-menu__heading { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--md-sys-color-outline-variant); }
-.k-menu:has(.k-track-delay) { padding-bottom: 0; }
+.k-menu:has(.k-track-delays) { padding-bottom: 0; }
 .k-track-delays { position: sticky; bottom: 0; z-index: 1; background: var(--md-sys-color-surface-container); }
+.k-track-furigana {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 12px 6px 16px; border-top: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container); font: var(--md-sys-typescale-label-large);
+}
+.k-track-furigana__label { color: var(--md-sys-color-on-surface); white-space: nowrap; }
+.k-track-furigana__group {
+  display: inline-flex; flex: none; border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+}
+.k-track-furigana__btn {
+  height: 28px; min-width: 38px; padding: 0 9px; border: 0; background: transparent;
+  color: var(--md-sys-color-on-surface-variant); font: var(--md-sys-typescale-label-medium);
+  white-space: nowrap; cursor: pointer;
+  transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard),
+    color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+.k-track-furigana__btn + .k-track-furigana__btn { border-left: 1px solid var(--md-sys-color-outline-variant); }
+.k-track-furigana__btn:hover:not(.is-selected) { background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--k-state-hover), transparent); }
+.k-track-furigana__btn.is-selected {
+  background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); font-weight: 600;
+}
 .k-track-delay { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 16px; border-top: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container); font: var(--md-sys-typescale-label-large); }
 .k-track-delay > span { flex: 1; white-space: nowrap; }
 .k-track-delay .k-btn { height: 32px; padding: 0 8px; }

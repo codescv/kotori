@@ -4,15 +4,20 @@
  * file (path browser / picker), or auto-fetch from Jimaku.
  */
 import { useState } from 'react';
-import type { AnimeEpisode, SubtitleTrack } from '@kotori/core';
+import type { AnimeEpisode, AnimeSettings, SubtitleTrack } from '@kotori/core';
 import { PathBrowser } from '../../../components/PathBrowser';
 import { Button } from '../../../components/m3/Button';
+import { cx } from '../../../components/m3/cx';
 import { Dialog } from '../../../components/m3/Dialog';
 import { IconButton } from '../../../components/m3/IconButton';
 import { Menu, type MenuHeading, type MenuItem } from '../../../components/m3/Menu';
 import { useHost } from '../../../host/HostContext';
 import { getCurrentTranslator, type MessageKey, type Translate } from '../../../i18n';
+import { useSettingsStore } from '../../../stores/settings';
 import { showSnackbar } from '../../../stores/snackbar';
+
+type FuriganaMode = NonNullable<AnimeSettings['furiganaMode']>;
+const FURIGANA_MODES: readonly FuriganaMode[] = ['all', 'tap', 'off'];
 
 export interface TrackSelectionTarget {
   readonly primary?: string | undefined;
@@ -74,6 +79,7 @@ export function formatSubtitleTrackLabel(
   let cleaned = track.label
     .replace(/^(?:Jimaku|AJATT|External|Embedded|Imported)\s*·\s*/i, '')
     .replace(/\.(?:ass|ssa|srt|vtt)$/i, '')
+    .replace(/\s*(?:\((?:ass|ssa|srt|vtt)\)|·\s*(?:ass|ssa|srt|vtt))$/i, '')
     .trim();
   if (videoStem && cleaned.toLowerCase().startsWith(videoStem.toLowerCase())) {
     cleaned = cleaned.slice(videoStem.length).replace(/^[.\s_-]+/, '');
@@ -83,7 +89,7 @@ export function formatSubtitleTrackLabel(
     cleaned = cleaned
       .replace(/\[[^\]]*\]/g, '')
       .replace(/\([^)]*(?:1080p|720p|2160p|480p|BD|WEB|HEVC|x264|x265|AAC|FLAC)[^)]*\)/gi, '')
-      .replace(/(?:^|[.\s_-])(?:ja|jpn|jp|en|eng|zh|chs|cht|sc|tc)$/i, '')
+      .replace(/(?:^|[.\s_-])(?:ja|jpn|jp|en|eng|zh-cn|zh-tw|zh-hans|zh-hant|zh|chs|cht|sc|tc)$/i, '')
       .trim();
     // If what remains is just the series/episode name, omit it in favor of clean metadata tags.
     if (
@@ -93,7 +99,11 @@ export function formatSubtitleTrackLabel(
       cleaned = '';
     }
   } else {
-    cleaned = cleaned.replace(/^(?:ja|jpn|jp|en|eng|zh|chs|cht)\b[.\s·_-]*/i, '').trim();
+    cleaned = cleaned
+      .replace(/^(?:external|embedded|imported)$/i, '')
+      .replace(/^(?:ja|jpn|jp|en|eng|zh-cn|zh-tw|zh-hans|zh-hant|zh|chs|cht)(?=$|[.\s·_])/i, '')
+      .replace(/^[.\s·_-]+/, '')
+      .trim();
   }
 
   const parts = [langLabel, fmtLabel, originLabel, cleaned].filter((x): x is string => Boolean(x && x.trim()));
@@ -112,10 +122,19 @@ export function SubtitleTrackMenu({
 }: SubtitleTrackMenuProps) {
   const host = useHost();
   const caps = host.info.capabilities;
+  const furiganaMode = useSettingsStore((s) => s.settings.anime.furiganaMode ?? 'all');
+  const updateSettings = useSettingsStore((s) => s.update);
   const [addOpen, setAddOpen] = useState(false);
   const [path, setPath] = useState('');
   const current = episode.subtitleTracks.find((x) => x.id === trackId);
   const currentSecondary = secondaryTrackId ? episode.subtitleTracks.find((x) => x.id === secondaryTrackId) : undefined;
+
+  const setFuriganaMode = (mode: FuriganaMode): void => {
+    if (mode === furiganaMode) return;
+    void updateSettings(host, { anime: { furiganaMode: mode } }).catch((e: unknown) =>
+      showSnackbar(errMsg(e), { tone: 'error' }),
+    );
+  };
 
   const extract = async (track: SubtitleTrack, slot: 'primary' | 'secondary'): Promise<void> => {
     if (track.streamIndex === undefined) return;
@@ -206,32 +225,51 @@ export function SubtitleTrackMenu({
         header={t('player.tracks')}
         trigger={({ toggle, open }) => <IconButton icon="subtitles" label={t('player.tracks')} selected={open} onClick={toggle} />}
       >
-        {(current || currentSecondary) && (
-          <div className="k-track-delays">
-            {current && (
-              <div className="k-track-delay" data-testid="track-delay-primary">
-                <span>{t(currentSecondary ? 'player.primaryDelay' : 'player.delay', { ms: current.delayMs })}</span>
-                <Button variant="text" onClick={() => void setDelay(current, -100)}>
-                  −100
-                </Button>
-                <Button variant="text" onClick={() => void setDelay(current, 100)}>
-                  +100
-                </Button>
-              </div>
-            )}
-            {currentSecondary && (
-              <div className="k-track-delay" data-testid="track-delay-secondary">
-                <span>{t('player.secondaryDelay', { ms: currentSecondary.delayMs })}</span>
-                <Button variant="text" onClick={() => void setDelay(currentSecondary, -100)}>
-                  −100
-                </Button>
-                <Button variant="text" onClick={() => void setDelay(currentSecondary, 100)}>
-                  +100
-                </Button>
-              </div>
-            )}
+        <div className="k-track-delays">
+          <div className="k-track-furigana" data-testid="track-furigana-mode">
+            <span className="k-track-furigana__label">{t('player.furigana')}</span>
+            <div className="k-track-furigana__group" role="radiogroup" aria-label={t('player.furigana')}>
+              {FURIGANA_MODES.map((mode) => {
+                const selected = furiganaMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    data-testid={`track-furigana-${mode}`}
+                    className={cx('k-track-furigana__btn', selected && 'is-selected')}
+                    onClick={() => setFuriganaMode(mode)}
+                  >
+                    {t(`player.furigana.${mode}`)}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        )}
+          {current && (
+            <div className="k-track-delay" data-testid="track-delay-primary">
+              <span>{t(currentSecondary ? 'player.primaryDelay' : 'player.delay', { ms: current.delayMs })}</span>
+              <Button variant="text" onClick={() => void setDelay(current, -100)}>
+                −100
+              </Button>
+              <Button variant="text" onClick={() => void setDelay(current, 100)}>
+                +100
+              </Button>
+            </div>
+          )}
+          {currentSecondary && (
+            <div className="k-track-delay" data-testid="track-delay-secondary">
+              <span>{t('player.secondaryDelay', { ms: currentSecondary.delayMs })}</span>
+              <Button variant="text" onClick={() => void setDelay(currentSecondary, -100)}>
+                −100
+              </Button>
+              <Button variant="text" onClick={() => void setDelay(currentSecondary, 100)}>
+                +100
+              </Button>
+            </div>
+          )}
+        </div>
       </Menu>
       <Dialog
         open={addOpen}

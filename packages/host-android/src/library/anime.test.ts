@@ -184,4 +184,48 @@ describe('anime library', () => {
     expect(unlinked.coverUrl).toBeUndefined();
     expect(unlinked.title).toBe('葬送のフリーレン');
   });
+
+  it('prefers .ja.vtt over .ja.srt/.ja.ass, upgrades .ja.srt on newly synced .ja.vtt, and preserves manual override', async () => {
+    const t = await makeHost();
+    const enc = new TextEncoder();
+    const dir = 'file:///storage/emulated/0/Anime/NogiVtt';
+    const jaSrt = enc.encode('1\n00:00:01,000 --> 00:00:02,500\n漢字を読む\n');
+    const jaVtt = enc.encode('WEBVTT\n\n00:00:01.000 --> 00:00:02.500\n<ruby>漢字<rt>かんじ</rt></ruby>を<ruby>読<rt>よ</rt></ruby>む\n');
+
+    // Episode 1 has .ja.vtt + .ja.ass + .ja.srt + .en.vtt at import time → .ja.vtt is default.
+    await t.fs.writeFile(`${dir}/Show - 01.mp4`, new Uint8Array(512));
+    await t.fs.writeFile(`${dir}/Show - 01.ja.srt`, jaSrt);
+    await t.fs.writeFile(`${dir}/Show - 01.ja.ass`, fixtureBytes('subs/sample.ja.ass'));
+    await t.fs.writeFile(`${dir}/Show - 01.ja.vtt`, jaVtt);
+    await t.fs.writeFile(`${dir}/Show - 01.en.vtt`, enc.encode('WEBVTT\n\n00:00:01.000 --> 00:00:02.500\nRead\n'));
+
+    // Episode 2 starts with only .ja.srt.
+    await t.fs.writeFile(`${dir}/Show - 02.mp4`, new Uint8Array(512));
+    await t.fs.writeFile(`${dir}/Show - 02.ja.srt`, jaSrt);
+
+    const series = await t.host.anime.importSeries({ path: dir });
+    const [ep1, ep2] = await t.host.anime.listEpisodes(series.id);
+    const ep1Def = ep1?.subtitleTracks.find((tr) => tr.isDefault);
+    expect(ep1Def).toMatchObject({ language: 'ja', format: 'vtt', origin: 'external' });
+    expect((await t.host.anime.getCues(ep1Def!.id)).cues[0]?.ruby).toEqual([
+      { base: '漢字', ruby: 'かんじ', charSpan: [0, 2] },
+      { base: '読', ruby: 'よ', charSpan: [3, 4] },
+    ]);
+
+    const ep2Srt = ep2?.subtitleTracks.find((tr) => tr.format === 'srt');
+    expect(ep2Srt?.isDefault).toBe(true);
+
+    // Add .ja.vtt for episode 2 → auto-sync upgrades default from .ja.srt to .ja.vtt.
+    await t.fs.writeFile(`${dir}/Show - 02.ja.vtt`, jaVtt);
+    const [, ep2Upgraded] = await t.host.anime.listEpisodes(series.id);
+    const ep2Vtt = ep2Upgraded?.subtitleTracks.find((tr) => tr.format === 'vtt');
+    expect(ep2Vtt?.isDefault).toBe(true);
+    expect(ep2Upgraded?.subtitleTracks.find((tr) => tr.id === ep2Srt!.id)?.isDefault).toBe(false);
+
+    // User manually switches default back to .ja.srt → subsequent sync keeps manual choice.
+    await t.host.anime.setDefaultTrack(ep2Upgraded!.id, ep2Srt!.id);
+    await t.fs.writeFile(`${dir}/Show - 02.zh-CN.srt`, enc.encode('1\n00:00:01,000 --> 00:00:02,500\n阅读汉字\n'));
+    const [, ep2AfterManual] = await t.host.anime.listEpisodes(series.id);
+    expect(ep2AfterManual?.subtitleTracks.find((tr) => tr.isDefault)?.id).toBe(ep2Srt!.id);
+  });
 });

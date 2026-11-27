@@ -148,6 +148,40 @@ describe('TranscriptPanel · scrollTargetRowIndex', () => {
     // Row with neither inline translation nor secondaryTextByRep has no secondary button
     expect(renderedRows[2]?.querySelector('[data-testid="transcript-secondary"]')).toBeNull();
   });
+
+  it('never renders <ruby> or <rt> furigana in transcript rows even when cue.ruby is present', () => {
+    const cueWithRuby: SubtitleCue = {
+      index: 0,
+      startMs: 1000,
+      endMs: 3000,
+      text: '漢字を読む',
+      rawText: '<ruby>漢字<rt>かんじ</rt></ruby>を<ruby>読<rt>よ</rt></ruby>む',
+      ruby: [
+        { base: '漢字', ruby: 'かんじ', charSpan: [0, 2] },
+        { base: '読', ruby: 'よ', charSpan: [3, 4] },
+      ],
+    };
+    const rows: readonly TranscriptRow[] = [{ rep: 0, cue: cueWithRuby, rawIndexes: [0], chainEndMs: 3000 }];
+
+    const { container } = render(
+      <TranscriptPanel
+        rows={rows}
+        activeRawIndexes={new Set([0])}
+        currentMs={1500}
+        selected={new Set()}
+        onSelectedChange={() => {}}
+        onSeek={() => {}}
+        onCharClick={() => {}}
+        onExplainSelection={() => {}}
+        highlightFor={() => NO_HL}
+        t={t}
+      />,
+    );
+
+    expect(container.querySelector('.k-transcript__text')?.textContent).toBe('漢字を読む');
+    expect(container.querySelectorAll('ruby')).toHaveLength(0);
+    expect(container.querySelectorAll('rt')).toHaveLength(0);
+  });
 });
 
 describe('TranscriptPanel · performance (long transcripts)', () => {

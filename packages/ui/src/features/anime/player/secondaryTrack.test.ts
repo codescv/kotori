@@ -80,6 +80,11 @@ describe('secondaryTrack', () => {
     const epJaOnly = makeEpisode([ja, ja2]);
     expect(pickDefaultSecondaryTrack(epJaOnly, 'ja-1', ['ja', ...DEFAULT_SECONDARY_LANGS])).toBeUndefined();
     expect(pickDefaultSecondaryTrack(makeEpisode([ja, makeTrack('ko-1', { language: 'ko' })]), 'ja-1', DEFAULT_SECONDARY_LANGS)).toBeUndefined();
+
+    // When .ja.vtt is primary alongside .ja.srt and .zh-CN.srt, auto-attaches .zh-CN.srt
+    const jaVtt = makeTrack('ja-vtt', { format: 'vtt', language: 'ja', isDefault: true, filePath: '/subs/ep.ja.vtt' });
+    const epNogi = makeEpisode([jaVtt, ja, zh]);
+    expect(pickDefaultSecondaryTrack(epNogi, 'ja-vtt', DEFAULT_SECONDARY_LANGS)?.id).toBe('zh-1');
   });
 
   it('resolveSecondaryTrackId handles auto/off/track choices, loading tri-state, bilingual guard, same-track guard, and pre-reload missing id', () => {

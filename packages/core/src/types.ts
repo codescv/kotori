@@ -611,6 +611,12 @@ export interface SubtitleCue {
   readonly text: string;
   /** Original payload (for debugging / re-parse). */
   readonly rawText: string;
+  /**
+   * Inline furigana parsed from `<ruby>`/`<rt>` markup in the subtitle payload.
+   * Every segment satisfies `text.slice(charSpan[0], charSpan[1]) === base`,
+   * sorted by `charSpan[0]`, non-overlapping, within `[0, text.length]`.
+   */
+  readonly ruby?: readonly RubySegment[];
   /** Present for ASS tracks; `undefined` for SRT/VTT. */
   readonly markup?: AssMarkup;
 }

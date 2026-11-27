@@ -4,7 +4,7 @@
  */
 import type { ParsedSubtitleTrack } from '../types';
 import { parseClock } from '../util/time';
-import { finishTimedCues, splitSubtitleLines, stripSubtitleHtml, TIMING_LINE, type RawTimedCue } from './srt';
+import { finishTimedCues, parseSubtitleHtmlWithRuby, splitSubtitleLines, TIMING_LINE, type RawTimedCue } from './srt';
 
 /**
  * Parse WebVTT text. Blocks are separated by blank lines; a block is a cue when
@@ -42,5 +42,5 @@ export function parseVtt(text: string): ParsedSubtitleTrack {
     raw.push({ startMs, endMs, rawText: block.slice(timingAt + 1).join('\n') });
   }
   if (raw.length === 0) warnings.push('no VTT cues found');
-  return { info: { format: 'vtt', encoding: 'utf-8' }, cues: finishTimedCues(raw, stripSubtitleHtml, warnings), warnings };
+  return { info: { format: 'vtt', encoding: 'utf-8' }, cues: finishTimedCues(raw, parseSubtitleHtmlWithRuby, warnings), warnings };
 }
