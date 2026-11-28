@@ -101,6 +101,30 @@ export interface ApkInstallResumedEvent {
 
 let installResumedHandle: Promise<{ remove: () => Promise<void> } | undefined> | undefined;
 
+/**
+ * Returns `true` when running inside the native iOS Capacitor WebView host.
+ *
+ * In-app GitHub Releases update checks and banners are disabled on iOS (updates
+ * are distributed via Dogfoody / TestFlight rather than GitHub APK releases),
+ * while Android and Web/Desktop remain unaffected.
+ */
+export function isIosCapacitorRuntime(): boolean {
+  const cap = (
+    globalThis as {
+      Capacitor?: {
+        isNativePlatform?: () => boolean;
+        getPlatform?: () => string;
+      };
+    }
+  ).Capacitor;
+  if (!cap) return false;
+  const platform = cap.getPlatform?.();
+  if (platform === 'ios') return true;
+  if (platform === 'android' || platform === 'web') return false;
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  return /iPhone|iPad|iPod/i.test(ua);
+}
+
 function getNativeUpdaterPlugin(): NativeUpdaterPlugin | undefined {
   const g = globalThis as {
     Capacitor?: {
@@ -112,7 +136,7 @@ function getNativeUpdaterPlugin(): NativeUpdaterPlugin | undefined {
   if (!g.Capacitor?.isNativePlatform?.()) return undefined;
   // APK self-update is Android-only; the iOS host has no `downloadAndInstallApk`
   // (Capacitor's plugin proxy would still expose a stub that rejects UNIMPLEMENTED).
-  if (g.Capacitor.getPlatform?.() === 'ios') return undefined;
+  if (isIosCapacitorRuntime()) return undefined;
   const plugin = g.Capacitor.Plugins?.KotoriTorrent;
   return plugin && typeof plugin.downloadAndInstallApk === 'function' ? plugin : undefined;
 }
@@ -320,6 +344,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   totalBytes: 0,
 
   async checkForUpdate(host, options) {
+    if (isIosCapacitorRuntime()) {
+      return undefined;
+    }
     const t = getCurrentTranslator();
     const silent = options?.silent ?? false;
     const fetchImpl = options?.fetchImpl ?? globalThis.fetch?.bind(globalThis);

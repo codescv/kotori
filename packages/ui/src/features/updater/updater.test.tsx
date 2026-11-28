@@ -6,6 +6,7 @@ import { resetStores } from '../../test/utils';
 import {
   compareSemanticVersions,
   handleApkInstallResumed,
+  isIosCapacitorRuntime,
   parseGithubReleaseJson,
   parseGithubReleasesAtom,
   parseSemanticVersion,
@@ -247,5 +248,93 @@ describe('v0.1.34 Android direct update install (single tap)', () => {
     handleApkInstallResumed({ installed: false, error: 'boom' });
     expect(useUpdateStore.getState().needsPermission).toBe(false);
     expect(useUpdateStore.getState().status).toBe('ready-to-install');
+  });
+});
+
+describe('iOS Capacitor runtime hides in-app updater', () => {
+  const originalUserAgent = navigator.userAgent;
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).Capacitor;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: originalUserAgent,
+      configurable: true,
+    });
+  });
+
+  it('detects iOS Capacitor runtime via getPlatform() or iOS userAgent with Capacitor', () => {
+    expect(isIosCapacitorRuntime()).toBe(false);
+
+    (globalThis as Record<string, unknown>).Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'ios',
+    };
+    expect(isIosCapacitorRuntime()).toBe(true);
+
+    (globalThis as Record<string, unknown>).Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'android',
+    };
+    expect(isIosCapacitorRuntime()).toBe(false);
+
+    (globalThis as Record<string, unknown>).Capacitor = {
+      isNativePlatform: () => false,
+      getPlatform: () => 'web',
+    };
+    expect(isIosCapacitorRuntime()).toBe(false);
+
+    // Fallback when Capacitor exists without getPlatform() on iOS UA
+    (globalThis as Record<string, unknown>).Capacitor = {};
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+      configurable: true,
+    });
+    expect(isIosCapacitorRuntime()).toBe(true);
+
+    // Plain mobile Safari Web (no Capacitor) is not iOS Capacitor runtime
+    delete (globalThis as Record<string, unknown>).Capacitor;
+    expect(isIosCapacitorRuntime()).toBe(false);
+  });
+
+  it('makes checkForUpdate a no-op and renders nothing for UpdateBanner and UpdateSection on iOS', async () => {
+    (globalThis as Record<string, unknown>).Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => 'ios',
+    };
+    const host = createMockPlatformHost({ latencyMs: 0 });
+    const fakeFetch = vi.fn();
+
+    const result = await useUpdateStore.getState().checkForUpdate(host, {
+      silent: false,
+      fetchImpl: fakeFetch as unknown as typeof fetch,
+    });
+    expect(result).toBeUndefined();
+    expect(fakeFetch).not.toHaveBeenCalled();
+    expect(useUpdateStore.getState().status).toBe('idle');
+
+    // Even if store state were seeded with an available release, UI stays hidden on iOS.
+    useUpdateStore.setState({
+      status: 'available',
+      currentVersion: '0.1.46',
+      release: {
+        tagName: 'v9.9.9',
+        version: '9.9.9',
+        title: 'Kotori v9.9.9',
+        notes: '- Update',
+        publishedAt: '2026-11-28T00:00:00Z',
+        htmlUrl: 'https://github.com/codescv/kotori/releases/tag/v9.9.9',
+      },
+    });
+
+    render(
+      <HostProvider host={host}>
+        <UpdateBanner />
+        <UpdateSection />
+      </HostProvider>,
+    );
+
+    expect(screen.queryByTestId('update-banner')).toBeNull();
+    expect(screen.queryByTestId('settings-update-section')).toBeNull();
+    await host.dispose();
   });
 });

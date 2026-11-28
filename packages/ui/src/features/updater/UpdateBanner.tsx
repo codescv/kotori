@@ -12,7 +12,7 @@ import { LinearProgress } from '../../components/m3/Progress';
 import { useHost } from '../../host/HostContext';
 import { useT } from '../../i18n';
 import { formatBytes } from '../downloads/format';
-import { useUpdateStore } from './updater';
+import { isIosCapacitorRuntime, useUpdateStore } from './updater';
 import './updater.css';
 
 function summariseReleaseNotes(notes: string): string {
@@ -37,6 +37,7 @@ export function UpdateBanner() {
   const installDownloadedApk = useUpdateStore((s) => s.installDownloadedApk);
   const dismiss = useUpdateStore((s) => s.dismiss);
 
+  if (isIosCapacitorRuntime()) return null;
   if (!release) return null;
   if (status === 'available' && dismissedTag === release.tagName) return null;
   if (status !== 'available' && status !== 'downloading' && status !== 'ready-to-install') {
@@ -117,6 +118,8 @@ export function UpdateSection() {
   const checkForUpdate = useUpdateStore((s) => s.checkForUpdate);
   const downloadUpdate = useUpdateStore((s) => s.downloadUpdate);
   const installDownloadedApk = useUpdateStore((s) => s.installDownloadedApk);
+
+  if (isIosCapacitorRuntime()) return null;
 
   return (
     <div className="k-update-section" data-testid="settings-update-section">
